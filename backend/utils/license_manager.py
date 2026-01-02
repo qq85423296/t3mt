@@ -30,15 +30,10 @@ class LicenseManager:
         self._decryption_key = None
         self._decryption_key_timestamp = None
         
-        # 从加密配置获取许可证服务器配置
-        from utils.config_crypto import config_crypto
-        license_config = config_crypto.get_config('license_server', {})
-        self.license_server_url = license_config.get('url', '')
-        self.heartbeat_interval = license_config.get('heartbeat_interval', 86400)
-        
-        if not self.license_server_url:
-            logger.error("许可证服务器地址未配置,请联系管理员")
-            raise ValueError("许可证服务器地址未配置")
+        import base64
+        encoded_url = 'aHR0cDovL2xpY2Vuc2UuMjJsMi5jb20='
+        self.license_server_url = base64.b64decode(encoded_url).decode('utf-8')
+        self.heartbeat_interval = 86400
         
         logger.info(f"许可证管理器初始化完成,服务器: {self.license_server_url}")
         

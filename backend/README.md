@@ -100,7 +100,7 @@ python start.py
 python app.py
 ```
 
-服务启动后访问: http://localhost:5000
+服务启动后访问: http://localhost:8520
 
 ## 配置说明
 
@@ -116,7 +116,7 @@ DATABASE = 'data/quark_manager.db'
 
 # 服务器配置
 HOST = '127.0.0.1'
-PORT = 5000
+PORT = 8520
 
 # 日志配置
 LOG_LEVEL = 'INFO'

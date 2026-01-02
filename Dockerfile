@@ -8,23 +8,26 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     nginx \
     supervisor \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制后端代码和依赖
+# 复制后端代码
 COPY backend/ /app/backend/
-COPY requirements.txt /app/
+
+# 确保加密配置文件存在
+RUN test -f /app/backend/data/encrypted_config.dat || (echo "错误: 加密配置文件不存在" && exit 1)
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 # 复制前端代码
 COPY frontend/ /app/frontend/
 
 # 复制 Nginx 配置
-COPY docker/nginx.conf /etc/nginx/sites-available/default
+COPY nginx.conf /etc/nginx/sites-available/default
 
 # 复制 Supervisor 配置
-COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # 创建必要的目录
 RUN mkdir -p /app/backend/data \
@@ -33,8 +36,7 @@ RUN mkdir -p /app/backend/data \
     /var/log/supervisor
 
 # 设置环境变量
-ENV PYTHONUNBUFFERED=1 \
-    CONFIG_DECRYPTION_KEY=quark_transfer_master_key_2024
+ENV PYTHONUNBUFFERED=1
 
 # 暴露端口
 EXPOSE 80

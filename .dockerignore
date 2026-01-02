@@ -8,28 +8,18 @@ venv/
 env/
 ENV/
 
-# 数据文件（运行时生成）
+# 数据文件
 backend/data/*.db
 backend/logs/*.log
 backend/downloads/*
-
-# 备份文件
-backups/
-temp_upgrade/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
 
 # Git
 .git/
 .gitignore
 
-# 文档
-*.md
-docs/
+# IDE
+.vscode/
+.idea/
 
 # 其他
 .DS_Store

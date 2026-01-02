@@ -1,32 +1,15 @@
 version: '3.8'
 
 services:
-  quark-manager:
-    # 使用在线镜像（推送到 Docker Hub 后取消注释）
-    # image: 你的dockerhub用户名/quark-manager:latest
-    
-    # 本地构建（首次使用或开发时使用）
-    build:
-      context: .
-      dockerfile: Dockerfile
-    
-    container_name: quark-manager
+  t3mt:
+    image: 85423296/t3mt:latest
+    container_name: t3mt
     restart: unless-stopped
     ports:
       - "8520:80"
     volumes:
-      # 持久化数据库
       - ./data:/app/backend/data
-      # 持久化日志
       - ./logs:/app/backend/logs
-      # 持久化下载文件
       - ./downloads:/app/backend/downloads
     environment:
-      - CONFIG_DECRYPTION_KEY=quark_transfer_master_key_2024
       - TZ=Asia/Shanghai
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/api/auth/check"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
