@@ -1,0 +1,990 @@
+# -*- coding: utf-8 -*-
+"""
+转存任务API
+"""
+from flask import Blueprint, request, jsonify
+from datetime import datetime
+from services.transfer_service import TransferService
+from database import get_db
+from utils.logger import logger
+
+transfer_bp = Blueprint('transfer', __name__, url_prefix='/api/transfer')
+
+
+@transfer_bp.route('/tasks', methods=['GET'])
+def get_tasks():
+    """获取转存任务列表"""
+    try:
+        tasks = TransferService.get_all_tasks()
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': tasks
+        })
+    except Exception as e:
+        logger.error(f"获取转存任务列表失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'获取任务列表失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/task', methods=['POST'])
+def create_task():
+    """创建转存任务"""
+    try:
+        data = request.get_json()
+        
+        # 验证必填字段
+        required_fields = ['name', 'share_urls', 'target_account_id', 'target_path', 'cron_expression']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'code': 400,
+                    'message': f'{field}不能为空'
+                }), 400
+        
+        # 创建任务
+        task_id = TransferService.create_task(data)
+        
+        # TODO: 添加到任务调度器
+        
+        return jsonify({
+            'code': 200,
+            'message': '任务创建成功',
+            'data': {'id': task_id}
+        })
+    except Exception as e:
+        logger.error(f"创建转存任务失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'创建任务失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/task/<int:task_id>', methods=['GET'])
+def get_task(task_id):
+    """获取转存任务详情"""
+    try:
+        task = TransferService.get_task_by_id(task_id)
+        if not task:
+            return jsonify({
+                'code': 404,
+                'message': '任务不存在'
+            }), 404
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': task
+        })
+    except Exception as e:
+        logger.error(f"获取转存任务详情失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'获取任务详情失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/task/<int:task_id>', methods=['PUT'])
+def update_task(task_id):
+    """更新转存任务"""
+    try:
+        data = request.get_json()
+        
+        # 验证任务是否存在
+        task = TransferService.get_task_by_id(task_id)
+        if not task:
+            return jsonify({
+                'code': 404,
+                'message': '任务不存在'
+            }), 404
+        
+        # 更新任务
+        TransferService.update_task(task_id, data)
+        
+        # TODO: 更新任务调度器
+        
+        return jsonify({
+            'code': 200,
+            'message': '任务更新成功'
+        })
+    except Exception as e:
+        logger.error(f"更新转存任务失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'更新任务失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/task/<int:task_id>', methods=['DELETE'])
+def delete_task(task_id):
+    """删除转存任务"""
+    try:
+        from database import db
+        
+        # 验证任务是否存在
+        task = TransferService.get_task_by_id(task_id)
+        if not task:
+            return jsonify({
+                'code': 404,
+                'message': '任务不存在'
+            }), 404
+        
+        # 删除任务
+        TransferService.delete_task(task_id)
+        
+        # 删除关联的执行历史记录
+        try:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    DELETE FROM task_execution_history 
+                    WHERE task_id = ? AND task_type = 'transfer'
+                ''', (task_id,))
+                deleted_count = cursor.rowcount
+                logger.info(f"删除转存任务 {task_id} 的 {deleted_count} 条执行历史记录")
+        except Exception as e:
+            logger.warning(f"删除执行历史记录失败: {str(e)}")
+        
+        # TODO: 从任务调度器移除
+        
+        return jsonify({
+            'code': 200,
+            'message': '任务删除成功'
+        })
+    except Exception as e:
+        logger.error(f"删除转存任务失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'删除任务失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/task/<int:task_id>/toggle', methods=['POST'])
+def toggle_task(task_id):
+    """暂停/启动任务"""
+    try:
+        # 验证任务是否存在
+        task = TransferService.get_task_by_id(task_id)
+        if not task:
+            return jsonify({
+                'code': 404,
+                'message': '任务不存在'
+            }), 404
+        
+        # 切换状态
+        new_status = TransferService.toggle_task_status(task_id)
+        
+        # TODO: 更新任务调度器
+        
+        return jsonify({
+            'code': 200,
+            'message': '操作成功',
+            'data': {'status': new_status}
+        })
+    except Exception as e:
+        logger.error(f"切换任务状态失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'操作失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/task/<int:task_id>/execute', methods=['POST'])
+def execute_task(task_id):
+    """立即执行任务"""
+    execution_id = None
+    schedule_period = None
+    
+    try:
+        # 验证任务是否存在
+        task = TransferService.get_task_by_id(task_id)
+        if not task:
+            return jsonify({
+                'code': 404,
+                'message': '任务不存在'
+            }), 404
+        
+        # 手动执行：删除该任务之前的所有执行记录，确保每个任务只保留最新一次执行记录
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                DELETE FROM task_execution_history 
+                WHERE task_id = ? AND task_type = 'transfer'
+            ''', (task_id,))
+        
+        # 生成账期（当前时间）
+        schedule_period = datetime.now().strftime('%Y%m%d%H')
+        
+        # 创建执行历史记录
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO task_execution_history (
+                    task_id, task_type, task_name, schedule_period,
+                    status, start_time, logs
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (task_id, 'transfer', task['name'], schedule_period,
+                  'running', datetime.now(), '[]'))
+            conn.commit()
+            execution_id = cursor.lastrowid
+        
+        # 执行日志列表
+        logs = []
+        
+        def add_log(message, log_type='info'):
+            """添加日志"""
+            logs.append({
+                'message': message,
+                'type': log_type,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            logger.info(f"[任务{task_id}] {message}")
+        
+        try:
+            add_log(f"开始执行任务: {task['name']}", 'info')
+            
+            # 获取目标账号
+            from models.account import Account
+            
+            account = Account.get_by_id(task['target_account_id'])
+            if not account:
+                add_log('目标账号不存在', 'error')
+                return jsonify({
+                    'code': 400,
+                    'message': '目标账号不存在',
+                    'data': {'logs': logs}
+                })
+            
+            add_log(f"使用账号: {account['remark']}", 'info')
+            add_log(f"目标路径: {task['target_path']}", 'info')
+            
+            # 初始化夸克服务
+            from services.quark_service import QuarkService
+            quark = QuarkService(account['cookie'])
+            
+            # 解析分享链接
+            share_urls = task['share_urls']
+            add_log(f"共有 {len(share_urls)} 个分享链接待处理", 'info')
+            
+            success_count = 0
+            fail_count = 0
+            total_files = 0
+            
+            for idx, share_url_obj in enumerate(share_urls, 1):
+                try:
+                    # 提取URL和源路径（兼容字符串和对象格式）
+                    if isinstance(share_url_obj, dict):
+                        share_url = share_url_obj['url']
+                        source_path = share_url_obj.get('source_path', '/')
+                        url_status = share_url_obj.get('status', '未检查')
+                    else:
+                        share_url = share_url_obj
+                        source_path = '/'
+                        url_status = '未检查'
+                    
+                    add_log(f"[{idx}/{len(share_urls)}] 正在处理: {share_url[:60]}...", 'info')
+                    if source_path != '/':
+                        add_log(f"[{idx}/{len(share_urls)}] 源路径: {source_path}", 'info')
+                    
+                    # 显示链接状态
+                    if url_status != '未检查':
+                        add_log(f"[{idx}/{len(share_urls)}] 链接状态: {url_status}", 'info')
+                        if url_status != '正常':
+                            add_log(f"[{idx}/{len(share_urls)}] 跳过异常链接", 'warning')
+                            fail_count += 1
+                            continue
+                    
+                    # 解析分享链接
+                    add_log(f"[{idx}/{len(share_urls)}] 解析分享链接...", 'info')
+                    pwd_id, passcode, folder_id = QuarkService.parse_share_url(share_url)
+                    
+                    # 调试日志
+                    logger.info(f"解析结果 - pwd_id: {pwd_id}, passcode: {passcode}, folder_id: {folder_id}")
+                    add_log(f"[{idx}/{len(share_urls)}] 解析结果: pwd_id={pwd_id}, folder_id={folder_id}", 'info')
+                    
+                    if not pwd_id:
+                        add_log(f"[{idx}/{len(share_urls)}] 解析失败：无效的分享链接", 'error')
+                        fail_count += 1
+                        continue
+                    
+                    # 获取分享令牌
+                    add_log(f"[{idx}/{len(share_urls)}] 获取分享令牌...", 'info')
+                    token_response = quark.get_stoken(pwd_id, passcode)
+                    
+                    if token_response.get('code') != 0:
+                        add_log(f"[{idx}/{len(share_urls)}] 获取令牌失败: {token_response.get('message', '未知错误')}", 'error')
+                        fail_count += 1
+                        continue
+                    
+                    stoken = token_response['data']['stoken']
+                    
+                    # 初始化为根目录
+                    pdir_fid = '0'
+                    
+                    # 如果URL中包含文件夹ID，直接使用
+                    if folder_id:
+                        pdir_fid = folder_id
+                        add_log(f"[{idx}/{len(share_urls)}] 使用URL中的文件夹ID: {folder_id}", 'info')
+                    # 如果指定了源路径，需要先找到对应的目录ID
+                    elif source_path and source_path != '/':
+                        add_log(f"[{idx}/{len(share_urls)}] 定位源目录: {source_path}", 'info')
+                        # 简单实现：只支持一级目录
+                        source_dir_name = source_path.strip('/').split('/')[-1]
+                        root_response = quark.get_share_detail(pwd_id, stoken, '0')
+                        if root_response.get('code') == 0:
+                            for f in root_response['data']['list']:
+                                if f.get('dir') and f['file_name'] == source_dir_name:
+                                    pdir_fid = f['fid']
+                                    add_log(f"[{idx}/{len(share_urls)}] 找到源目录", 'info')
+                                    break
+                            
+                            if pdir_fid == '0':
+                                add_log(f"[{idx}/{len(share_urls)}] 未找到源目录，使用根目录", 'warning')
+                    else:
+                        add_log(f"[{idx}/{len(share_urls)}] 使用根目录", 'info')
+                    
+                    # 获取分享文件列表（递归获取，保留目录结构）
+                    add_log(f"[{idx}/{len(share_urls)}] 获取文件列表...", 'info')
+                    
+                    # 递归获取所有文件和文件夹的函数（保留层级关系）
+                    def get_all_items_recursive(pwd_id, stoken, parent_fid, parent_path="", depth=0, max_depth=10):
+                        """递归获取文件夹中的所有文件和文件夹，保留层级关系"""
+                        if depth > max_depth:
+                            add_log(f"[{idx}/{len(share_urls)}] 达到最大递归深度 {max_depth}，停止递归", 'warning')
+                            return [], []
+                        
+                        detail_response = quark.get_share_detail(pwd_id, stoken, parent_fid)
+                        
+                        if detail_response.get('code') != 0:
+                            add_log(f"[{idx}/{len(share_urls)}] 获取文件列表失败: {detail_response.get('message', '未知错误')}", 'error')
+                            return [], []
+                        
+                        items = detail_response['data']['list']
+                        all_files = []
+                        all_folders = []
+                        
+                        for item in items:
+                            item_path = f"{parent_path}/{item.get('file_name', '')}" if parent_path else item.get('file_name', '')
+                            
+                            if item.get('dir'):
+                                # 这是一个文件夹
+                                folder_info = {
+                                    'item': item,
+                                    'path': item_path,
+                                    'parent_fid': parent_fid
+                                }
+                                all_folders.append(folder_info)
+                                
+                                folder_name = item.get('file_name', '未知文件夹')
+                                folder_fid = item.get('fid')
+                                add_log(f"[{idx}/{len(share_urls)}] 正在扫描文件夹: {item_path}", 'info')
+                                
+                                # 递归获取子文件夹
+                                sub_files, sub_folders = get_all_items_recursive(pwd_id, stoken, folder_fid, item_path, depth + 1, max_depth)
+                                all_files.extend(sub_files)
+                                all_folders.extend(sub_folders)
+                            else:
+                                # 这是一个文件
+                                file_info = {
+                                    'item': item,
+                                    'path': item_path,
+                                    'parent_fid': parent_fid,
+                                    'parent_path': parent_path
+                                }
+                                all_files.append(file_info)
+                        
+                        return all_files, all_folders
+                    
+                    # 递归获取所有文件和文件夹
+                    all_files, all_folders = get_all_items_recursive(pwd_id, stoken, pdir_fid)
+                    
+                    if not all_files:
+                        add_log(f"[{idx}/{len(share_urls)}] 未找到文件", 'warning')
+                        continue
+                    
+                    add_log(f"[{idx}/{len(share_urls)}] 递归扫描完成，共找到 {len(all_files)} 个文件，{len(all_folders)} 个文件夹", 'info')
+                    
+                    # 应用过滤规则
+                    filtered_files = all_files
+                    
+                    # 1. 按文件扩展名过滤（排除）
+                    if task.get('filter_extensions'):
+                        exts = [e.strip() for e in task['filter_extensions'].split(',')]
+                        # 确保扩展名以点开头
+                        exts = [ext if ext.startswith('.') else f'.{ext}' for ext in exts]
+                        filtered_files = [f for f in filtered_files if not any(f['item']['file_name'].endswith(ext) for ext in exts)]
+                        add_log(f"[{idx}/{len(share_urls)}] 排除扩展名 {', '.join(exts)} 后剩余 {len(filtered_files)} 个文件", 'info')
+                    
+                    # 2. 按文件扩展名筛选（仅包含）
+                    if task.get('include_extensions'):
+                        exts = [e.strip() for e in task['include_extensions'].split(',')]
+                        # 确保扩展名以点开头
+                        exts = [ext if ext.startswith('.') else f'.{ext}' for ext in exts]
+                        filtered_files = [f for f in filtered_files if any(f['item']['file_name'].endswith(ext) for ext in exts)]
+                        add_log(f"[{idx}/{len(share_urls)}] 仅保留扩展名 {', '.join(exts)} 后剩余 {len(filtered_files)} 个文件", 'info')
+                    
+                    # 3. 按文件创建日期过滤
+                    if task.get('file_start_date'):
+                        try:
+                            from datetime import datetime as dt
+                            start_date = dt.strptime(task['file_start_date'], '%Y-%m-%d')
+                            start_timestamp = int(start_date.timestamp())
+                            
+                            original_count = len(filtered_files)
+                            filtered_files = [
+                                f for f in filtered_files 
+                                if f['item'].get('created_at', 0) > start_timestamp
+                            ]
+                            add_log(f"[{idx}/{len(share_urls)}] 按起始日期过滤：{original_count} -> {len(filtered_files)} 个文件", 'info')
+                        except Exception as e:
+                            add_log(f"[{idx}/{len(share_urls)}] 日期过滤失败: {str(e)}", 'warning')
+                    
+                    # 4. 按目录名称过滤
+                    if task.get('update_dirs'):
+                        dir_filters = [d.strip() for d in task['update_dirs'].split('|') if d.strip()]
+                        if dir_filters:
+                            original_count = len(filtered_files)
+                            # 只保留文件名包含指定目录关键词的文件
+                            filtered_files = [
+                                f for f in filtered_files 
+                                if any(dir_filter in f['item'].get('file_name', '') for dir_filter in dir_filters)
+                            ]
+                            add_log(f"[{idx}/{len(share_urls)}] 按目录过滤 ({', '.join(dir_filters)})：{original_count} -> {len(filtered_files)} 个文件", 'info')
+                    
+                    if not filtered_files:
+                        add_log(f"[{idx}/{len(share_urls)}] 过滤后无文件需要转存", 'warning')
+                        continue
+                    
+                    # 按父文件夹分组，保留目录结构
+                    add_log(f"[{idx}/{len(share_urls)}] 分析目录结构...", 'info')
+                    folders_with_files = {}  # {parent_fid: [file_info, ...]}
+                    
+                    for file_info in filtered_files:
+                        parent_fid = file_info['parent_fid']
+                        if parent_fid not in folders_with_files:
+                            folders_with_files[parent_fid] = []
+                        folders_with_files[parent_fid].append(file_info)
+                    
+                    add_log(f"[{idx}/{len(share_urls)}] 需要转存 {len(folders_with_files)} 个文件夹中的文件", 'info')
+                    
+                    # 获取目标文件夹ID
+                    add_log(f"[{idx}/{len(share_urls)}] 查找目标文件夹...", 'info')
+                    
+                    target_fid = "0"  # 默认根目录
+                    final_target_path = task['target_path']
+                    
+                    # 处理保存模式
+                    if task.get('save_mode') == 'subfolder' and task.get('target_folder_name'):
+                        # 子文件夹模式：目标路径 + 自定义文件夹名
+                        final_target_path = f"{task['target_path'].rstrip('/')}/{task['target_folder_name']}"
+                        add_log(f"[{idx}/{len(share_urls)}] 使用子文件夹模式: {final_target_path}", 'info')
+                    else:
+                        add_log(f"[{idx}/{len(share_urls)}] 使用当前文件夹模式: {final_target_path}", 'info')
+                    
+                    if final_target_path and final_target_path != '/':
+                        # 使用get_fids_by_paths获取目标文件夹ID
+                        add_log(f"[{idx}/{len(share_urls)}] 正在查询路径: {final_target_path}", 'info')
+                        fid_infos = quark.get_fids_by_paths([final_target_path])
+                        
+                        # 记录查询结果用于调试
+                        logger.info(f"查询路径结果: {fid_infos}")
+                        
+                        if fid_infos and len(fid_infos) > 0:
+                            fid_info = fid_infos[0]
+                            # 检查返回的数据结构
+                            if isinstance(fid_info, dict) and 'fid' in fid_info:
+                                target_fid = fid_info['fid']
+                                add_log(f"[{idx}/{len(share_urls)}] 找到目标文件夹 FID: {target_fid}", 'info')
+                            else:
+                                add_log(f"[{idx}/{len(share_urls)}] 路径查询返回数据格式异常: {fid_info}", 'warning')
+                                # 尝试创建目录
+                                add_log(f"[{idx}/{len(share_urls)}] 尝试创建目录...", 'info')
+                                mkdir_result = quark.mkdir(final_target_path)
+                                logger.info(f"创建目录结果: {mkdir_result}")
+                                
+                                if mkdir_result.get('code') == 0:
+                                    target_fid = mkdir_result['data']['fid']
+                                    add_log(f"[{idx}/{len(share_urls)}] 创建目录成功，FID: {target_fid}", 'success')
+                                else:
+                                    add_log(f"[{idx}/{len(share_urls)}] 创建目录失败: {mkdir_result.get('message', '未知错误')}，使用根目录", 'warning')
+                        else:
+                            # 目标路径不存在，尝试创建
+                            add_log(f"[{idx}/{len(share_urls)}] 目标路径不存在，尝试创建...", 'info')
+                            mkdir_result = quark.mkdir(final_target_path)
+                            logger.info(f"创建目录结果: {mkdir_result}")
+                            
+                            if mkdir_result.get('code') == 0:
+                                target_fid = mkdir_result['data']['fid']
+                                add_log(f"[{idx}/{len(share_urls)}] 创建目录成功，FID: {target_fid}", 'success')
+                            else:
+                                add_log(f"[{idx}/{len(share_urls)}] 创建目录失败: {mkdir_result.get('message', '未知错误')}，使用根目录", 'warning')
+                    else:
+                        add_log(f"[{idx}/{len(share_urls)}] 使用根目录，FID: 0", 'info')
+                    
+                    # 按文件夹分组转存，保留目录结构
+                    add_log(f"[{idx}/{len(share_urls)}] 开始转存 {len(filtered_files)} 个文件（保留目录结构）...", 'info')
+                    
+                    # 为每个文件夹创建对应的目标子文件夹
+                    folder_mapping = {}  # {parent_path: target_fid}
+                    folder_mapping[''] = target_fid  # 根目录映射
+                    
+                    # 按文件夹分组
+                    files_by_folder = {}  # {parent_path: [file_info, ...]}
+                    for file_info in filtered_files:
+                        parent_path = file_info['parent_path']
+                        if parent_path not in files_by_folder:
+                            files_by_folder[parent_path] = []
+                        files_by_folder[parent_path].append(file_info)
+                    
+                    # 为每个文件夹创建目标子文件夹
+                    for parent_path in sorted(files_by_folder.keys()):
+                        if parent_path == '':
+                            # 根目录文件，直接使用目标根目录
+                            continue
+                        
+                        # 逐级创建文件夹
+                        path_parts = parent_path.split('/')
+                        current_path = final_target_path.rstrip('/')
+                        current_fid = target_fid
+                        
+                        for part in path_parts:
+                            if not part:
+                                continue
+                            
+                            current_path = f"{current_path}/{part}"
+                            
+                            # 尝试获取文件夹
+                            fid_infos = quark.get_fids_by_paths([current_path])
+                            if fid_infos and len(fid_infos) > 0 and isinstance(fid_infos[0], dict) and 'fid' in fid_infos[0]:
+                                current_fid = fid_infos[0]['fid']
+                            else:
+                                # 创建文件夹(使用文件夹名称,不是完整路径)
+                                mkdir_result = quark.mkdir(part, current_fid)
+                                if mkdir_result.get('code') == 0:
+                                    current_fid = mkdir_result['data']['fid']
+                                    add_log(f"[{idx}/{len(share_urls)}] 创建文件夹成功: {part}", 'success')
+                                else:
+                                    add_log(f"[{idx}/{len(share_urls)}] 创建文件夹失败: {part}, 错误: {mkdir_result.get('message', '未知错误')}", 'warning')
+                                    # 创建失败,使用父目录
+                                    break
+                        
+                        folder_mapping[parent_path] = current_fid
+                    
+                    # 按文件夹分别转存文件
+                    total_transferred = 0
+                    for parent_path, files_in_folder in files_by_folder.items():
+                        folder_target_fid = folder_mapping.get(parent_path, target_fid)
+                        folder_display = parent_path if parent_path else '根目录'
+                        
+                        add_log(f"[{idx}/{len(share_urls)}] 转存文件夹 [{folder_display}] 中的 {len(files_in_folder)} 个文件", 'info')
+                        
+                        # 处理重存/增量模式
+                        files_to_transfer = files_in_folder
+                        
+                        if task.get('overwrite_mode') == 1:
+                            # 重存模式：删除目标目录中已存在的同名文件
+                            try:
+                                target_files_response = quark.get_file_list(folder_target_fid, 1, 500)
+                                if target_files_response.get('code') == 0:
+                                    target_files = target_files_response['data']['list']
+                                    target_file_names = {f['file_name'] for f in target_files}
+                                    
+                                    files_to_delete = [
+                                        f for f in target_files 
+                                        if f['file_name'] in {tf['item']['file_name'] for tf in files_in_folder}
+                                    ]
+                                    
+                                    if files_to_delete:
+                                        delete_fids = [f['fid'] for f in files_to_delete]
+                                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 删除 {len(files_to_delete)} 个已存在文件", 'info')
+                                        delete_result = quark.delete(delete_fids)
+                                        if delete_result.get('status') != 200:
+                                            add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 删除失败: {delete_result.get('message', '未知错误')}", 'warning')
+                            except Exception as e:
+                                add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 检查已存在文件失败: {str(e)}", 'warning')
+                        else:
+                            # 增量模式：只转存新文件
+                            try:
+                                target_files_response = quark.get_file_list(folder_target_fid, 1, 500)
+                                if target_files_response.get('code') == 0:
+                                    target_files = target_files_response['data']['list']
+                                    target_file_names = {f['file_name'] for f in target_files}
+                                    
+                                    original_count = len(files_to_transfer)
+                                    files_to_transfer = [
+                                        f for f in files_to_transfer 
+                                        if f['item']['file_name'] not in target_file_names
+                                    ]
+                                    
+                                    if original_count > len(files_to_transfer):
+                                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 跳过 {original_count - len(files_to_transfer)} 个已存在文件", 'info')
+                                    
+                                    if not files_to_transfer:
+                                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 所有文件已存在，跳过", 'info')
+                                        continue
+                            except Exception as e:
+                                add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 检查已存在文件失败: {str(e)}，将转存所有文件", 'warning')
+                        
+                        if not files_to_transfer:
+                            continue
+                        
+                        # 准备文件ID和token列表
+                        fid_list = [f['item']['fid'] for f in files_to_transfer]
+                        fid_token_list = [f['item']['share_fid_token'] for f in files_to_transfer]
+                        
+                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 实际转存 {len(files_to_transfer)} 个文件", 'info')
+                        
+                        # 批量转存文件到对应的目标文件夹
+                        save_response = quark.save_share_file(
+                            fid_list,
+                            fid_token_list,
+                            folder_target_fid,
+                            pwd_id,
+                            stoken
+                        )
+                        
+                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 转存响应状态: {save_response.get('status', save_response.get('code'))}", 'info')
+                        
+                        if save_response.get('code') == 0:
+                            task_id = save_response['data']['task_id']
+                            add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 转存任务ID: {task_id}", 'info')
+                            
+                            # 等待转存完成
+                            add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 等待转存完成...", 'info')
+                            task_result = quark.query_task(task_id)
+                            
+                            # 检查任务状态 (status在data里面)
+                            task_status = task_result.get('data', {}).get('status')
+                            if task_status == 2:
+                                add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 转存成功", 'success')
+                                total_transferred += len(files_to_transfer)
+                            else:
+                                error_msg = task_result.get('data', {}).get('message') or task_result.get('message', '未知错误')
+                                add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 转存失败: {error_msg}", 'error')
+                                fail_count += 1
+                        else:
+                            add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 转存失败: {save_response.get('message', '未知错误')}", 'error')
+                            fail_count += 1
+                    
+                    if total_transferred > 0:
+                        add_log(f"[{idx}/{len(share_urls)}] 共转存 {total_transferred} 个文件", 'success')
+                        success_count += 1
+                    else:
+                        add_log(f"[{idx}/{len(share_urls)}] 未转存任何文件", 'warning')
+                
+                except Exception as e:
+                    logger.error(f"处理分享链接失败: {e}")
+                    add_log(f"[{idx}/{len(share_urls)}] 处理失败: {str(e)}", 'error')
+                    fail_count += 1
+            
+            # 更新任务最后执行时间
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE transfer_tasks 
+                    SET last_execute_time = ?, updated_at = ?
+                    WHERE id = ?
+                """, (datetime.now(), datetime.now(), task_id))
+                conn.commit()
+            
+            # 记录执行日志到数据库
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO log_records (
+                        task_type, task_id, task_name, log_level,
+                        log_content, file_count, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    'transfer',
+                    task_id,
+                    task['name'],
+                    'success' if fail_count == 0 else 'warning' if success_count > 0 else 'error',
+                    f"成功: {success_count}, 失败: {fail_count}, 文件数: {total_files}",
+                    total_files,
+                    datetime.now()
+                ))
+                conn.commit()
+            
+            # 更新执行历史记录
+            if execution_id:
+                import json
+                with get_db() as conn:
+                    cursor = conn.cursor()
+                    logs_json = json.dumps(logs, ensure_ascii=False)
+                    cursor.execute("""
+                        UPDATE task_execution_history 
+                        SET status = ?, end_time = ?, logs = ?,
+                            success_count = ?, failed_count = ?
+                        WHERE id = ?
+                    """, ('success', datetime.now(), logs_json, success_count, fail_count, execution_id))
+                    conn.commit()
+            
+            add_log(f"任务执行完成！成功: {success_count}, 失败: {fail_count}, 文件数: {total_files}", 'success')
+            
+            return jsonify({
+                'code': 200,
+                'message': '任务执行完成',
+                'data': {
+                    'logs': logs,
+                    'success_count': success_count,
+                    'fail_count': fail_count,
+                    'total_files': total_files
+                }
+            })
+            
+        except Exception as e:
+            add_log(f"执行异常: {str(e)}", 'error')
+            logger.error(f"执行任务异常: {e}", exc_info=True)
+            
+            # 更新执行历史记录为失败
+            if execution_id:
+                import json
+                with get_db() as conn:
+                    cursor = conn.cursor()
+                    logs_json = json.dumps(logs, ensure_ascii=False)
+                    cursor.execute("""
+                        UPDATE task_execution_history 
+                        SET status = ?, end_time = ?, logs = ?, error_message = ?
+                        WHERE id = ?
+                    """, ('failed', datetime.now(), logs_json, str(e), execution_id))
+                    conn.commit()
+            
+            return jsonify({
+                'code': 500,
+                'message': f'执行失败: {str(e)}',
+                'data': {'logs': logs}
+            })
+        
+    except Exception as e:
+        logger.error(f"执行任务失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'执行任务失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/task/<int:task_id>/check-shares', methods=['POST'])
+def check_share_status(task_id):
+    """检查任务的分享链接状态"""
+    try:
+        # 验证任务是否存在
+        task = TransferService.get_task_by_id(task_id)
+        if not task:
+            return jsonify({
+                'code': 404,
+                'message': '任务不存在'
+            }), 404
+        
+        # 获取目标账号
+        from models.account import Account
+        account = Account.get_by_id(task['target_account_id'])
+        if not account:
+            return jsonify({
+                'code': 400,
+                'message': '目标账号不存在'
+            })
+        
+        # 初始化夸克服务
+        from services.quark_service import QuarkService
+        quark = QuarkService(account['cookie'])
+        
+        # 检查每个分享链接
+        share_urls = task['share_urls']
+        updated_urls = []
+        
+        for url_obj in share_urls:
+            url = url_obj['url'] if isinstance(url_obj, dict) else url_obj
+            
+            try:
+                # 解析分享链接
+                pwd_id, passcode, folder_id = QuarkService.parse_share_url(url)
+                
+                if not pwd_id:
+                    status = '链接格式错误'
+                else:
+                    # 尝试获取分享令牌
+                    token_response = quark.get_stoken(pwd_id, passcode)
+                    
+                    if token_response.get('code') == 0:
+                        status = '正常'
+                    elif token_response.get('code') == 31001:
+                        status = '分享已失效'
+                    elif token_response.get('code') == 31002:
+                        status = '分享违规'
+                    elif token_response.get('code') == 31003:
+                        status = '密码错误'
+                    else:
+                        status = f"异常({token_response.get('code')})"
+                
+            except Exception as e:
+                status = f'检查失败: {str(e)}'
+            
+            # 更新状态
+            if isinstance(url_obj, dict):
+                url_obj['status'] = status
+                url_obj['last_check_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                updated_urls.append(url_obj)
+            else:
+                updated_urls.append({
+                    'url': url,
+                    'source_path': '/',
+                    'is_primary': False,
+                    'status': status,
+                    'last_check_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+        
+        # 更新任务
+        import json
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE transfer_tasks 
+                SET share_urls = ?, updated_at = ?
+                WHERE id = ?
+            """, (json.dumps(updated_urls), datetime.now(), task_id))
+            conn.commit()
+        
+        return jsonify({
+            'code': 200,
+            'message': '检查完成',
+            'data': updated_urls
+        })
+        
+    except Exception as e:
+        logger.error(f"检查分享链接状态失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'检查失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/parse-share', methods=['POST'])
+def parse_share():
+    """解析分享链接"""
+    try:
+        data = request.get_json()
+        share_url = data.get('url')
+        
+        if not share_url:
+            return jsonify({
+                'code': 400,
+                'message': '分享链接不能为空'
+            }), 400
+        
+        # TODO: 解析分享链接，获取标题、文件数量等信息
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'title': '示例标题',
+                'file_count': 10,
+                'total_size': 1024000000,
+                'suggested_path': '/示例路径'
+            }
+        })
+    except Exception as e:
+        logger.error(f"解析分享链接失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'解析失败: {str(e)}'
+        }), 500
+
+
+@transfer_bp.route('/browse-share', methods=['POST'])
+def browse_share():
+    """浏览分享文件"""
+    try:
+        data = request.get_json()
+        share_url = data.get('url')
+        pdir_fid = data.get('pdir_fid', '0')  # 父目录ID，默认根目录
+        account_id = data.get('account_id')
+        
+        if not share_url:
+            return jsonify({
+                'code': 400,
+                'message': '分享链接不能为空'
+            }), 400
+        
+        if not account_id:
+            return jsonify({
+                'code': 400,
+                'message': '请选择账号'
+            }), 400
+        
+        # 获取账号
+        from models.account import Account
+        account = Account.get_by_id(account_id)
+        if not account:
+            return jsonify({
+                'code': 404,
+                'message': '账号不存在'
+            }), 404
+        
+        # 初始化夸克服务
+        from services.quark_service import QuarkService
+        quark = QuarkService(account['cookie'])
+        
+        # 解析分享链接
+        pwd_id, passcode, folder_id = QuarkService.parse_share_url(share_url)
+        
+        if not pwd_id:
+            return jsonify({
+                'code': 400,
+                'message': '无效的分享链接'
+            }), 400
+        
+        # 获取分享令牌
+        token_response = quark.get_stoken(pwd_id, passcode)
+        
+        if token_response.get('code') != 0:
+            return jsonify({
+                'code': 400,
+                'message': f"获取令牌失败: {token_response.get('message', '未知错误')}"
+            }), 400
+        
+        stoken = token_response['data']['stoken']
+        
+        # 获取文件列表
+        detail_response = quark.get_share_detail(pwd_id, stoken, pdir_fid)
+        
+        if detail_response.get('code') != 0:
+            return jsonify({
+                'code': 400,
+                'message': f"获取文件列表失败: {detail_response.get('message', '未知错误')}"
+            }), 400
+        
+        files = detail_response['data']['list']
+        
+        # 格式化文件列表
+        file_list = []
+        for f in files:
+            file_list.append({
+                'fid': f['fid'],
+                'file_name': f['file_name'],
+                'size': f.get('size', 0),
+                'file_type': f.get('file_type', 0),
+                'dir': f.get('dir', False),
+                'updated_at': f.get('updated_at', ''),
+                'share_fid_token': f.get('share_fid_token', '')
+            })
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'files': file_list,
+                'pwd_id': pwd_id,
+                'stoken': stoken
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"浏览分享文件失败: {e}", exc_info=True)
+        return jsonify({
+            'code': 500,
+            'message': f'浏览失败: {str(e)}'
+        }), 500

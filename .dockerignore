@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# 数据文件（运行时生成）
+backend/data/*.db
+backend/logs/*.log
+backend/downloads/*
+
+# 备份文件
+backups/
+temp_upgrade/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# 文档
+*.md
+docs/
+
+# 其他
+.DS_Store
+Thumbs.db

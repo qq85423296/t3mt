@@ -1,0 +1,28 @@
+version: '3.8'
+
+# 使用在线镜像的 docker-compose 配置
+# 用户直接使用此配置文件即可，无需构建镜像
+
+services:
+  quark-manager:
+    image: 你的dockerhub用户名/quark-manager:latest
+    container_name: quark-manager
+    restart: unless-stopped
+    ports:
+      - "8520:80"
+    volumes:
+      # 持久化数据库
+      - ./data:/app/backend/data
+      # 持久化日志
+      - ./logs:/app/backend/logs
+      # 持久化下载文件
+      - ./downloads:/app/backend/downloads
+    environment:
+      - CONFIG_DECRYPTION_KEY=quark_transfer_master_key_2024
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/api/auth/check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

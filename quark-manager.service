@@ -1,0 +1,19 @@
+[Unit]
+Description=Quark Manager Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/path/to/quark-manager/backend
+Environment="PATH=/usr/bin:/usr/local/bin"
+ExecStart=/usr/bin/python3 /path/to/quark-manager/backend/start.py
+Restart=always
+RestartSec=10
+
+# 日志配置
+StandardOutput=append:/path/to/quark-manager/backend/logs/service.log
+StandardError=append:/path/to/quark-manager/backend/logs/service_error.log
+
+[Install]
+WantedBy=multi-user.target

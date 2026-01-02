@@ -1,0 +1,1746 @@
+<!-- 系统配置页面 -->
+<style>
+    /* 页面容器紧凑边距 */
+    body {
+        padding: 20px;
+    }
+    
+    /* 紧凑化配置卡片 */
+    .config-section {
+        margin-bottom: 10px;
+        background: #F9FAFB;
+        border: 1px solid #E5E7EB;
+        border-radius: 6px;
+        padding: 8px 12px;
+    }
+    .section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #2563EB;
+        margin: 0 0 5px 0;
+        padding: 0;
+        border: none;
+        display: block;
+    }
+    .config-form {
+        display: grid;
+        gap: 8px;
+    }
+    /* 横向紧凑布局：标签+输入框+说明 */
+    .form-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+    }
+    .form-row-label {
+        width: 120px;
+        flex-shrink: 0;
+        text-align: right;
+        color: #666;
+        font-size: 13px;
+        padding-right: 8px;
+    }
+    .form-row-content {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .form-row-content input,
+    .form-row-content select {
+        height: 28px;
+        padding: 0 8px;
+        font-size: 13px;
+        border: 1px solid #D1D5DB;
+        border-radius: 4px;
+        outline: none;
+    }
+    .form-row-content input[type="number"] {
+        width: 80px;
+    }
+    .form-row-content input[type="text"],
+    .form-row-content input[type="email"],
+    .form-row-content input[type="password"] {
+        width: 300px;
+        max-width: 100%;
+    }
+    .form-row-content textarea {
+        width: 100%;
+        max-width: 500px;
+        min-height: 80px;
+        padding: 6px 8px;
+        font-size: 13px;
+        resize: vertical;
+    }
+    .form-hint {
+        font-size: 12px;
+        color: #999;
+        line-height: 1.2;
+        flex-basis: 100%;
+        margin-left: 128px;
+    }
+    
+    /* 账号列表紧凑设计 */
+    .account-list {
+        display: grid;
+        gap: 6px;
+    }
+    
+    .account-item {
+        background: #FFFFFF;
+        border: 1px solid #E5E7EB;
+        border-radius: 4px;
+        padding: 8px 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: box-shadow 0.2s;
+    }
+    
+    .account-item:hover {
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+    
+    .account-info {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+    
+    .account-name-section {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 180px;
+    }
+    
+    .account-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: #333;
+    }
+    
+    .account-meta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+        color: #666;
+        flex: 1;
+    }
+    
+    .account-meta-item {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+    }
+    
+    .account-meta-label {
+        color: #999;
+        font-size: 12px;
+    }
+    
+    .badge {
+        display: inline-block;
+        padding: 1px 6px;
+        font-size: 11px;
+        font-weight: 500;
+        border-radius: 3px;
+        white-space: nowrap;
+    }
+    
+    .badge-info {
+        background: #DBEAFE;
+        color: #2563EB;
+    }
+    
+    .badge-warning {
+        background: #FEF3C7;
+        color: #D97706;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 3px;
+    }
+    
+    .action-buttons .btn-small {
+        height: 26px;
+        padding: 0 10px;
+        font-size: 12px;
+        border: 1px solid #E5E7EB;
+        background: transparent;
+        color: #374151;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+    
+    .action-buttons .btn-small:hover {
+        background: #F9FAFB;
+        border-color: #D1D5DB;
+    }
+    
+    .action-buttons .btn-danger {
+        color: #DC2626;
+        border-color: #FCA5A5;
+    }
+    
+    .action-buttons .btn-danger:hover {
+        background: #FEF2F2;
+        border-color: #F87171;
+    }
+    
+    .email-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        flex-basis: 100%;
+        margin-left: 128px;
+    }
+    .email-tag {
+        padding: 2px 8px;
+        background: #f0f0f0;
+        border-radius: 3px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .email-tag-remove {
+        cursor: pointer;
+        color: #999;
+        font-size: 14px;
+    }
+    .email-tag-remove:hover {
+        color: #ff4d4f;
+    }
+    .save-button-container {
+        position: sticky;
+        bottom: 0;
+        background: #fff;
+        padding: 12px 20px;
+        border-top: 1px solid #E5E7EB;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin: 0 -20px;
+    }
+    .save-button-container .btn {
+        height: 32px;
+        padding: 0 20px;
+        font-size: 13px;
+    }
+    
+    /* 编辑账号弹窗紧凑优化 */
+    #addAccountModal .modal-content {
+        max-width: 520px !important;
+        background: #FFFFFF;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border: none;
+    }
+    
+    #addAccountModal .modal-header {
+        padding: 16px 20px 12px;
+        border-bottom: 1px solid #E5E7EB;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    #addAccountModal .modal-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #1F2937;
+        margin: 0;
+    }
+    
+    #addAccountModal .modal-close {
+        width: 22px;
+        height: 22px;
+        border-radius: 3px;
+        border: none;
+        background: transparent;
+        color: #6B7280;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s;
+    }
+    
+    #addAccountModal .modal-close:hover {
+        background: #F3F4F6;
+    }
+    
+    #addAccountModal .modal-body {
+        padding: 16px 20px;
+    }
+    
+    #addAccountModal .form-group {
+        margin-bottom: 12px;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    #addAccountModal .form-group:last-child {
+        margin-bottom: 0;
+    }
+    
+    #addAccountModal .form-label {
+        width: 70px;
+        padding-top: 6px;
+        font-size: 13px;
+        font-weight: 400;
+        color: #374151;
+        text-align: right;
+        flex-shrink: 0;
+    }
+    
+    #addAccountModal .form-label .required {
+        color: #F56565;
+        margin-left: 2px;
+    }
+    
+    #addAccountModal .form-input-wrapper {
+        flex: 1;
+    }
+    
+    #addAccountModal .form-input,
+    #addAccountModal .form-textarea {
+        width: 100%;
+        padding: 6px 10px;
+        font-size: 13px;
+        color: #1F2937;
+        background: #FFFFFF;
+        border: 1px solid #E5E7EB;
+        border-radius: 4px;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    
+    #addAccountModal .form-input {
+        height: 32px;
+    }
+    
+    #addAccountModal .form-textarea {
+        height: 100px;
+        resize: vertical;
+        font-family: 'Consolas', 'Monaco', monospace;
+        line-height: 1.4;
+    }
+    
+    #addAccountModal .form-input:focus,
+    #addAccountModal .form-textarea:focus {
+        border-color: #2563EB;
+    }
+    
+    #addAccountModal .form-input::placeholder,
+    #addAccountModal .form-textarea::placeholder {
+        color: #9CA3AF;
+    }
+    
+    #addAccountModal .form-checkbox-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 80px;
+        margin-top: 10px;
+    }
+    
+    #addAccountModal .form-checkbox-wrapper input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+    }
+    
+    #addAccountModal .form-checkbox-wrapper label {
+        font-size: 13px;
+        color: #374151;
+        cursor: pointer;
+        margin: 0;
+    }
+    
+    #addAccountModal .modal-footer {
+        padding: 12px 20px;
+        border-top: 1px solid #E5E7EB;
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+    }
+    
+    #addAccountModal .modal-footer .btn {
+        height: 32px;
+        padding: 0 16px;
+        font-size: 13px;
+        border-radius: 4px;
+        border: 1px solid #E5E7EB;
+        background: transparent;
+        color: #374151;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    #addAccountModal .modal-footer .btn:hover {
+        background: #F9FAFB;
+    }
+    
+    #addAccountModal .modal-footer .btn-primary {
+        min-width: 100px;
+        font-weight: 500;
+        background: #2563EB;
+        border-color: #2563EB;
+        color: #FFFFFF;
+    }
+    
+    #addAccountModal .modal-footer .btn-primary:hover {
+        background: #1D4ED8;
+        border-color: #1D4ED8;
+    }
+    
+    /* 解析接口卡片式布局 - 单行展示 */
+    .parse-api-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .parse-api-item {
+        background: #FFFFFF;
+        border: 1px solid #E5E7EB;
+        border-radius: 4px;
+        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .parse-api-index {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        background: #2563EB;
+        color: white;
+        border-radius: 50%;
+        font-weight: 600;
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+    
+    .parse-api-fields {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .parse-api-field {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .parse-api-field input {
+        width: 100%;
+        height: 28px;
+        padding: 0 8px;
+        border: 1px solid #D1D5DB;
+        border-radius: 3px;
+        font-size: 12px;
+    }
+    
+    .parse-api-field input::placeholder {
+        color: #9CA3AF;
+        font-size: 12px;
+    }
+    
+    .parse-api-remove {
+        height: 26px;
+        padding: 0 10px;
+        font-size: 12px;
+        background: transparent;
+        border: 1px solid #DC2626;
+        color: #DC2626;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.2s;
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+    
+    .parse-api-remove:hover {
+        background: #FEF2F2;
+    }
+    
+    /* Cookie配置Tab样式 */
+    .cookie-tabs {
+        margin-top: 8px;
+    }
+    
+    .cookie-tabs-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+    }
+    
+    .cookie-tabs-list {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        flex: 1;
+    }
+    
+    .cookie-tab {
+        padding: 4px 12px;
+        background: #FFFFFF;
+        border: 1px solid #D1D5DB;
+        border-radius: 3px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .cookie-tab:hover {
+        border-color: #2563EB;
+        color: #2563EB;
+    }
+    
+    .cookie-tab.active {
+        background: #2563EB;
+        border-color: #2563EB;
+        color: #FFFFFF;
+    }
+    
+    .cookie-tab-close {
+        font-size: 14px;
+        font-weight: bold;
+        cursor: pointer;
+        opacity: 0.7;
+    }
+    
+    .cookie-tab-close:hover {
+        opacity: 1;
+    }
+    
+    .cookie-tabs-content {
+        background: #FFFFFF;
+        border: 1px solid #E5E7EB;
+        border-radius: 4px;
+        padding: 12px;
+        min-height: 120px;
+    }
+    
+    .cookie-content {
+        display: none;
+    }
+    
+    .cookie-content.active {
+        display: block;
+    }
+    
+    .cookie-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    
+    .cookie-field-label {
+        font-size: 12px;
+        color: #666;
+    }
+    
+    .cookie-field textarea {
+        width: 100%;
+        min-height: 80px;
+        padding: 8px;
+        border: 1px solid #D1D5DB;
+        border-radius: 3px;
+        font-size: 12px;
+        font-family: 'Consolas', 'Monaco', monospace;
+        resize: vertical;
+    }
+    
+    .cookie-empty {
+        text-align: center;
+        padding: 40px 20px;
+        color: #999;
+        font-size: 13px;
+    }
+</style>
+
+<div class="config-section">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h3 class="section-title" style="margin: 0;">夸克账号管理</h3>
+        <button class="btn btn-primary" onclick="showAddAccountModal()" style="height: 28px; padding: 0 12px; font-size: 13px;">+ 添加账号</button>
+    </div>
+    <div id="accountList" class="account-list">
+        <div class="loading">加载中...</div>
+    </div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">日志配置</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">调度日志保留天数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="logRetentionDays" min="1" max="365" />
+                <div class="form-hint">超过指定天数的调度日志将自动清理（每天凌晨2点执行）</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">基础下载配置</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">默认下载目录</div>
+            <div class="form-row-content">
+                <input type="text" class="form-input" id="downloadDefaultDir" />
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">最大并发任务数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="downloadMaxConcurrent" min="1" max="10" />
+                <span class="form-hint">同时下载的任务数量（建议 1-5）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">分块下载大小</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="downloadChunkSize" min="1" max="100" />
+                <span class="form-hint">单位: MB，单线程下载时每次读取的块大小（建议 2-10）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">下载重试次数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="downloadRetryCount" min="0" max="10" />
+                <span class="form-hint">下载失败后的重试次数（建议 3-5）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">重试延迟</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="downloadRetryDelay" min="1" max="60" />
+                <span class="form-hint">单位: 秒，重试前等待的时间（建议 5-10）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">请求超时时间</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="downloadTimeout" min="10" max="300" />
+                <span class="form-hint">单位: 秒，网络请求超时时间（建议 30-60）</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">多线程下载配置</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">启用多线程</div>
+            <div class="form-row-content">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="enableMultithreadDownload" style="width: auto; height: auto;" />
+                    <span style="font-size: 13px;">启用多线程下载（大文件下载更快）</span>
+                </label>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">多线程阈值</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="multithreadThreshold" min="10" max="1000" />
+                <span class="form-hint">单位: MB，文件大小超过此值时启用多线程下载（建议 50-100）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">每文件线程数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="threadsPerFile" min="2" max="16" />
+                <span class="form-hint">单个文件使用的下载线程数（建议 4-8）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">多线程分块大小</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="multithreadChunkSize" min="1" max="100" />
+                <span class="form-hint">单位: MB，每个线程下载的块大小（建议 5-20）</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">邮箱配置</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">SMTP服务器</div>
+            <div class="form-row-content">
+                <input type="text" class="form-input" id="emailSmtpServer" placeholder="smtp.qq.com" />
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">SMTP端口</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="emailSmtpPort" placeholder="465" />
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">发件邮箱</div>
+            <div class="form-row-content">
+                <input type="email" class="form-input" id="emailSender" />
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">邮箱密码/授权码</div>
+            <div class="form-row-content">
+                <input type="password" class="form-input" id="emailPassword" />
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">收件邮箱</div>
+            <div class="form-row-content">
+                <input type="email" class="form-input" id="emailReceiverInput" placeholder="输入邮箱地址" style="width: 200px;" />
+                <button class="btn" onclick="addEmailReceiver()" style="height: 28px; padding: 0 12px; font-size: 13px;">添加</button>
+                <div id="emailReceivers" class="email-tags"></div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label"></div>
+            <div class="form-row-content">
+                <button class="btn" onclick="testEmailConfig()" style="height: 28px; padding: 0 12px; font-size: 13px;">测试邮件配置</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">API / 解析接口</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">盘搜API地址</div>
+            <div class="form-row-content">
+                <input type="text" class="form-input" id="pansouApiUrl" />
+                <span class="form-hint">用于资源搜索功能</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">API密钥</div>
+            <div class="form-row-content">
+                <input type="text" class="form-input" id="pansouApiKey" />
+                <span class="form-hint">如果需要密钥请输入</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="config-section" id="videoParseSection">
+    <h3 class="section-title">
+        影视解析接口
+        <span id="videoParseProBadge" style="display: none; margin-left: 8px; padding: 2px 8px; background: #ff9800; color: white; font-size: 11px; border-radius: 3px;">付费版功能</span>
+    </h3>
+    <div id="videoParseApisList" class="parse-api-list"></div>
+    <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button class="btn" id="addVideoParseBtn" onclick="addVideoParseApi()" style="height: 28px; padding: 0 12px; font-size: 13px;">+ 添加接口</button>
+        <button class="btn" onclick="testVideoParseConfig()" style="height: 28px; padding: 0 12px; font-size: 13px;">测试解析接口</button>
+    </div>
+    <div style="font-size: 12px; color: #999; margin-top: 6px; line-height: 1.4;">
+        支持配置多个解析接口，系统会按顺序尝试，第一个失败自动使用下一个。清晰度说明：自动=默认最高，不支持自动降级
+    </div>
+    <div id="videoParseUpgradeHint" style="display: none; margin-top: 10px; padding: 12px; background: #fff3e0; border: 1px solid #ffb74d; border-radius: 4px; font-size: 13px; color: #e65100;">
+        <strong>🔒 此功能需要付费版</strong><br>
+        社区版不支持自定义影视解析接口。<a href="javascript:void(0)" onclick="goToLicense()" style="color: #1890ff; text-decoration: underline;">立即升级到付费版</a>解锁此功能。
+    </div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">视频平台Cookie配置</h3>
+    <div class="cookie-tabs">
+        <div class="cookie-tabs-header">
+            <div id="cookieTabsList" class="cookie-tabs-list"></div>
+            <button class="btn" onclick="showAddCookieModal()" style="height: 26px; padding: 0 10px; font-size: 12px;">+ 新增Cookie</button>
+        </div>
+        <div id="cookieTabsContent" class="cookie-tabs-content"></div>
+    </div>
+    <div style="font-size: 12px; color: #999; margin-top: 6px; line-height: 1.4;">
+        配置各视频平台的Cookie，解析时会根据视频URL自动匹配对应平台的Cookie（Base64编码传输）
+    </div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">影视下载配置</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">默认下载目录</div>
+            <div class="form-row-content">
+                <input type="text" class="form-input" id="videoDownloadDefaultDir" placeholder="/vol2/1000/媒体库/video/官网下载" style="width: 350px;" />
+                <div class="form-hint">新建影视下载任务时的默认保存目录</div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">临时下载目录</div>
+            <div class="form-row-content">
+                <input type="text" class="form-input" id="videoDownloadTempDir" placeholder="/vol2/1000/媒体库/video/temp" style="width: 350px;" />
+                <div class="form-hint">视频下载时的临时目录，下载完成后自动移动到正式目录并清理</div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">下载重试次数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="videoDownloadRetryCount" min="0" max="10" />
+                <span class="form-hint">下载失败后的重试次数（建议 3-5）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">请求超时时间</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="videoDownloadTimeout" min="10" max="300" />
+                <span class="form-hint">单位: 秒，网络请求超时时间（建议 30-60）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">片段下载线程数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="videoDownloadMaxThreads" min="1" max="10" />
+                <span class="form-hint">m3u8视频片段并发下载线程数（建议 3-5，过高可能被限速）</span>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">启用多线程</div>
+            <div class="form-row-content">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="videoEnableMultithreadDownload" style="width: auto; height: auto;" />
+                    <span style="font-size: 13px;">启用多线程下载（m3u8视频片段并发下载）</span>
+                </label>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">并发线程数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="videoThreadsCount" min="2" max="16" />
+                <span class="form-hint">同时下载的视频片段数（建议 4-8）</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="save-button-container">
+    <button class="btn btn-primary" onclick="saveAllConfig()">保存所有配置</button>
+</div>
+
+<!-- 添加账号模态框 -->
+<div id="addAccountModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div class="modal-title" id="accountModalTitle">添加夸克账号</div>
+            <button class="modal-close" onclick="hideAddAccountModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">账号备注<span class="required">*</span></label>
+                <div class="form-input-wrapper">
+                    <input type="text" class="form-input" id="accountRemark" placeholder="如：工作账号" />
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Cookie<span class="required">*</span></label>
+                <div class="form-input-wrapper">
+                    <textarea class="form-textarea" id="accountCookie" placeholder="从浏览器开发者工具中获取的Cookie"></textarea>
+                </div>
+            </div>
+            <div class="form-checkbox-wrapper">
+                <input type="checkbox" id="accountIsMain" />
+                <label for="accountIsMain">设为主账号</label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn" onclick="hideAddAccountModal()">取消</button>
+            <button class="btn btn-primary" onclick="testAndSaveAccount()">测试并保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 添加Cookie模态框 -->
+<div id="addCookieModal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+        <div class="modal-header">
+            <div class="modal-title">新增平台Cookie</div>
+            <button class="modal-close" onclick="hideAddCookieModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">选择平台</label>
+                <select id="cookiePlatformSelect" class="form-input" style="width: 100%;">
+                    <option value="">请选择平台</option>
+                    <option value="tencent">腾讯视频</option>
+                    <option value="iqiyi">爱奇艺</option>
+                    <option value="youku">优酷</option>
+                    <option value="mgtv">芒果TV</option>
+                    <option value="bilibili">哔哩哔哩</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn" onclick="hideAddCookieModal()">取消</button>
+            <button class="btn btn-primary" onclick="confirmAddCookie()">确定</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    // 使用IIFE避免全局变量污染
+    let configData = {};
+    let emailReceivers = [];
+    let currentEditAccountId = null;
+    let platformCookies = {}; // 存储各平台Cookie配置
+    let activeCookieTab = null; // 当前激活的Cookie Tab
+    
+    // 平台名称映射
+    const platformNames = {
+        'tencent': '腾讯视频',
+        'iqiyi': '爱奇艺',
+        'youku': '优酷',
+        'mgtv': '芒果TV',
+        'bilibili': '哔哩哔哩'
+    };
+
+    // 加载配置
+    async function loadConfig() {
+        try {
+            // 先获取许可证信息
+            const licenseResult = await API.get('/api/license/info');
+            if (licenseResult.code === 200) {
+                applyLicenseRestrictions(licenseResult.data);
+            }
+            
+            const result = await ConfigAPI.get();
+            
+            if (result.code === 200 && result.data) {
+                configData = result.data;
+                fillConfigForm(result.data);
+            }
+        } catch (error) {
+            console.error('加载配置失败:', error);
+            Message.error('加载配置失败');
+        }
+    }
+    
+    // 应用许可证限制
+    function applyLicenseRestrictions(licenseInfo) {
+        const hasCustomParseApi = licenseInfo.features.custom_parse_api;
+        
+        // 影视解析接口部分
+        const videoParseSection = document.getElementById('videoParseSection');
+        const videoParseProBadge = document.getElementById('videoParseProBadge');
+        const videoParseUpgradeHint = document.getElementById('videoParseUpgradeHint');
+        const videoParseApisList = document.getElementById('videoParseApisList');
+        const addVideoParseBtn = document.getElementById('addVideoParseBtn');
+        
+        if (!hasCustomParseApi) {
+            // 社区版：显示付费版标识和升级提示
+            videoParseProBadge.style.display = 'inline-block';
+            videoParseUpgradeHint.style.display = 'block';
+            
+            // 禁用所有输入框和按钮
+            videoParseApisList.style.opacity = '0.5';
+            videoParseApisList.style.pointerEvents = 'none';
+            addVideoParseBtn.disabled = true;
+            addVideoParseBtn.style.opacity = '0.5';
+            addVideoParseBtn.style.cursor = 'not-allowed';
+            
+            // 禁用测试按钮
+            const testBtn = videoParseSection.querySelector('button[onclick="testVideoParseConfig()"]');
+            if (testBtn) {
+                testBtn.disabled = true;
+                testBtn.style.opacity = '0.5';
+                testBtn.style.cursor = 'not-allowed';
+            }
+        } else {
+            // 付费版：隐藏限制提示
+            videoParseProBadge.style.display = 'none';
+            videoParseUpgradeHint.style.display = 'none';
+            videoParseApisList.style.opacity = '1';
+            videoParseApisList.style.pointerEvents = 'auto';
+            addVideoParseBtn.disabled = false;
+            addVideoParseBtn.style.opacity = '1';
+            addVideoParseBtn.style.cursor = 'pointer';
+        }
+    }
+    
+    // 跳转到许可证页面
+    window.goToLicense = function() {
+        window.location.href = '/pages/license.html';
+    }
+
+    // 填充配置表单
+    function fillConfigForm(data) {
+        // 日志配置
+        document.getElementById('logRetentionDays').value = data.log?.retention_days || 30;
+
+        // 下载配置
+        document.getElementById('downloadDefaultDir').value = data.download?.default_dir || 'downloads';
+        document.getElementById('downloadMaxConcurrent').value = data.download?.max_concurrent || 3;
+        document.getElementById('downloadChunkSize').value = data.download?.chunk_size || 2;
+        document.getElementById('downloadRetryCount').value = data.download?.retry_count || 3;
+        document.getElementById('downloadRetryDelay').value = data.download?.retry_delay || 5;
+        document.getElementById('downloadTimeout').value = data.download?.timeout || 30;
+        
+        // 多线程下载配置
+        document.getElementById('enableMultithreadDownload').checked = data.download?.enable_multithread !== false;
+        document.getElementById('multithreadThreshold').value = data.download?.multithread_threshold || 50;
+        document.getElementById('threadsPerFile').value = data.download?.threads_per_file || 4;
+        document.getElementById('multithreadChunkSize').value = data.download?.multithread_chunk_size || 10;
+
+        // 邮件配置
+        document.getElementById('emailSmtpServer').value = data.email?.smtp_server || '';
+        document.getElementById('emailSmtpPort').value = data.email?.smtp_port || 465;
+        document.getElementById('emailSender').value = data.email?.sender || '';
+        document.getElementById('emailPassword').value = data.email?.password || '';
+        emailReceivers = data.email?.receivers || [];
+        displayEmailReceivers();
+
+        // 盘搜配置
+        document.getElementById('pansouApiUrl').value = data.pansou?.api_url || 'http://192.168.0.111:8383/';
+        document.getElementById('pansouApiKey').value = data.pansou?.api_key || '';
+        
+        // 影视解析配置 - 加载多接口配置
+        renderVideoParseApis(
+            data.video_parse?.apis || [],
+            data.video_parse?.default_api  // 传入默认接口
+        );
+        
+        // 加载Cookie配置
+        platformCookies = data.video_parse?.cookies || {};
+        renderCookieTabs();
+        
+        // 影视下载配置
+        document.getElementById('videoDownloadDefaultDir').value = data.video_download?.default_dir || '/vol2/1000/媒体库/video/官网下载';
+        document.getElementById('videoDownloadTempDir').value = data.video_download?.temp_dir || '/vol2/1000/媒体库/video/temp';
+        document.getElementById('videoDownloadRetryCount').value = data.video_download?.retry_count || 3;
+        document.getElementById('videoDownloadTimeout').value = data.video_download?.timeout || 30;
+        document.getElementById('videoDownloadMaxThreads').value = data.video_download?.max_threads || 3;
+        document.getElementById('videoEnableMultithreadDownload').checked = data.video_download?.enable_multithread !== false;
+        document.getElementById('videoThreadsCount').value = data.video_download?.threads_count || 4;
+    }
+
+    // 加载账号列表
+    async function loadAccounts() {
+        const container = document.getElementById('accountList');
+        Loading.show(container);
+
+        try {
+            const result = await AccountAPI.getList();
+            
+            if (result.code === 200 && result.data) {
+                displayAccounts(result.data);
+            } else {
+                showEmptyState(container, '暂无账号');
+            }
+        } catch (error) {
+            console.error('加载账号列表失败:', error);
+            showEmptyState(container, '加载失败');
+        }
+    }
+
+    // 显示账号列表
+    function displayAccounts(accounts) {
+        const container = document.getElementById('accountList');
+        
+        if (!accounts || accounts.length === 0) {
+            showEmptyState(container, '暂无账号');
+            return;
+        }
+
+        container.innerHTML = accounts.map(account => `
+            <div class="account-item">
+                <div class="account-info">
+                    <div class="account-name-section">
+                        <div class="account-name">${account.remark}${account.account_name ? ` (${account.account_name})` : ''}</div>
+                        ${account.is_main ? '<span class="badge badge-info">主账号</span>' : ''}
+                        ${account.member_type ? `<span class="badge badge-warning">${account.member_type === 'SUPER_VIP' ? '超级会员' : account.member_type === 'VIP' ? '普通会员' : account.member_type === 'Z_VIP' ? '至尊会员' : '会员'}</span>` : ''}
+                    </div>
+                    <div class="account-meta">
+                        ${account.member_exp_at ? `<div class="account-meta-item"><span class="account-meta-label">到期:</span><span>${account.member_exp_at}</span></div>` : ''}
+                        <div class="account-meta-item"><span class="account-meta-label">总空间:</span><span>${account.total_size_text || '-'}</span></div>
+                        <div class="account-meta-item"><span class="account-meta-label">已用:</span><span>${account.used_size_text || '-'}</span></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    ${!account.is_main ? `<button class="btn-small" onclick="setMainAccount(${account.id})">设为主账号</button>` : ''}
+                    <button class="btn-small" onclick="editAccount(${account.id})">编辑</button>
+                    <button class="btn-small" onclick="refreshAccount(${account.id})">刷新</button>
+                    <button class="btn-small btn-danger" onclick="deleteAccount(${account.id})">删除</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // 显示添加账号模态框
+    function showAddAccountModal() {
+        currentEditAccountId = null;
+        document.getElementById('accountModalTitle').textContent = '添加夸克账号';
+        document.getElementById('accountRemark').value = '';
+        document.getElementById('accountCookie').value = '';
+        document.getElementById('accountIsMain').checked = false;
+        document.getElementById('addAccountModal').classList.add('show');
+    }
+
+    // 隐藏添加账号模态框
+    function hideAddAccountModal() {
+        document.getElementById('addAccountModal').classList.remove('show');
+        currentEditAccountId = null;
+    }
+
+    // 编辑账号
+    async function editAccount(id) {
+        try {
+            const result = await AccountAPI.getDetail(id);
+            
+            if (result.code === 200 && result.data) {
+                currentEditAccountId = id;
+                document.getElementById('accountModalTitle').textContent = '编辑夸克账号';
+                document.getElementById('accountRemark').value = result.data.remark;
+                document.getElementById('accountCookie').value = result.data.cookie;
+                document.getElementById('accountIsMain').checked = result.data.is_main === 1;
+                document.getElementById('addAccountModal').classList.add('show');
+            } else {
+                Message.error(result.message || '获取账号信息失败');
+            }
+        } catch (error) {
+            console.error('获取账号信息失败:', error);
+            Message.error('获取账号信息失败');
+        }
+    }
+
+    // 测试并保存账号
+    async function testAndSaveAccount() {
+        const remark = document.getElementById('accountRemark').value.trim();
+        const cookie = document.getElementById('accountCookie').value.trim();
+        const isMain = document.getElementById('accountIsMain').checked;
+
+        if (!remark || !cookie) {
+            Message.warning('请填写账号备注和Cookie');
+            return;
+        }
+
+        try {
+            // 先测试账号
+            Message.info('正在测试账号...');
+            const testResult = await AccountAPI.test(cookie);
+            
+            if (testResult.code !== 200) {
+                Message.error(testResult.message || '账号验证失败');
+                return;
+            }
+
+            // 保存或更新账号
+            let result;
+            if (currentEditAccountId) {
+                // 更新账号
+                result = await AccountAPI.update(currentEditAccountId, {
+                    remark,
+                    cookie,
+                    is_main: isMain ? 1 : 0
+                });
+            } else {
+                // 创建账号
+                result = await AccountAPI.create({
+                    remark,
+                    cookie,
+                    is_main: isMain ? 1 : 0
+                });
+            }
+
+            if (result.code === 200) {
+                Message.success(currentEditAccountId ? '账号更新成功' : '账号添加成功');
+                hideAddAccountModal();
+                loadAccounts();
+            } else {
+                Message.error(result.message || (currentEditAccountId ? '更新账号失败' : '添加账号失败'));
+            }
+        } catch (error) {
+            console.error('保存账号失败:', error);
+            Message.error('保存账号失败');
+        }
+    }
+
+    // 设为主账号
+    async function setMainAccount(id) {
+        try {
+            const result = await AccountAPI.setMain(id);
+            
+            if (result.code === 200) {
+                Message.success('设置成功');
+                loadAccounts();
+            } else {
+                Message.error(result.message || '设置失败');
+            }
+        } catch (error) {
+            console.error('设置主账号失败:', error);
+            Message.error('设置失败');
+        }
+    }
+
+    // 刷新账号
+    async function refreshAccount(id) {
+        try {
+            const result = await AccountAPI.refresh(id);
+            
+            if (result.code === 200) {
+                Message.success('刷新成功');
+                loadAccounts();
+            } else {
+                Message.error(result.message || '刷新失败');
+            }
+        } catch (error) {
+            console.error('刷新账号失败:', error);
+            Message.error('刷新失败');
+        }
+    }
+
+    // 删除账号
+    async function deleteAccount(id) {
+        if (!confirm('确定要删除该账号吗？')) {
+            return;
+        }
+
+        try {
+            const result = await AccountAPI.delete(id);
+            
+            if (result.code === 200) {
+                Message.success('删除成功');
+                loadAccounts();
+            } else {
+                Message.error(result.message || '删除失败');
+            }
+        } catch (error) {
+            console.error('删除账号失败:', error);
+            Message.error('删除失败');
+        }
+    }
+
+    // 添加收件邮箱
+    function addEmailReceiver() {
+        const input = document.getElementById('emailReceiverInput');
+        const email = input.value.trim();
+
+        if (!email) {
+            Message.warning('请输入邮箱地址');
+            return;
+        }
+
+        if (!validateEmail(email)) {
+            Message.warning('邮箱格式不正确');
+            return;
+        }
+
+        if (emailReceivers.includes(email)) {
+            Message.warning('该邮箱已添加');
+            return;
+        }
+
+        emailReceivers.push(email);
+        displayEmailReceivers();
+        input.value = '';
+    }
+
+    // 显示收件邮箱列表
+    function displayEmailReceivers() {
+        const container = document.getElementById('emailReceivers');
+        container.innerHTML = emailReceivers.map((email, index) => `
+            <div class="email-tag">
+                <span>${email}</span>
+                <span class="email-tag-remove" onclick="removeEmailReceiver(${index})">×</span>
+            </div>
+        `).join('');
+    }
+
+    // 移除收件邮箱
+    function removeEmailReceiver(index) {
+        emailReceivers.splice(index, 1);
+        displayEmailReceivers();
+    }
+
+    // 测试邮件配置
+    async function testEmailConfig() {
+        const smtpServer = document.getElementById('emailSmtpServer').value.trim();
+        const smtpPort = document.getElementById('emailSmtpPort').value;
+        const sender = document.getElementById('emailSender').value.trim();
+        const password = document.getElementById('emailPassword').value;
+
+        if (!smtpServer || !smtpPort || !sender || !password) {
+            Message.warning('请填写完整的邮件配置');
+            return;
+        }
+
+        const testEmail = prompt('请输入测试收件邮箱:');
+        if (!testEmail) return;
+
+        try {
+            Message.info('正在发送测试邮件...');
+            const result = await ConfigAPI.testEmail({
+                smtp_server: smtpServer,
+                smtp_port: parseInt(smtpPort),
+                sender,
+                password,
+                receiver: testEmail
+            });
+
+            if (result.code === 200) {
+                Message.success('测试邮件发送成功');
+            } else {
+                Message.error(result.message || '发送失败');
+            }
+        } catch (error) {
+            console.error('测试邮件失败:', error);
+            Message.error('测试失败');
+        }
+    }
+    
+    // ========== 影视解析接口管理 ==========
+    
+    // 渲染Cookie配置Tab
+    function renderCookieTabs() {
+        const tabsList = document.getElementById('cookieTabsList');
+        const tabsContent = document.getElementById('cookieTabsContent');
+        
+        const platforms = Object.keys(platformCookies);
+        
+        if (platforms.length === 0) {
+            tabsList.innerHTML = '';
+            tabsContent.innerHTML = '<div class="cookie-empty">暂无Cookie配置，点击"+ 新增Cookie"添加</div>';
+            activeCookieTab = null;
+            return;
+        }
+        
+        // 渲染Tab列表
+        tabsList.innerHTML = platforms.map(platform => `
+            <div class="cookie-tab ${activeCookieTab === platform ? 'active' : ''}" 
+                 onclick="switchCookieTab('${platform}')">
+                <span>${platformNames[platform] || platform}</span>
+                <span class="cookie-tab-close" onclick="event.stopPropagation(); removeCookieTab('${platform}')">×</span>
+            </div>
+        `).join('');
+        
+        // 渲染Tab内容
+        tabsContent.innerHTML = platforms.map(platform => `
+            <div class="cookie-content ${activeCookieTab === platform ? 'active' : ''}" data-platform="${platform}">
+                <div class="cookie-field">
+                    <label class="cookie-field-label">${platformNames[platform] || platform} Cookie</label>
+                    <textarea class="cookie-textarea" 
+                              data-platform="${platform}"
+                              placeholder="请输入${platformNames[platform] || platform}的Cookie内容">${platformCookies[platform] || ''}</textarea>
+                </div>
+            </div>
+        `).join('');
+        
+        // 如果没有激活的Tab，激活第一个
+        if (!activeCookieTab && platforms.length > 0) {
+            activeCookieTab = platforms[0];
+            renderCookieTabs();
+        }
+        
+        // 绑定textarea变化事件
+        document.querySelectorAll('.cookie-textarea').forEach(textarea => {
+            textarea.addEventListener('input', function() {
+                const platform = this.getAttribute('data-platform');
+                platformCookies[platform] = this.value;
+            });
+        });
+    }
+    
+    // 切换Cookie Tab
+    window.switchCookieTab = function(platform) {
+        activeCookieTab = platform;
+        renderCookieTabs();
+    }
+    
+    // 显示添加Cookie模态框
+    window.showAddCookieModal = function() {
+        document.getElementById('cookiePlatformSelect').value = '';
+        document.getElementById('addCookieModal').classList.add('show');
+    }
+    
+    // 隐藏添加Cookie模态框
+    window.hideAddCookieModal = function() {
+        document.getElementById('addCookieModal').classList.remove('show');
+    }
+    
+    // 确认添加Cookie
+    window.confirmAddCookie = function() {
+        const platform = document.getElementById('cookiePlatformSelect').value;
+        
+        if (!platform) {
+            Message.warning('请选择平台');
+            return;
+        }
+        
+        if (platformCookies[platform] !== undefined) {
+            Message.warning('该平台已存在，请直接编辑');
+            return;
+        }
+        
+        platformCookies[platform] = '';
+        activeCookieTab = platform;
+        renderCookieTabs();
+        hideAddCookieModal();
+        Message.success('添加成功');
+    }
+    
+    // 删除Cookie Tab
+    window.removeCookieTab = function(platform) {
+        if (!confirm(`确定要删除${platformNames[platform] || platform}的Cookie配置吗？`)) {
+            return;
+        }
+        
+        delete platformCookies[platform];
+        
+        // 如果删除的是当前激活的Tab，切换到第一个
+        if (activeCookieTab === platform) {
+            const platforms = Object.keys(platformCookies);
+            activeCookieTab = platforms.length > 0 ? platforms[0] : null;
+        }
+        
+        renderCookieTabs();
+        Message.success('删除成功');
+    }
+    
+    // 渲染解析接口列表
+    function renderVideoParseApis(apis, defaultApi) {
+        const container = document.getElementById('videoParseApisList');
+        
+        // 合并默认接口和用户接口
+        let allApis = [];
+        
+        // 如果有默认接口,添加到第一位
+        if (defaultApi) {
+            allApis.push({
+                ...defaultApi,
+                is_default: true,
+                readonly: true
+            });
+        }
+        
+        // 添加用户自定义接口
+        if (apis && apis.length > 0) {
+            allApis = allApis.concat(apis);
+        }
+        
+        // 如果没有任何接口,添加一个空接口
+        if (allApis.length === 0) {
+            allApis = [{
+                api_url: '',
+                url_path: 'final_url',
+                code_path: 'code',
+                success_code: '200',
+                quality: '360P',
+                enabled: true
+            }];
+        }
+        
+        container.innerHTML = allApis.map((api, index) => {
+            const isDefault = api.is_default === true;
+            const readonly = isDefault ? 'readonly disabled' : '';
+            const readonlyStyle = isDefault ? 'background: #f5f5f5; cursor: not-allowed;' : '';
+            
+            return `
+            <div class="parse-api-item" data-index="${index}" ${isDefault ? 'data-is-default="true"' : ''}>
+                <label style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                    <input type="checkbox" 
+                           class="parse-api-enabled" 
+                           ${api.enabled !== false ? 'checked' : ''}
+                           ${isDefault ? 'disabled' : ''}
+                           style="width: auto; height: auto; margin: 0;" />
+                    <span class="parse-api-index">${index + 1}</span>
+                </label>
+                <div class="parse-api-fields">
+                    <div class="parse-api-field" style="flex: 2;">
+                        <input type="text" 
+                               class="parse-api-url" 
+                               value="${api.api_url || ''}" 
+                               placeholder="接口地址 (如: http://api.com/parse?url=)"
+                               ${readonly}
+                               style="${readonlyStyle}" />
+                    </div>
+                    <div class="parse-api-field" style="flex: 1;">
+                        <input type="text" 
+                               class="parse-api-url-path" 
+                               value="${api.url_path || 'final_url'}" 
+                               placeholder="下载地址路径 (如: final_url)"
+                               ${readonly}
+                               style="${readonlyStyle}" />
+                    </div>
+                    <div class="parse-api-field" style="flex: 1;">
+                        <input type="text" 
+                               class="parse-api-code-path" 
+                               value="${api.code_path || 'code'}" 
+                               placeholder="状态码路径 (如: code)"
+                               ${readonly}
+                               style="${readonlyStyle}" />
+                    </div>
+                    <div class="parse-api-field" style="flex: 0.8;">
+                        <input type="text" 
+                               class="parse-api-success-code" 
+                               value="${api.success_code || '200'}" 
+                               placeholder="成功状态码 (如: 200)"
+                               ${readonly}
+                               style="${readonlyStyle}" />
+                    </div>
+                    <div class="parse-api-field" style="flex: 0.8;">
+                        <select class="parse-api-quality" 
+                                style="width: 100%; height: 28px; padding: 0 6px; border: 1px solid #D1D5DB; border-radius: 3px; font-size: 12px; ${readonlyStyle}"
+                                ${isDefault ? 'disabled' : ''}>
+                            <option value="auto" ${api.quality === 'auto' ? 'selected' : ''}>自动</option>
+                            <option value="4K" ${api.quality === '4K' ? 'selected' : ''}>4K</option>
+                            <option value="1080P" ${api.quality === '1080P' ? 'selected' : ''}>1080P</option>
+                            <option value="720P" ${api.quality === '720P' ? 'selected' : ''}>720P</option>
+                            <option value="360P" ${api.quality === '360P' || !api.quality ? 'selected' : ''}>360P</option>
+                        </select>
+                    </div>
+                </div>
+                ${isDefault ? 
+                    '<span style="color: #999; font-size: 12px; padding: 0 8px;">默认</span>' : 
+                    `<button class="parse-api-remove" onclick="removeVideoParseApi(${index})">删除</button>`
+                }
+            </div>
+        `;
+        }).join('');
+    }
+    
+    // 添加新接口
+    window.addVideoParseApi = function() {
+        const currentApis = getVideoParseApis();
+        const defaultApi = getDefaultParseApi();
+        
+        currentApis.push({
+            api_url: '',
+            url_path: 'final_url',
+            code_path: 'code',
+            success_code: '200',
+            quality: '360P',
+            enabled: true
+        });
+        renderVideoParseApis(currentApis, defaultApi);
+    }
+    
+    // 删除接口
+    window.removeVideoParseApi = function(index) {
+        const container = document.getElementById('videoParseApisList');
+        const item = container.querySelector(`.parse-api-item[data-index="${index}"]`);
+        
+        // 检查是否是默认接口
+        if (item && item.getAttribute('data-is-default') === 'true') {
+            Message.warning('默认接口不可删除');
+            return;
+        }
+        
+        const currentApis = getVideoParseApis();
+        if (currentApis.length <= 1) {
+            Message.warning('至少保留一个解析接口');
+            return;
+        }
+        currentApis.splice(index, 1);
+        
+        // 重新渲染时需要获取默认接口
+        const defaultApi = getDefaultParseApi();
+        renderVideoParseApis(currentApis, defaultApi);
+    }
+    
+    // 获取默认接口(从DOM中提取)
+    function getDefaultParseApi() {
+        const container = document.getElementById('videoParseApisList');
+        const defaultItem = container.querySelector('.parse-api-item[data-is-default="true"]');
+        if (defaultItem) {
+            return {
+                api_url: defaultItem.querySelector('.parse-api-url').value,
+                url_path: defaultItem.querySelector('.parse-api-url-path').value,
+                code_path: defaultItem.querySelector('.parse-api-code-path').value,
+                success_code: defaultItem.querySelector('.parse-api-success-code').value,
+                quality: defaultItem.querySelector('.parse-api-quality').value,
+                enabled: defaultItem.querySelector('.parse-api-enabled').checked,
+                is_default: true,
+                readonly: true
+            };
+        }
+        return null;
+    }
+    
+    // 获取当前配置的所有接口(不包括默认接口)
+    function getVideoParseApis() {
+        const container = document.getElementById('videoParseApisList');
+        const items = container.querySelectorAll('.parse-api-item:not([data-is-default="true"])');
+        const apis = [];
+        
+        items.forEach(item => {
+            const enabled = item.querySelector('.parse-api-enabled').checked;
+            const api_url = item.querySelector('.parse-api-url').value.trim();
+            const url_path = item.querySelector('.parse-api-url-path').value.trim();
+            const code_path = item.querySelector('.parse-api-code-path').value.trim();
+            const success_code = item.querySelector('.parse-api-success-code').value.trim();
+            const quality = item.querySelector('.parse-api-quality').value;
+            
+            if (api_url) {
+                apis.push({
+                    api_url,
+                    url_path: url_path || 'final_url',
+                    code_path: code_path || 'code',
+                    success_code: success_code || '200',
+                    quality: quality || '360P',
+                    enabled: enabled
+                });
+            }
+        });
+        
+        return apis;
+    }
+    
+    // 测试影视解析配置
+    async function testVideoParseConfig() {
+        const testUrl = prompt('请输入测试地址（芒果TV剧集地址）:', 'https://www.mgtv.com/b/752667/23933212.html');
+        if (!testUrl) return;
+
+        try {
+            Message.info('正在测试解析接口...');
+            const result = await API.post('/api/video/parse-test', { url: testUrl });
+
+            if (result.code === 200) {
+                Message.success('解析成功！');
+                console.log('解析结果:', result.data);
+                
+                const info = [
+                    '解析成功！',
+                    `标题: ${result.data.title || '(无)'}`,
+                    `下载地址: ${result.data.download_url || '(无)'}`,
+                    `类型: ${result.data.type || '(无)'}`
+                ].join('\n');
+                
+                alert(info);
+            } else {
+                // 显示详细错误信息
+                console.error('解析失败:', result);
+                
+                let errorMsg = result.message || '解析失败';
+                
+                // 如果有原始数据，显示在控制台
+                if (result.data && result.data.raw_data) {
+                    console.log('API原始响应:', result.data.raw_data);
+                }
+                
+                // 友好的错误提示
+                if (errorMsg.includes('Failed to resolve') || errorMsg.includes('getaddrinfo failed')) {
+                    errorMsg = '网络错误：无法访问解析接口，请检查：\n1. 网络连接是否正常\n2. 解析接口地址是否正确\n3. 是否需要配置代理';
+                } else if (errorMsg.includes('Max retries exceeded')) {
+                    errorMsg = '网络错误：请求超时，请检查网络连接或更换解析接口';
+                } else if (errorMsg.includes('状态码不匹配')) {
+                    errorMsg = '配置错误：' + errorMsg + '\n请检查"成功状态码"配置是否正确';
+                } else if (errorMsg.includes('未找到下载地址')) {
+                    errorMsg = '配置错误：' + errorMsg + '\n请检查"下载地址路径"配置是否正确';
+                }
+                
+                Message.error(errorMsg);
+                alert(errorMsg);
+            }
+        } catch (error) {
+            console.error('测试解析失败:', error);
+            Message.error('测试失败：' + error.message);
+        }
+    }
+
+    // 保存所有配置
+    async function saveAllConfig() {
+        const data = {
+            log: {
+                retention_days: parseInt(document.getElementById('logRetentionDays').value)
+            },
+            download: {
+                default_dir: document.getElementById('downloadDefaultDir').value,
+                max_concurrent: parseInt(document.getElementById('downloadMaxConcurrent').value),
+                chunk_size: parseInt(document.getElementById('downloadChunkSize').value),
+                retry_count: parseInt(document.getElementById('downloadRetryCount').value),
+                retry_delay: parseInt(document.getElementById('downloadRetryDelay').value),
+                timeout: parseInt(document.getElementById('downloadTimeout').value),
+                // 多线程下载配置
+                enable_multithread: document.getElementById('enableMultithreadDownload').checked,
+                multithread_threshold: parseInt(document.getElementById('multithreadThreshold').value),
+                threads_per_file: parseInt(document.getElementById('threadsPerFile').value),
+                multithread_chunk_size: parseInt(document.getElementById('multithreadChunkSize').value)
+            },
+            email: {
+                smtp_server: document.getElementById('emailSmtpServer').value,
+                smtp_port: parseInt(document.getElementById('emailSmtpPort').value),
+                sender: document.getElementById('emailSender').value,
+                password: document.getElementById('emailPassword').value,
+                receivers: emailReceivers
+            },
+            pansou: {
+                api_url: document.getElementById('pansouApiUrl').value,
+                api_key: document.getElementById('pansouApiKey').value
+            },
+            video_parse: {
+                apis: getVideoParseApis(),
+                cookies: platformCookies
+            },
+            video_download: {
+                default_dir: document.getElementById('videoDownloadDefaultDir').value,
+                temp_dir: document.getElementById('videoDownloadTempDir').value,
+                retry_count: parseInt(document.getElementById('videoDownloadRetryCount').value),
+                timeout: parseInt(document.getElementById('videoDownloadTimeout').value),
+                max_threads: parseInt(document.getElementById('videoDownloadMaxThreads').value),
+                enable_multithread: document.getElementById('videoEnableMultithreadDownload').checked,
+                threads_count: parseInt(document.getElementById('videoThreadsCount').value)
+            }
+        };
+
+        try {
+            const result = await ConfigAPI.save(data);
+            
+            if (result.code === 200) {
+                Message.success('配置保存成功');
+            } else {
+                Message.error(result.message || '保存失败');
+            }
+        } catch (error) {
+            console.error('保存配置失败:', error);
+            Message.error('保存失败');
+        }
+    }
+
+    // 暴露需要在HTML中调用的函数到window对象
+    window.showAddAccountModal = showAddAccountModal;
+    window.hideAddAccountModal = hideAddAccountModal;
+    window.editAccount = editAccount;
+    window.testAndSaveAccount = testAndSaveAccount;
+    window.setMainAccount = setMainAccount;
+    window.refreshAccount = refreshAccount;
+    window.deleteAccount = deleteAccount;
+    window.addEmailReceiver = addEmailReceiver;
+    window.removeEmailReceiver = removeEmailReceiver;
+    window.testEmailConfig = testEmailConfig;
+    window.testVideoParseConfig = testVideoParseConfig;
+    window.saveAllConfig = saveAllConfig;
+
+    // 初始化
+    loadConfig();
+    loadAccounts();
+})();
+</script>

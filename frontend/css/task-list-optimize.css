@@ -1,0 +1,306 @@
+/* 
+ * 任务列表优化样式
+ * 适用于: 定时下载、影视下载页面
+ */
+
+/* ========== 表格整体优化 ========== */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #FFFFFF;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* 表头样式 - 加深背景色 */
+.data-table thead {
+    background: #F5F7FA;
+    border-bottom: 2px solid #E5E7EB;
+}
+
+.data-table thead th {
+    padding: 14px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+    text-align: left;
+    white-space: nowrap;
+}
+
+/* 表格行 - 隔行变色 */
+.data-table tbody tr {
+    border-bottom: 1px solid #F3F4F6;
+    transition: background-color 0.2s;
+}
+
+.data-table tbody tr:nth-child(even) {
+    background: #FAFBFC;
+}
+
+.data-table tbody tr:nth-child(odd) {
+    background: #FFFFFF;
+}
+
+.data-table tbody tr:hover {
+    background: #F0F9FF !important;
+}
+
+.data-table tbody td {
+    padding: 14px 16px;
+    font-size: 14px;
+    color: #1F2937;
+    vertical-align: middle;
+}
+
+/* ========== 操作按钮区域优化 ========== */
+.data-table tbody td:last-child {
+    text-align: right;
+    padding-right: 20px;
+}
+
+/* 操作按钮组 */
+.action-buttons {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+/* 按钮基础样式 - 增大点击区域 */
+.action-buttons .btn,
+.action-buttons .btn-small {
+    min-height: 32px;
+    padding: 6px 14px;
+    font-size: 13px;
+    border-radius: 6px;
+    border: 1px solid;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+/* 普通操作按钮 - 中性色 */
+.action-buttons .btn-execute,
+.action-buttons .btn-edit,
+.action-buttons .btn-view {
+    background: #F0F9FF;
+    color: #0369A1;
+    border-color: #BAE6FD;
+}
+
+.action-buttons .btn-execute:hover,
+.action-buttons .btn-edit:hover,
+.action-buttons .btn-view:hover {
+    background: #E0F2FE;
+    border-color: #7DD3FC;
+    color: #075985;
+}
+
+/* 启用/启动按钮 - 绿色 */
+.action-buttons .btn-enable,
+.action-buttons .btn-start {
+    background: #F0FDF4;
+    color: #15803D;
+    border-color: #BBF7D0;
+}
+
+.action-buttons .btn-enable:hover,
+.action-buttons .btn-start:hover {
+    background: #DCFCE7;
+    border-color: #86EFAC;
+    color: #166534;
+}
+
+/* 停止/禁用按钮 - 橙色 */
+.action-buttons .btn-stop,
+.action-buttons .btn-disable {
+    background: #FFF7ED;
+    color: #C2410C;
+    border-color: #FED7AA;
+}
+
+.action-buttons .btn-stop:hover,
+.action-buttons .btn-disable:hover {
+    background: #FFEDD5;
+    border-color: #FDBA74;
+    color: #9A3412;
+}
+
+/* 危险操作按钮 - 红色,缩小尺寸,使用图标 */
+.action-buttons .btn-delete,
+.action-buttons .btn-danger {
+    background: #FEF2F2;
+    color: #DC2626;
+    border-color: #FECACA;
+    min-width: 32px;
+    padding: 6px 10px;
+}
+
+.action-buttons .btn-delete:hover,
+.action-buttons .btn-danger:hover {
+    background: #FEE2E2;
+    border-color: #FCA5A5;
+    color: #B91C1C;
+}
+
+/* 删除按钮图标样式 */
+.action-buttons .btn-delete::before,
+.action-buttons .btn-danger::before {
+    content: "🗑️";
+    font-size: 14px;
+}
+
+/* 如果按钮有文字,隐藏文字只显示图标 */
+.action-buttons .btn-delete.icon-only,
+.action-buttons .btn-danger.icon-only {
+    font-size: 0;
+}
+
+.action-buttons .btn-delete.icon-only::before,
+.action-buttons .btn-danger.icon-only::before {
+    font-size: 14px;
+}
+
+/* 禁用状态 */
+.action-buttons .btn:disabled,
+.action-buttons .btn-small:disabled {
+    background: #F3F4F6;
+    color: #9CA3AF;
+    border-color: #E5E7EB;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* ========== 状态标签优化 ========== */
+.badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.badge-success {
+    background: #DCFCE7;
+    color: #166534;
+    border: 1px solid #BBF7D0;
+}
+
+.badge-warning {
+    background: #FEF3C7;
+    color: #92400E;
+    border: 1px solid #FDE68A;
+}
+
+.badge-error,
+.badge-danger {
+    background: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #FECACA;
+}
+
+.badge-info {
+    background: #DBEAFE;
+    color: #1E40AF;
+    border: 1px solid #BFDBFE;
+}
+
+.badge-default {
+    background: #F3F4F6;
+    color: #4B5563;
+    border: 1px solid #E5E7EB;
+}
+
+/* ========== 进度条优化 ========== */
+.progress-bar {
+    width: 100%;
+    height: 24px;
+    background: #F3F4F6;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #E5E7EB;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3B82F6 0%, #2563EB 100%);
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #FFFFFF;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* 进度条不同状态 */
+.progress-fill.success {
+    background: linear-gradient(90deg, #10B981 0%, #059669 100%);
+}
+
+.progress-fill.warning {
+    background: linear-gradient(90deg, #F59E0B 0%, #D97706 100%);
+}
+
+.progress-fill.error {
+    background: linear-gradient(90deg, #EF4444 0%, #DC2626 100%);
+}
+
+/* ========== 任务名称列优化 ========== */
+.task-name-cell {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+    color: #111827;
+}
+
+.task-name-cell:hover {
+    color: #2563EB;
+    cursor: pointer;
+}
+
+/* ========== 链接样式优化 ========== */
+.data-table a {
+    color: #2563EB;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.data-table a:hover {
+    color: #1D4ED8;
+    text-decoration: underline;
+}
+
+/* ========== 空状态优化 ========== */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6B7280;
+}
+
+.empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+/* ========== 响应式优化 ========== */
+@media (max-width: 1200px) {
+    .action-buttons {
+        flex-wrap: wrap;
+    }
+    
+    .action-buttons .btn,
+    .action-buttons .btn-small {
+        font-size: 12px;
+        padding: 5px 10px;
+    }
+}

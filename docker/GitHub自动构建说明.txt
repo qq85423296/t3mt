@@ -1,0 +1,94 @@
+========================================
+  使用 GitHub Actions 自动构建 Docker 镜像
+========================================
+
+【前提条件】
+
+1. 有 GitHub 账号
+2. 有 Docker Hub 账号
+
+【操作步骤】
+
+一、准备 Docker Hub Token
+
+1. 登录 Docker Hub (https://hub.docker.com)
+2. 点击右上角头像 -> Account Settings
+3. 左侧菜单选择 Security
+4. 点击 "New Access Token"
+5. 输入描述（如：GitHub Actions）
+6. 点击 Generate
+7. 复制生成的 Token（只显示一次，请保存好）
+
+二、创建 GitHub 仓库
+
+1. 登录 GitHub (https://github.com)
+2. 创建新仓库（可以是私有仓库）
+3. 将 client 目录的内容推送到仓库
+
+三、配置 GitHub Secrets
+
+1. 进入你的 GitHub 仓库
+2. 点击 Settings -> Secrets and variables -> Actions
+3. 点击 "New repository secret"
+4. 添加两个 Secret：
+   
+   名称: DOCKERHUB_USERNAME
+   值: 你的 Docker Hub 用户名
+   
+   名称: DOCKERHUB_TOKEN
+   值: 刚才复制的 Docker Hub Token
+
+四、触发构建
+
+方式一：推送代码
+  git add .
+  git commit -m "Add Docker build"
+  git push
+
+方式二：手动触发
+  1. 进入仓库的 Actions 页面
+  2. 选择 "Build and Push Docker Image"
+  3. 点击 "Run workflow"
+  4. 点击绿色的 "Run workflow" 按钮
+
+五、等待构建完成
+
+1. 在 Actions 页面查看构建进度
+2. 构建成功后，镜像会自动推送到 Docker Hub
+3. 访问 https://hub.docker.com/r/你的用户名/quark-manager 查看镜像
+
+【推送代码到 GitHub】
+
+cd C:\Data\夸克转存\client
+
+# 初始化 Git（如果还没有）
+git init
+
+# 添加所有文件
+git add .
+
+# 提交
+git commit -m "Initial commit"
+
+# 关联远程仓库（替换为你的仓库地址）
+git remote add origin https://github.com/你的用户名/quark-manager.git
+
+# 推送
+git push -u origin main
+
+【优点】
+
+✅ 不需要本地 Docker 环境
+✅ 自动化构建，省时省力
+✅ 每次推送代码自动更新镜像
+✅ 构建日志清晰，方便排查问题
+✅ 免费使用（GitHub Actions 和 Docker Hub 都有免费额度）
+
+【注意事项】
+
+1. 确保 backend/data/encrypted_config.dat 已生成
+2. GitHub 仓库可以设为私有，不影响 Docker Hub 镜像公开
+3. 构建时间约 5-10 分钟
+4. 每次推送代码都会触发构建，可以在 workflow 文件中调整触发条件
+
+========================================
