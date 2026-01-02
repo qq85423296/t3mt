@@ -30,9 +30,9 @@ class LicenseManager:
         self._decryption_key = None
         self._decryption_key_timestamp = None
         
-        import base64
-        encoded_url = 'aHR0cDovL2xpY2Vuc2UuMjJsMi5jb20='
-        self.license_server_url = base64.b64decode(encoded_url).decode('utf-8')
+        # 从配置文件读取许可证服务器地址
+        from config import Config
+        self.license_server_url = Config.LICENSE_SERVER_URL
         self.heartbeat_interval = 86400
         
         logger.info(f"许可证管理器初始化完成,服务器: {self.license_server_url}")

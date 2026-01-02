@@ -27,13 +27,12 @@ class UpgradeManager:
     
     def __init__(self):
         """初始化升级管理器"""
-        # 从加密配置获取许可证服务器地址
-        from utils.config_crypto import config_crypto
-        license_config = config_crypto.get_config('license_server', {})
-        self.license_server_url = license_config.get('url', '')
+        # 从配置文件读取许可证服务器地址
+        from config import Config
+        self.license_server_url = Config.LICENSE_SERVER_URL
         
         if not self.license_server_url:
-            logger.error("许可证服务器地址未配置,请联系管理员")
+            logger.error("许可证服务器地址未配置,请检查 config.ini 文件")
             raise ValueError("许可证服务器地址未配置")
         
         logger.info(f"升级管理器初始化完成,许可证服务器: {self.license_server_url}")

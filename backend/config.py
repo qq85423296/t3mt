@@ -3,14 +3,38 @@
 配置文件
 """
 import os
+import base64
+import configparser
 
 class Config:
     """应用配置"""
     
+    # 读取 config.ini 文件
+    _config_parser = configparser.ConfigParser()
+    _config_ini_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    
+    if os.path.exists(_config_ini_path):
+        _config_parser.read(_config_ini_path, encoding='utf-8')
+    
+    @classmethod
+    def _get_ini_value(cls, section, key, default=None, decode_base64=False):
+        """从 ini 文件读取配置值"""
+        try:
+            value = cls._config_parser.get(section, key)
+            if decode_base64 and value:
+                # base64 解码
+                value = base64.b64decode(value).decode('utf-8')
+            return value
+        except:
+            return default
+    
+    # 许可证服务器配置（从 config.ini 读取并 base64 解码）
+    LICENSE_SERVER_URL = _get_ini_value.__func__(None, 'license_server', 'url', 
+                                                   'http://license.22l2.com', decode_base64=True)
+    
     # 应用配置
     # 使用固定的SECRET_KEY,避免重启后Session失效
     SECRET_KEY = 'quark_manager_secret_key_2024_fixed'
-    DEBUG = True
     
     # Session配置
     SESSION_COOKIE_SAMESITE = None  # 允许跨域携带Cookie
@@ -24,8 +48,9 @@ class Config:
     DATABASE_PATH = os.path.join(os.path.dirname(__file__), 'data', 'quark_manager.db')
     
     # 服务器配置
-    HOST = '0.0.0.0'  # 监听所有网络接口，允许外部访问
-    PORT = 8520  # 用户端端口
+    HOST = _get_ini_value.__func__(None, 'app', 'host', '0.0.0.0')
+    PORT = int(_get_ini_value.__func__(None, 'app', 'port', '8520'))
+    DEBUG = _get_ini_value.__func__(None, 'app', 'debug', 'true').lower() == 'true'
     
     # API基础URL（用于内部服务间调用）
     # 在服务器上部署时，使用实际的服务器地址
