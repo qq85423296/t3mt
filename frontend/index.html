@@ -692,6 +692,13 @@
 
             // 加载默认页面
             loadPage('search');
+            
+            // 延迟2秒后自动检测更新（避免影响页面加载）
+            setTimeout(() => {
+                if (typeof window.checkForceUpdate === 'function') {
+                    window.checkForceUpdate();
+                }
+            }, 2000);
         }
 
         // 页面加载完成后初始化
