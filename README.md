@@ -233,10 +233,6 @@ python start.py
 ### 基础配置（backend/config.ini）
 
 ```ini
-[license_server]
-# 许可证服务器地址（base64 编码）
-url = aHR0cDovL2xpY2Vuc2UuMjJsMi5jb20=
-
 [app]
 # 应用基本配置
 host = 0.0.0.0

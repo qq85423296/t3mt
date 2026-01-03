@@ -243,12 +243,19 @@ def get_douban_ranking():
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
         }
         
-        # 获取当前请求的host，用于构建完整的代理URL
-        # 如果是通过API网关访问，使用配置的API_BASE_URL
+        # 获取当前请求的完整URL（包含协议、域名和端口）
+        # request.host_url 会自动包含端口号（如果不是默认端口）
         api_base = request.host_url.rstrip('/')
-        # 如果请求来自osapi域名，保持使用osapi域名
-        if 'osapi' in request.host:
-            api_base = f"http://{request.host}"
+        
+        # 如果 request.host_url 没有包含端口，手动添加
+        # 这种情况通常发生在反向代理后面
+        if ':' not in request.host and request.environ.get('SERVER_PORT'):
+            port = request.environ.get('SERVER_PORT')
+            # 只有非标准端口才需要添加
+            if port not in ['80', '443']:
+                scheme = request.scheme
+                host = request.host
+                api_base = f"{scheme}://{host}:{port}"
         
         result = {
             'movie': [],

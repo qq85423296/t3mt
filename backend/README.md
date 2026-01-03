@@ -1,5 +1,15 @@
 # T3MT - 后端服务
 
+影视资源管理系统后端服务，提供影视资源搜索、下载管理、定时任务等核心功能。
+
+## 核心功能
+
+- **影视资源搜索**：集成多个资源搜索引擎，快速查找影视资源
+- **资源下载管理**：支持多任务并发下载，断点续传
+- **定时任务调度**：自动化资源转存和下载任务
+- **账号管理**：多账号支持，灵活切换
+- **日志追踪**：完整的操作日志记录和查询
+
 ## 项目结构
 
 ```
@@ -7,7 +17,7 @@ backend/
 ├── api/                    # API接口层
 │   ├── auth.py            # 认证接口
 │   ├── accounts.py        # 账号管理接口
-│   ├── quark.py           # 夸克网盘操作接口
+│   ├── quark.py           # 网盘操作接口
 │   ├── search.py          # 资源搜索接口
 │   ├── transfer.py        # 转存任务接口
 │   ├── download.py        # 下载任务接口
@@ -22,12 +32,12 @@ backend/
 │   └── config.py          # 配置模型
 ├── services/               # 业务逻辑层
 │   ├── account_service.py # 账号服务
-│   ├── quark_service.py   # 夸克网盘服务
+│   ├── quark_service.py   # 网盘服务
 │   ├── transfer_service.py# 转存服务
 │   ├── download_service.py# 下载服务
 │   ├── log_service.py     # 日志服务
 │   ├── email_service.py   # 邮件服务
-│   └── search_service.py  # 搜索服务
+│   └── search_service.py  # 资源搜索服务
 ├── tasks/                  # 任务调度层
 │   └── scheduler.py       # 任务调度器
 ├── utils/                  # 工具类
@@ -35,12 +45,16 @@ backend/
 │   ├── logger.py          # 日志工具
 │   ├── cron_parser.py     # Cron解析
 │   └── file_helper.py     # 文件操作
+├── config/                 # 配置目录
+│   ├── config.ini         # 基础配置
+│   └── encrypted_config.dat # 加密配置
 ├── data/                   # 数据目录（自动创建）
 │   └── quark_manager.db   # SQLite数据库
 ├── logs/                   # 日志目录（自动创建）
+├── downloads/              # 下载目录（自动创建）
 ├── app.py                  # Flask应用主文件
-├── config.py               # 配置文件
-├── database.py             # 数据库初始化
+├── config.py               # 配置管理
+├── database.py             # 数据库管理
 ├── init_db.py              # 数据库初始化脚本
 ├── start.py                # 启动脚本
 └── requirements.txt        # 依赖清单
@@ -104,7 +118,15 @@ python app.py
 
 ## 配置说明
 
-### config.py 配置项
+### 基础配置 (config.ini)
+
+系统基础配置文件，包含许可证服务器地址等信息。
+
+### 加密配置 (config/encrypted_config.dat)
+
+加密存储的敏感配置信息，包括 API 密钥、账号信息等。该文件已内置在 Docker 镜像中。
+
+### 应用配置 (config.py)
 
 ```python
 # 应用配置
@@ -115,12 +137,12 @@ DEBUG = False
 DATABASE = 'data/quark_manager.db'
 
 # 服务器配置
-HOST = '127.0.0.1'
+HOST = '0.0.0.0'
 PORT = 8520
 
 # 日志配置
 LOG_LEVEL = 'INFO'
-LOG_FILE = 'logs/app.log'
+LOG_DIR = 'logs/'
 ```
 
 ## API接口文档
@@ -140,7 +162,7 @@ LOG_FILE = 'logs/app.log'
 - `DELETE /api/accounts/{id}` - 删除账号
 - `PUT /api/accounts/{id}/set-main` - 设为主账号
 
-### 夸克网盘接口
+### 网盘操作接口
 
 - `GET /api/quark/files` - 获取文件列表
 - `POST /api/quark/folder` - 创建文件夹
@@ -149,25 +171,25 @@ LOG_FILE = 'logs/app.log'
 - `GET /api/quark/download` - 获取下载链接
 - `POST /api/quark/save-share` - 转存分享文件
 
-### 资源搜索接口
+### 影视资源搜索接口
 
-- `GET /api/search` - 搜索资源
-- `POST /api/search/check-validity` - 检测链接有效性
+- `GET /api/search` - 搜索影视资源
+- `POST /api/search/check-validity` - 检测资源链接有效性
 
-### 转存任务接口
+### 定时转存任务接口
 
-- `GET /api/transfer/tasks` - 获取任务列表
-- `POST /api/transfer/task` - 创建任务
+- `GET /api/transfer/tasks` - 获取转存任务列表
+- `POST /api/transfer/task` - 创建转存任务
 - `GET /api/transfer/task/{id}` - 获取任务详情
 - `PUT /api/transfer/task/{id}` - 更新任务
 - `DELETE /api/transfer/task/{id}` - 删除任务
 - `POST /api/transfer/task/{id}/toggle` - 暂停/启动任务
 - `POST /api/transfer/task/{id}/execute` - 立即执行任务
 
-### 下载任务接口
+### 影视下载任务接口
 
-- `GET /api/download/tasks` - 获取任务列表
-- `POST /api/download/task` - 创建任务
+- `GET /api/download/tasks` - 获取下载任务列表
+- `POST /api/download/task` - 创建下载任务
 - `GET /api/download/task/{id}` - 获取任务详情
 - `PUT /api/download/task/{id}` - 更新任务
 - `DELETE /api/download/task/{id}` - 删除任务
@@ -238,13 +260,31 @@ LOG_FILE = 'logs/app.log'
 4. 定期备份数据库文件
 5. 及时修改默认管理员密码
 
+## Docker 部署
+
+推荐使用 Docker 部署，配置文件已内置在镜像中：
+
+```bash
+docker pull 85423296/t3mt:latest
+docker run -d \
+  --name t3mt \
+  -p 8520:80 \
+  -v /path/to/data:/app/backend/data \
+  -v /path/to/logs:/app/backend/logs \
+  -v /path/to/downloads:/app/backend/downloads \
+  -e TZ=Asia/Shanghai \
+  85423296/t3mt:latest
+```
+
+访问: http://localhost:8520
+
 ## 技术栈
 
 - Flask 2.3.0 - Web框架
-- APScheduler 3.10.0 - 任务调度
+- APScheduler 3.10.0 - 定时任务调度
 - SQLite 3 - 数据库
 - Requests 2.31.0 - HTTP请求
-- Cryptography 41.0.0 - 加密解密
+- Cryptography 41.0.0 - 配置加密
 
 ## 许可证
 
