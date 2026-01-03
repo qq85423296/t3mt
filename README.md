@@ -10,6 +10,7 @@
 
 
 compose部署：
+```bash
 version: '3.8'
 
 services:
@@ -25,7 +26,8 @@ services:
       - ./downloads:/app/backend/downloads # 下载目录 前面是本地 后面是docker
     environment:
       - TZ=Asia/Shanghai
-      
+```
+
 ## 功能特性
 
 ### 1. 资源搜索
