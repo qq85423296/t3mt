@@ -17,7 +17,7 @@ class ConfigCrypto:
     """配置加密管理器"""
     
     # 加密配置文件路径
-    ENCRYPTED_CONFIG_PATH = 'data/encrypted_config.dat'
+    ENCRYPTED_CONFIG_PATH = 'config/encrypted_config.dat'
     
     def __init__(self):
         self._cipher = None

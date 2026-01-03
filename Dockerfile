@@ -16,6 +16,7 @@ COPY backend/ /app/backend/
 
 # 确保配置文件存在
 RUN test -f /app/backend/config.ini || (echo "错误: config.ini 配置文件不存在" && exit 1)
+RUN test -f /app/backend/config/encrypted_config.dat || (echo "错误: encrypted_config.dat 配置文件不存在" && exit 1)
 
 # 安装 Python 依赖
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
