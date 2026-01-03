@@ -7,7 +7,7 @@ from flask_cors import CORS
 import os
 
 from config import Config
-from database import get_db
+from database import get_db, init_database
 from utils.logger import logger
 
 # 导入所有API蓝图
@@ -118,7 +118,7 @@ def main():
         logger.info("检查数据库...")
         if not os.path.exists(Config.DATABASE_PATH):
             logger.info("数据库不存在，正在初始化...")
-            db.init_database()
+            init_database()
         logger.info("数据库检查完成")
         
         # 清理异常中断的任务状态
