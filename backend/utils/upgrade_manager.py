@@ -217,9 +217,17 @@ class UpgradeManager:
                     dst = project_root / item.name
                     logger.info(f"更新目录: {item} -> {dst}")
                     
-                    # 删除旧目录(保留数据和日志)
-                    if dst.exists() and item.name not in ['data', 'logs', 'backups']:
-                        shutil.rmtree(dst)
+                    # 跳过不需要更新的目录
+                    if item.name in ['data', 'logs', 'backups', 'downloads']:
+                        logger.info(f"跳过目录: {item.name}")
+                        continue
+                    
+                    # 删除旧目录
+                    if dst.exists():
+                        try:
+                            shutil.rmtree(dst)
+                        except Exception as e:
+                            logger.warning(f"删除旧目录失败: {e}，尝试覆盖")
                     
                     # 复制新文件
                     shutil.copytree(item, dst, dirs_exist_ok=True)
