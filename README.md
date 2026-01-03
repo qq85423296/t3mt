@@ -8,6 +8,24 @@
 - **简单化**: 原生HTML/JS前端,无需构建工具
 - **稳定化**: 成熟技术方案,代码结构清晰。
 
+
+compose部署：
+version: '3.8'
+
+services:
+  t3mt:
+    image: 85423296/t3mt:latest
+    container_name: t3mt
+    restart: unless-stopped
+    ports:
+      - "8520:80"
+    volumes:
+      - ./data:/app/backend/data # 数据文件
+      - ./logs:/app/backend/logs  # 日志
+      - ./downloads:/app/backend/downloads # 下载目录 前面是本地 后面是docker
+    environment:
+      - TZ=Asia/Shanghai
+      
 ## 功能特性
 
 ### 1. 资源搜索
