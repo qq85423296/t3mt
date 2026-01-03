@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   t3mt:
-    image: 85423296/t3mt:latest
+    image: 85423296/t3mt
     container_name: t3mt
     restart: unless-stopped
     ports:
