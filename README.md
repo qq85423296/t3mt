@@ -313,6 +313,17 @@ docker-compose down
 docker-compose up -d
 ```
 
+或者使用指定版本：
+
+```bash
+# 修改 docker-compose.yml 中的镜像标签
+# image: 85423296/t3mt:latest 改为 image: 85423296/t3mt:2.0.1
+
+# 拉取并重启
+docker-compose pull
+docker-compose up -d
+```
+
 ## 常见问题
 
 ### 1. 视频解析失败
