@@ -244,18 +244,13 @@ def get_douban_ranking():
         }
         
         # 获取当前请求的完整URL（包含协议、域名和端口）
-        # request.host_url 会自动包含端口号（如果不是默认端口）
-        api_base = request.host_url.rstrip('/')
+        # 根据原始请求的 host 是否包含端口来决定是否添加端口
+        scheme = request.scheme
+        host = request.host  # 这个会自动包含端口（如果请求URL中有端口）
         
-        # 如果 request.host_url 没有包含端口，手动添加
-        # 这种情况通常发生在反向代理后面
-        if ':' not in request.host and request.environ.get('SERVER_PORT'):
-            port = request.environ.get('SERVER_PORT')
-            # 只有非标准端口才需要添加
-            if port not in ['80', '443']:
-                scheme = request.scheme
-                host = request.host
-                api_base = f"{scheme}://{host}:{port}"
+        # 直接使用 request.host，它会自动包含端口（如果有）
+        # 例如：c37032502b84-0.fnspro.fnos.net:8520 或 example.com
+        api_base = f"{scheme}://{host}"
         
         result = {
             'movie': [],

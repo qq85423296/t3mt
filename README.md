@@ -304,25 +304,48 @@ docker-compose exec t3mt cat /var/log/supervisor/flask.log
 
 ### 更新镜像
 
+#### 方式一：更新到最新版本（推荐）
+
 ```bash
-# 拉取最新镜像
+# 1. 拉取最新镜像
 docker-compose pull
 
-# 重启服务
+# 2. 停止并删除旧容器
+docker-compose down
+
+# 3. 启动新容器
+docker-compose up -d
+
+# 4. 查看版本（可选）
+docker-compose logs | grep "当前版本"
+```
+
+#### 方式二：更新到指定版本
+
+```bash
+# 1. 修改 docker-compose.yml 中的镜像标签
+# 将 image: 85423296/t3mt:latest 
+# 改为 image: 85423296/t3mt:2.0.2
+
+# 2. 拉取指定版本镜像
+docker-compose pull
+
+# 3. 重启服务
 docker-compose down
 docker-compose up -d
 ```
 
-或者使用指定版本：
+#### 检查更新
 
-```bash
-# 修改 docker-compose.yml 中的镜像标签
-# image: 85423296/t3mt:latest 改为 image: 85423296/t3mt:2.0.1
+Docker Desktop 会自动检测 Docker Hub 上的新版本镜像：
+- 在 Docker Desktop 的镜像列表中，如果有新版本会显示"有新版本"标签
+- 也可以访问 [Docker Hub](https://hub.docker.com/r/85423296/t3mt/tags) 查看所有可用版本
 
-# 拉取并重启
-docker-compose pull
-docker-compose up -d
-```
+#### 注意事项
+
+- 更新前会自动保留 `data`、`logs`、`downloads` 目录的数据
+- 如果使用了自定义配置，更新后需要重新配置
+- 建议在更新前备份 `data` 目录
 
 ## 常见问题
 
