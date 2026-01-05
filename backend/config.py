@@ -74,8 +74,11 @@ class Config:
     THREADS_PER_FILE = 4  # 每个文件的下载线程数（建议 4-8）
     MULTITHREAD_CHUNK_SIZE = 10 * 1024 * 1024  # 10MB，每个线程下载的块大小
     
-    # 夸克API配置 - 从加密配置中读取
+    # 夸克API配置 - 延迟加载，避免启动时报错
     _quark_config_cache = None
+    QUARK_BASE_URL = None
+    QUARK_BASE_URL_APP = None
+    QUARK_USER_AGENT = None
     
     @classmethod
     def _load_quark_config(cls):
@@ -102,19 +105,16 @@ class Config:
             raise ValueError(error_msg)
         
         cls._quark_config_cache = quark_config
+        cls.QUARK_BASE_URL = quark_config['base_url']
+        cls.QUARK_BASE_URL_APP = quark_config['base_url_app']
+        cls.QUARK_USER_AGENT = quark_config['user_agent']
         logger.info("夸克API配置加载成功")
         return quark_config
-
-# 动态设置夸克API配置属性
-try:
-    _quark_cfg = Config._load_quark_config()
-    Config.QUARK_BASE_URL = _quark_cfg['base_url']
-    Config.QUARK_BASE_URL_APP = _quark_cfg['base_url_app']
-    Config.QUARK_USER_AGENT = _quark_cfg['user_agent']
-except Exception as e:
-    # 配置加载失败时,设置为None,让服务在使用时报错
-    Config.QUARK_BASE_URL = None
-    Config.QUARK_BASE_URL_APP = None
-    Config.QUARK_USER_AGENT = None
-    print(f"警告: 夸克API配置加载失败: {e}")
+    
+    @classmethod
+    def ensure_quark_config(cls):
+        """确保夸克API配置已加载"""
+        if cls.QUARK_BASE_URL is None:
+            cls._load_quark_config()
+        return cls.QUARK_BASE_URL is not None
 

@@ -114,6 +114,24 @@ def create_app():
 def main():
     """主函数"""
     try:
+        # 初始化许可证管理器并获取解密密钥
+        logger.info("初始化许可证管理器...")
+        try:
+            from utils.license_manager import license_manager
+            if license_manager.ensure_decryption_key():
+                logger.info("解密密钥获取成功，配置已就绪")
+                # 加载夸克API配置
+                try:
+                    Config.ensure_quark_config()
+                    logger.info("夸克API配置加载完成")
+                except Exception as e:
+                    logger.error(f"夸克API配置加载失败: {e}")
+            else:
+                logger.warning("解密密钥获取失败，部分功能可能受限")
+        except Exception as e:
+            logger.error(f"许可证管理器初始化失败: {e}")
+            logger.warning("将以降级模式运行，部分功能可能不可用")
+        
         # 确保数据库已初始化
         logger.info("检查数据库...")
         if not os.path.exists(Config.DATABASE_PATH):

@@ -18,8 +18,9 @@ class QuarkService:
     def __init__(self, cookie):
         self.cookie = cookie.strip()
         
-        # 验证夸克API配置是否已加载
-        if not Config.QUARK_BASE_URL or not Config.QUARK_BASE_URL_APP or not Config.QUARK_USER_AGENT:
+        # 确保夸克API配置已加载
+        from config import Config
+        if not Config.ensure_quark_config():
             error_msg = "夸克API配置未加载,请联系管理员获取配置"
             logger.error(error_msg)
             raise ValueError(error_msg)
