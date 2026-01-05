@@ -79,8 +79,8 @@ def get_config():
                 'timeout': int(ConfigModel.get_config('video_download_timeout', 30)),
                 'enable_multithread': ConfigModel.get_config('video_download_enable_multithread', 'true') == 'true',
                 'threads_count': int(ConfigModel.get_config('video_download_threads_count', 4)),
-                'default_dir': ConfigModel.get_config('video_download_default_dir', '/vol2/1000/媒体库/video/官网下载'),
-                'temp_dir': ConfigModel.get_config('video_download_temp_dir', '/vol2/1000/媒体库/video/temp'),
+                'default_dir': ConfigModel.get_config('video_download_default_dir', '/app/backend/downloads/官网下载'),
+                'temp_dir': ConfigModel.get_config('video_download_temp_dir', '/app/backend/downloads/temp'),
                 'max_threads': int(ConfigModel.get_config('video_download_max_threads', 3))
             }
         }
@@ -176,8 +176,8 @@ def save_config():
             ConfigModel.set_config('video_download_timeout', str(video_download_config.get('timeout', 30)), 'video_download')
             ConfigModel.set_config('video_download_enable_multithread', 'true' if video_download_config.get('enable_multithread') else 'false', 'video_download')
             ConfigModel.set_config('video_download_threads_count', str(video_download_config.get('threads_count', 4)), 'video_download')
-            ConfigModel.set_config('video_download_default_dir', video_download_config.get('default_dir', '/vol2/1000/媒体库/video/官网下载'), 'video_download')
-            ConfigModel.set_config('video_download_temp_dir', video_download_config.get('temp_dir', '/vol2/1000/媒体库/video/temp'), 'video_download')
+            ConfigModel.set_config('video_download_default_dir', video_download_config.get('default_dir', '/app/backend/downloads/官网下载'), 'video_download')
+            ConfigModel.set_config('video_download_temp_dir', video_download_config.get('temp_dir', '/app/backend/downloads/temp'), 'video_download')
             ConfigModel.set_config('video_download_max_threads', str(video_download_config.get('max_threads', 3)), 'video_download')
         
         logger.info("系统配置保存成功")

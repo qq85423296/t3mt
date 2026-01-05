@@ -271,8 +271,8 @@ class Database:
                 ('download_chunk_size', '10', 'download', '分块下载大小(MB)'),
                 ('download_retry_count', '3', 'download', '下载重试次数'),
                 ('pansou_api_url', 'http://192.168.0.111:8383/', 'pansou', '盘搜API地址'),
-                ('video_download_default_dir', '/vol2/1000/媒体库/video/官网下载', 'video_download', '影视下载默认目录'),
-                ('video_download_temp_dir', '/vol2/1000/媒体库/video/temp', 'video_download', '影视下载临时目录'),
+                ('video_download_default_dir', '/app/backend/downloads/官网下载', 'video_download', '影视下载默认目录'),
+                ('video_download_temp_dir', '/app/backend/downloads/temp', 'video_download', '影视下载临时目录'),
                 ('video_download_max_threads', '3', 'video_download', '视频片段下载线程数（1-10）'),
             ]
             

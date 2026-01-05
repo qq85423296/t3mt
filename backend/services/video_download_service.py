@@ -840,7 +840,7 @@ class VideoDownloadService:
         
         # 获取临时目录配置
         from models.config import ConfigModel
-        temp_base_dir = ConfigModel.get_config('video_download_temp_dir', '/vol2/1000/媒体库/video/temp')
+        temp_base_dir = ConfigModel.get_config('video_download_temp_dir', '/app/backend/downloads/temp')
         
         # 为当前任务创建临时目录：temp_dir/任务名称/
         safe_task_name = self._sanitize_filename(task_name or f'task_{task_id}')
