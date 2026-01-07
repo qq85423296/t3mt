@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     nginx \
     supervisor \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制后端代码
