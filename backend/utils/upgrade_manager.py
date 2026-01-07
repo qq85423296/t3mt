@@ -35,7 +35,7 @@ class UpgradeManager:
             logger.error("许可证服务器地址未配置,请检查 config.ini 文件")
             raise ValueError("许可证服务器地址未配置")
         
-        logger.info(f"升级管理器初始化完成,许可证服务器: {self.license_server_url}")
+        logger.info("升级管理器初始化完成")
         
         # 创建必要的目录
         self.BACKUP_DIR.mkdir(exist_ok=True)

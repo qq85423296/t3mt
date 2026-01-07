@@ -225,7 +225,7 @@ class VideoParseService:
                 # 构建完整URL
                 full_url = f"{api_url}{video_url}"
                 
-                logger.info(f"尝试接口 #{index+1}: {api_url}")
+                logger.info(f"尝试接口 #{index+1}: {'默认接口' if api.get('is_default') else '自定义接口'}")
                 logger.info(f"配置 - 下载地址路径: {url_path}, 状态码路径: {code_path}, 成功状态码: {success_code}")
                 
                 # 配置代理（如果环境变量中有配置）
