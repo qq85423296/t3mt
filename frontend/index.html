@@ -398,6 +398,19 @@
                     </div>
                 </div>
                 
+                <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 16px; border-radius: 4px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: start; gap: 12px;">
+                        <span style="font-size: 20px;">👥</span>
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500; color: #1565c0; margin-bottom: 4px;">交流群</div>
+                            <div style="color: #666; font-size: 14px;">
+                                QQ群: <span style="color: #1976d2; font-weight: 500; cursor: pointer;" onclick="copyToClipboard('630966420')" title="点击复制">630966420</span>
+                                <span style="color: #999; font-size: 12px; margin-left: 8px;">（问题反馈、经验分享）</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <div style="text-align: center; color: #999; font-size: 12px; margin-bottom: 16px;">
                     © 2024-2026 T3MT. All rights reserved.
                 </div>
@@ -713,6 +726,22 @@
         // 隐藏关于弹窗
         function hideAboutModal() {
             document.getElementById('aboutModal').classList.remove('show');
+        }
+        
+        // 复制到剪贴板
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                Message.success('已复制: ' + text);
+            }).catch(() => {
+                // 降级方案
+                const input = document.createElement('input');
+                input.value = text;
+                document.body.appendChild(input);
+                input.select();
+                document.execCommand('copy');
+                document.body.removeChild(input);
+                Message.success('已复制: ' + text);
+            });
         }
         
         // 加载关于信息
