@@ -252,6 +252,8 @@ def get_douban_ranking():
         # 例如：c37032502b84-0.fnspro.fnos.net:8520 或 example.com
         api_base = f"{scheme}://{host}"
         
+        logger.info(f"构建图片代理URL - scheme: {scheme}, host: {host}, api_base: {api_base}")
+        
         result = {
             'movie': [],
             'tv': [],
@@ -497,7 +499,7 @@ def proxy_image():
             logger.error("代理图片请求缺少URL参数")
             return jsonify({'error': '缺少图片URL参数'}), 400
         
-        logger.info(f"代理图片请求: {image_url}")
+        logger.info(f"代理图片请求 - URL: {image_url}, 来源: {request.referrer}, Host: {request.host}")
         
         # 设置请求头，伪装成豆瓣网站的请求
         headers = {
@@ -514,7 +516,7 @@ def proxy_image():
             # 获取图片内容类型
             content_type = response.headers.get('Content-Type', 'image/jpeg')
             
-            logger.info(f"成功代理图片: {image_url}, Content-Type: {content_type}")
+            logger.info(f"成功代理图片: {image_url}, Content-Type: {content_type}, Size: {len(response.content)} bytes")
             
             # 返回图片数据
             return Response(
@@ -531,4 +533,6 @@ def proxy_image():
             
     except Exception as e:
         logger.error(f"代理图片异常: {e}, URL: {request.args.get('url', 'unknown')}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
