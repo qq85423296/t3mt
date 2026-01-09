@@ -244,15 +244,14 @@ def get_douban_ranking():
         }
         
         # 获取当前请求的完整URL（包含协议、域名和端口）
-        # 根据原始请求的 host 是否包含端口来决定是否添加端口
-        scheme = request.scheme
-        host = request.host  # 这个会自动包含端口（如果请求URL中有端口）
+        # 优先从 X-Forwarded-Host 获取（Nginx代理会设置），其次使用 request.host
+        scheme = request.headers.get('X-Forwarded-Proto', request.scheme)
+        host = request.headers.get('X-Forwarded-Host') or request.host
         
-        # 直接使用 request.host，它会自动包含端口（如果有）
-        # 例如：c37032502b84-0.fnspro.fnos.net:8520 或 example.com
+        # 构建完整的API基础URL
         api_base = f"{scheme}://{host}"
         
-        logger.info(f"构建图片代理URL - scheme: {scheme}, host: {host}, api_base: {api_base}")
+        logger.info(f"构建图片代理URL - scheme: {scheme}, host: {host}, X-Forwarded-Host: {request.headers.get('X-Forwarded-Host')}, request.host: {request.host}, api_base: {api_base}")
         
         result = {
             'movie': [],
