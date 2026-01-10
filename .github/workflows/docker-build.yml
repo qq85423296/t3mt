@@ -39,7 +39,7 @@ jobs:
           push: true
           tags: |
             85423296/t3mt:latest
-            85423296/t3mt:2.0.1
+            85423296/t3mt:2.0.4
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -47,4 +47,4 @@ jobs:
       - name: 构建并推送镜像完成
         run: |
           echo "✅ Docker 镜像构建并推送成功"
-          echo "镜像标签: 85423296/t3mt:latest, 85423296/t3mt:2.0.1"
+          echo "镜像标签: 85423296/t3mt:latest, 85423296/t3mt:2.0.4"
