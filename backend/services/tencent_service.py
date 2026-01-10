@@ -259,25 +259,126 @@ class TencentService:
             title = item_params.get('title', '')
             video_subtitle = item_params.get('video_subtitle', '')  # 剧集副标题/简介
             
-            # 过滤预告片
-            if '预告' in play_title or '预告' in title:
+            # 获取时长（秒）
+            duration_seconds = item_params.get('duration', 0)
+            try:
+                duration_int = int(duration_seconds)
+            except:
+                duration_int = 0
+            
+            # 获取标签信息
+            imgtag_all = item_params.get('imgtag_all', '')
+            uni_imgtag = item_params.get('uni_imgtag', '')
+            
+            # 用于标记是否需要过滤
+            should_filter = False
+            
+            # 过滤非正片内容
+            # 1. 过滤预告片
+            # 1.1 检查标题中是否包含"预告"
+            if '预告' in play_title or '预告' in title or '预告' in video_subtitle:
+                logger.debug(f"过滤预告片（标题包含'预告'）: {play_title}")
+                continue
+            
+            # 1.2 检查uni_imgtag标签中是否标记为预告
+            if uni_imgtag:
+                # uni_imgtag可能是字符串或字典
+                try:
+                    if isinstance(uni_imgtag, str):
+                        import json
+                        uni_imgtag_obj = json.loads(uni_imgtag)
+                    else:
+                        uni_imgtag_obj = uni_imgtag
+                    
+                    # 检查所有tag中是否有"预告"标识
+                    for tag_key, tag_value in uni_imgtag_obj.items():
+                        if isinstance(tag_value, dict):
+                            tag_text = tag_value.get('text', '')
+                            if '预告' in tag_text:
+                                logger.debug(f"过滤预告片（uni_imgtag标记为'{tag_text}'）: {play_title}")
+                                should_filter = True
+                                break
+                    
+                    if should_filter:
+                        continue
+                except:
+                    pass
+            
+            # 1.3 检查imgtag_all标签中是否标记为预告
+            if imgtag_all:
+                try:
+                    if isinstance(imgtag_all, str):
+                        import json
+                        imgtag_all_obj = json.loads(imgtag_all)
+                    else:
+                        imgtag_all_obj = imgtag_all
+                    
+                    # 检查所有tag中是否有"预告"或"预"标识
+                    for tag_key, tag_value in imgtag_all_obj.items():
+                        if isinstance(tag_value, dict):
+                            tag_text = tag_value.get('text', '')
+                            if '预告' in tag_text or tag_text.startswith('预-'):
+                                logger.debug(f"过滤预告片（imgtag_all标记为'{tag_text}'）: {play_title}")
+                                should_filter = True
+                                break
+                    
+                    if should_filter:
+                        continue
+                except:
+                    pass
+            
+            # 2. 过滤标题中包含特定关键词的非正片内容
+            filter_keywords = [
+                '花絮', '片段', '特辑', '精彩', '看点', '幕后', 
+                '采访', '访谈', '彩蛋', '番外', '剧透', '解说',
+                '片花', '集锦', '混剪', '速看', '回顾', '盘点',
+                '导视', '片尾曲', '片头曲', '主题曲', '插曲'
+            ]
+            
+            for keyword in filter_keywords:
+                if keyword in play_title or keyword in video_subtitle:
+                    logger.debug(f"过滤非正片内容（包含'{keyword}'）: {play_title}")
+                    should_filter = True
+                    break
+            
+            if should_filter:
+                continue
+            
+            # 3. 标题格式检查：只保留标准正片格式
+            # 允许的格式：
+            # - 第X集、第X话、第X期（如：第01集、第1集、第02话）
+            # - 纯数字（如：01、02、1、2）
+            # - 包含"集"、"话"、"期"的（如：01集、02话）
+            import re
+            
+            # 检查是否是标准正片格式
+            is_valid_format = False
+            
+            # 格式1：第X集/话/期
+            if re.search(r'第\d+[集话期]', play_title):
+                is_valid_format = True
+            # 格式2：纯数字（01、02、1、2等）
+            elif re.match(r'^\d+$', play_title.strip()):
+                is_valid_format = True
+            # 格式3：数字+集/话/期（01集、02话等）
+            elif re.match(r'^\d+[集话期]$', play_title.strip()):
+                is_valid_format = True
+            # 格式4：包含"第"和数字的（第一集、第二话等）
+            elif re.search(r'第[一二三四五六七八九十百千万\d]+[集话期]', play_title):
+                is_valid_format = True
+            
+            if not is_valid_format:
+                logger.debug(f"过滤非标准格式: {play_title}")
                 continue
             
             # 格式化时长（秒转为分:秒格式）
             duration_str = ''
-            duration_seconds = item_params.get('duration', 0)
-            if duration_seconds:
-                try:
-                    duration_int = int(duration_seconds)
-                    minutes = duration_int // 60
-                    seconds = duration_int % 60
-                    duration_str = f"{minutes}:{seconds:02d}"
-                except:
-                    duration_str = str(duration_seconds)
+            if duration_int > 0:
+                minutes = duration_int // 60
+                seconds = duration_int % 60
+                duration_str = f"{minutes}:{seconds:02d}"
             
-            # 检查是否VIP
-            imgtag_all = item_params.get('imgtag_all', '')
-            uni_imgtag = item_params.get('uni_imgtag', '')
+            # 检查是否VIP（使用前面已获取的变量）
             is_vip = 'VIP' in imgtag_all or 'VIP' in uni_imgtag
             
             # 获取发布日期
