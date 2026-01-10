@@ -140,6 +140,18 @@ def main():
             _get_db_instance().init_database()
         logger.info("数据库检查完成")
         
+        # 执行数据库迁移
+        logger.info("检查数据库迁移...")
+        try:
+            from migrations.run_migrations import run_migrations
+            if run_migrations():
+                logger.info("数据库迁移检查完成")
+            else:
+                logger.warning("数据库迁移执行失败，但应用将继续启动")
+        except Exception as e:
+            logger.error(f"数据库迁移检查失败: {e}")
+            logger.warning("将继续启动应用，但新功能可能不可用")
+        
         # 清理异常中断的任务状态
         logger.info("清理异常中断的任务状态...")
         try:

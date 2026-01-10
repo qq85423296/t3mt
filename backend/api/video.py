@@ -68,6 +68,28 @@ def create_task():
             from services.video_parse_service import video_parse_service
             platform = video_parse_service.detect_platform(data['website_url'])
         
+        # 获取文件大小限制配置
+        enable_file_size_check = data.get('enable_file_size_check', 0)
+        min_file_size = data.get('min_file_size', 100)
+        
+        # 验证文件大小限制配置
+        if enable_file_size_check:
+            if not isinstance(min_file_size, int) or min_file_size <= 0:
+                return jsonify({'code': 400, 'message': '最小文件大小必须为正整数'})
+        
+        # 获取失败重试配置
+        enable_retry = data.get('enable_retry', 0)
+        max_retry_count = data.get('max_retry_count', 3)
+        retry_interval = data.get('retry_interval', 5)
+        
+        # 验证失败重试配置
+        if enable_retry:
+            if not isinstance(max_retry_count, int) or max_retry_count < 1 or max_retry_count > 10:
+                return jsonify({'code': 400, 'message': '最大重试次数必须为1-10之间的整数'})
+            
+            if not isinstance(retry_interval, int) or retry_interval < 1:
+                return jsonify({'code': 400, 'message': '重试间隔必须为不小于1的整数'})
+        
         # 创建任务
         task_id = VideoTask.create(
             name=data['name'],
@@ -81,7 +103,12 @@ def create_task():
             create_subfolder=data.get('create_subfolder', 0),
             selected_episodes=data.get('selected_episodes', []),
             platform=platform,
-            video_type=data.get('video_type', '电视剧')
+            video_type=data.get('video_type', '电视剧'),
+            enable_file_size_check=enable_file_size_check,
+            min_file_size=min_file_size,
+            enable_retry=enable_retry,
+            max_retry_count=max_retry_count,
+            retry_interval=retry_interval
         )
         
         return jsonify({
@@ -166,6 +193,37 @@ def update_task(task_id):
             update_data['platform'] = data['platform']
         if 'video_type' in data:
             update_data['video_type'] = data['video_type']
+        
+        # 处理文件大小限制配置
+        if 'enable_file_size_check' in data:
+            enable_file_size_check = data['enable_file_size_check']
+            update_data['enable_file_size_check'] = enable_file_size_check
+            
+        if 'min_file_size' in data:
+            min_file_size = data['min_file_size']
+            # 验证最小文件大小
+            if not isinstance(min_file_size, int) or min_file_size <= 0:
+                return jsonify({'code': 400, 'message': '最小文件大小必须为正整数'})
+            update_data['min_file_size'] = min_file_size
+        
+        # 处理失败重试配置
+        if 'enable_retry' in data:
+            enable_retry = data['enable_retry']
+            update_data['enable_retry'] = enable_retry
+            
+        if 'max_retry_count' in data:
+            max_retry_count = data['max_retry_count']
+            # 验证最大重试次数
+            if not isinstance(max_retry_count, int) or max_retry_count < 1 or max_retry_count > 10:
+                return jsonify({'code': 400, 'message': '最大重试次数必须为1-10之间的整数'})
+            update_data['max_retry_count'] = max_retry_count
+            
+        if 'retry_interval' in data:
+            retry_interval = data['retry_interval']
+            # 验证重试间隔
+            if not isinstance(retry_interval, int) or retry_interval < 1:
+                return jsonify({'code': 400, 'message': '重试间隔必须为不小于1的整数'})
+            update_data['retry_interval'] = retry_interval
         
         VideoTask.update(task_id, **update_data)
         
@@ -556,11 +614,22 @@ def execute_task(task_id):
                         task_logger.error(f"下载失败: {episode_name}")
                 
                 # 执行下载
+                # 构建任务配置
+                task_config = {
+                    'task_id': task_id,
+                    'enable_file_size_check': task.enable_file_size_check,
+                    'min_file_size': task.min_file_size,
+                    'enable_retry': task.enable_retry,
+                    'max_retry_count': task.max_retry_count,
+                    'retry_interval': task.retry_interval
+                }
+                
                 result = video_download_service.download_task_episodes(
                     task_id,
                     task.episodes,
                     actual_save_directory,
                     task.name,  # 传入任务名称
+                    task_config,  # 传入任务配置
                     progress_callback,
                     lambda msg: task_logger.info(msg)
                 )
@@ -700,3 +769,26 @@ def toggle_task(task_id):
         
     except Exception as e:
         return jsonify({'code': 500, 'message': f'更新状态失败: {str(e)}'})
+
+
+@video_bp.route('/task/<int:task_id>/clear-failures', methods=['POST'])
+def clear_task_failures(task_id):
+    """清除任务的失败记录"""
+    try:
+        from services.retry_manager import retry_manager
+        
+        task = VideoTask.get_by_id(task_id)
+        if not task:
+            return jsonify({'code': 404, 'message': '任务不存在'})
+        
+        # 清除失败记录
+        retry_manager.clear_task_failures(task_id)
+        
+        return jsonify({
+            'code': 200,
+            'message': '失败记录已清除'
+        })
+        
+    except Exception as e:
+        logger.error(f"清除失败记录失败: {str(e)}", exc_info=True)
+        return jsonify({'code': 500, 'message': f'清除失败记录失败: {str(e)}'})

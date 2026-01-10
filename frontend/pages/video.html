@@ -385,6 +385,18 @@
         background: #1D4ED8;
         border-color: #1D4ED8;
     }
+    
+    /* 清除失败记录按钮样式 */
+    .btn-warning {
+        color: #D97706 !important;
+        background: #FEF3C7 !important;
+        border: 1px solid #FCD34D !important;
+    }
+    
+    .btn-warning:hover {
+        background: #FDE68A !important;
+        border-color: #FBBF24 !important;
+    }
 </style>
 
 <div class="toolbar">
@@ -514,6 +526,48 @@
                 </div>
             </div>
             
+            <!-- 文件大小限制配置 -->
+            <div class="form-section">
+                <div class="form-group">
+                    <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="enableFileSizeCheck" style="width: auto; margin: 0;" onchange="toggleFileSizeConfig()" />
+                        <span>启用文件大小限制</span>
+                    </label>
+                    <div class="form-hint">过滤因解析接口问题导致的不完整视频文件</div>
+                </div>
+                
+                <div class="form-group" id="fileSizeConfigGroup" style="display: none;">
+                    <label class="form-label">最小文件大小 (MB) <span class="required">*</span></label>
+                    <input type="number" class="form-input" id="minFileSize" placeholder="100" min="1" value="100" />
+                    <div class="form-hint">下载的视频文件小于此值将被判定为不完整并删除</div>
+                </div>
+            </div>
+            
+            <!-- 失败重试配置 -->
+            <div class="form-section">
+                <div class="form-group">
+                    <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="enableRetry" style="width: auto; margin: 0;" onchange="toggleRetryConfig()" />
+                        <span>启用失败重试</span>
+                    </label>
+                    <div class="form-hint">在临时故障时自动重试下载，避免无限重试</div>
+                </div>
+                
+                <div id="retryConfigGroup" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">最大重试次数 <span class="required">*</span></label>
+                        <input type="number" class="form-input" id="maxRetryCount" placeholder="3" min="1" max="10" value="3" />
+                        <div class="form-hint">单个剧集下载失败后允许的最大重试次数（1-10次）</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">重试间隔时间 (分钟) <span class="required">*</span></label>
+                        <input type="number" class="form-input" id="retryInterval" placeholder="5" min="1" value="5" />
+                        <div class="form-hint">两次重试之间的等待时间（最小1分钟）</div>
+                    </div>
+                </div>
+            </div>
+            
             <!-- 执行时间 -->
             <div class="form-section">
                 <div class="form-group">
@@ -615,6 +669,20 @@
         currentVideoInfo = {};
     }
     
+    // 切换文件大小限制配置显示（全局函数）
+    window.toggleFileSizeConfig = function() {
+        const enabled = document.getElementById('enableFileSizeCheck').checked;
+        const configGroup = document.getElementById('fileSizeConfigGroup');
+        configGroup.style.display = enabled ? 'block' : 'none';
+    }
+    
+    // 切换重试配置显示（全局函数）
+    window.toggleRetryConfig = function() {
+        const enabled = document.getElementById('enableRetry').checked;
+        const configGroup = document.getElementById('retryConfigGroup');
+        configGroup.style.display = enabled ? 'block' : 'none';
+    }
+    
     // 更新保存目录（全局函数）
     window.updateSaveDirectoryPreview = function() {
         const saveDirectoryInput = document.getElementById('saveDirectory');
@@ -713,6 +781,7 @@
                             <button class="btn btn-small btn-execute" onclick="executeTask(${task.id})" title="立即执行一次">▶️ 执行</button>
                             <button class="btn btn-small btn-edit" onclick="editTask(${task.id})" title="编辑任务">✏️ 编辑</button>
                             <button class="btn btn-small ${task.status === 'running' ? 'btn-stop' : 'btn-start'}" onclick="toggleTask(${task.id})" title="${task.status === 'running' ? '停止定时任务' : '启动定时任务'}">${task.status === 'running' ? '⏸️ 停止' : '▶️ 启动'}</button>
+                            <button class="btn btn-small btn-warning" onclick="clearTaskFailures(${task.id})" title="清除失败记录">🔄 清除失败</button>
                             <button class="btn btn-small btn-delete icon-only" onclick="deleteTask(${task.id})" title="删除任务">删除</button>
                         </div>
                     </td>
@@ -747,6 +816,19 @@
                 document.getElementById('platformSelect').value = platform;
                 currentPlatform = platform;
                 onPlatformChange();  // 更新UI提示
+                
+                // 恢复文件大小限制配置
+                const enableFileSizeCheck = task.enable_file_size_check || 0;
+                document.getElementById('enableFileSizeCheck').checked = enableFileSizeCheck === 1;
+                document.getElementById('minFileSize').value = task.min_file_size || 100;
+                document.getElementById('fileSizeConfigGroup').style.display = enableFileSizeCheck === 1 ? 'block' : 'none';
+                
+                // 恢复重试配置
+                const enableRetry = task.enable_retry || 0;
+                document.getElementById('enableRetry').checked = enableRetry === 1;
+                document.getElementById('maxRetryCount').value = task.max_retry_count || 3;
+                document.getElementById('retryInterval').value = task.retry_interval || 5;
+                document.getElementById('retryConfigGroup').style.display = enableRetry === 1 ? 'block' : 'none';
                 
                 // 恢复剧集数据
                 episodeData = task.episodes || [];
@@ -838,11 +920,11 @@
                                 // 使用日志对象的type字段，如果没有则根据内容判断
                                 let type = log.type || 'info';
                                 if (type === 'info') {
-                                    if (logText.includes('✓') || logText.includes('成功') || logText.includes('完成')) {
+                                    if (logText.includes('✓') || logText.includes('成功') || logText.includes('完成') || logText.includes('验证通过')) {
                                         type = 'success';
-                                    } else if (logText.includes('✗') || logText.includes('失败') || logText.includes('错误')) {
+                                    } else if (logText.includes('✗') || logText.includes('失败') || logText.includes('错误') || logText.includes('不足') || logText.includes('不完整') || logText.includes('达到最大重试次数')) {
                                         type = 'error';
-                                    } else if (logText.includes('⊙') || logText.includes('跳过') || logText.includes('提示') || logText.includes('警告')) {
+                                    } else if (logText.includes('⊙') || logText.includes('跳过') || logText.includes('提示') || logText.includes('警告') || logText.includes('重试') || logText.includes('文件大小')) {
                                         type = 'warning';
                                     }
                                 }
@@ -898,11 +980,11 @@
                                                 // 使用日志对象的type字段，如果没有则根据内容判断
                                                 let type = log.type || 'info';
                                                 if (type === 'info') {
-                                                    if (logText.includes('✓') || logText.includes('成功') || logText.includes('完成')) {
+                                                    if (logText.includes('✓') || logText.includes('成功') || logText.includes('完成') || logText.includes('验证通过')) {
                                                         type = 'success';
-                                                    } else if (logText.includes('✗') || logText.includes('失败') || logText.includes('错误')) {
+                                                    } else if (logText.includes('✗') || logText.includes('失败') || logText.includes('错误') || logText.includes('不足') || logText.includes('不完整') || logText.includes('达到最大重试次数')) {
                                                         type = 'error';
-                                                    } else if (logText.includes('⊙') || logText.includes('跳过') || logText.includes('提示') || logText.includes('警告')) {
+                                                    } else if (logText.includes('⊙') || logText.includes('跳过') || logText.includes('提示') || logText.includes('警告') || logText.includes('重试') || logText.includes('文件大小')) {
                                                         type = 'warning';
                                                     }
                                                 }
@@ -1057,11 +1139,11 @@
                                             // 使用日志对象的type字段，如果没有则根据内容判断
                                             let type = log.type || 'info';
                                             if (type === 'info') {
-                                                if (logText.includes('✓') || logText.includes('成功') || logText.includes('完成')) {
+                                                if (logText.includes('✓') || logText.includes('成功') || logText.includes('完成') || logText.includes('验证通过')) {
                                                     type = 'success';
-                                                } else if (logText.includes('✗') || logText.includes('失败') || logText.includes('错误')) {
+                                                } else if (logText.includes('✗') || logText.includes('失败') || logText.includes('错误') || logText.includes('不足') || logText.includes('不完整') || logText.includes('达到最大重试次数')) {
                                                     type = 'error';
-                                                } else if (logText.includes('⊙') || logText.includes('跳过') || logText.includes('提示') || logText.includes('警告')) {
+                                                } else if (logText.includes('⊙') || logText.includes('跳过') || logText.includes('提示') || logText.includes('警告') || logText.includes('重试') || logText.includes('文件大小')) {
                                                     type = 'warning';
                                                 }
                                             }
@@ -1168,6 +1250,33 @@
             Message.error('删除失败');
         }
     }
+    
+    // 清除任务失败记录（全局函数）
+    window.clearTaskFailures = async function(taskId) {
+        if (!confirm('确定要清除此任务的所有失败记录吗？清除后将重置所有剧集的失败计数。')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/video/task/${taskId}/clear-failures`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const result = await response.json();
+            
+            if (result.code === 200) {
+                Message.success('失败记录已清除');
+            } else {
+                Message.error(result.message || '清除失败');
+            }
+        } catch (error) {
+            console.error('清除失败记录失败:', error);
+            Message.error('清除失败');
+        }
+    }
 
     // 显示创建任务模态框（全局函数）
     window.showCreateTaskModal = async function() {
@@ -1211,6 +1320,18 @@
         document.getElementById('episodeListGroup').style.display = 'none';
         document.getElementById('videoInfoGroup').style.display = 'none';
         document.getElementById('episodeList').innerHTML = '';
+        
+        // 重置文件大小限制配置
+        document.getElementById('enableFileSizeCheck').checked = false;
+        document.getElementById('minFileSize').value = '100';
+        document.getElementById('fileSizeConfigGroup').style.display = 'none';
+        
+        // 重置重试配置
+        document.getElementById('enableRetry').checked = false;
+        document.getElementById('maxRetryCount').value = '3';
+        document.getElementById('retryInterval').value = '5';
+        document.getElementById('retryConfigGroup').style.display = 'none';
+        
         episodeData = [];
         currentPlatform = 'mango';
         onPlatformChange();  // 更新UI提示
@@ -1544,6 +1665,15 @@
         const cronExpression = document.getElementById('cronExpression').value;
         const platform = document.getElementById('platformSelect').value;
         
+        // 获取文件大小限制配置
+        const enableFileSizeCheck = document.getElementById('enableFileSizeCheck').checked ? 1 : 0;
+        const minFileSize = parseInt(document.getElementById('minFileSize').value) || 100;
+        
+        // 获取重试配置
+        const enableRetry = document.getElementById('enableRetry').checked ? 1 : 0;
+        const maxRetryCount = parseInt(document.getElementById('maxRetryCount').value) || 3;
+        const retryInterval = parseInt(document.getElementById('retryInterval').value) || 5;
+        
         if (!name) {
             Message.warning('请输入任务名称');
             return;
@@ -1567,6 +1697,27 @@
         if (episodeData.length === 0) {
             Message.warning('请先读取剧集信息');
             return;
+        }
+        
+        // 验证文件大小限制配置
+        if (enableFileSizeCheck) {
+            if (!minFileSize || minFileSize <= 0) {
+                Message.warning('最小文件大小必须为正整数');
+                return;
+            }
+        }
+        
+        // 验证重试配置
+        if (enableRetry) {
+            if (!maxRetryCount || maxRetryCount < 1 || maxRetryCount > 10) {
+                Message.warning('最大重试次数必须为1-10之间的整数');
+                return;
+            }
+            
+            if (!retryInterval || retryInterval < 1) {
+                Message.warning('重试间隔必须为不小于1的整数');
+                return;
+            }
         }
         
         // 获取选中的剧集
@@ -1593,7 +1744,13 @@
                 selected_episodes: selectedIndices,  // 保存选中的剧集索引
                 video_info: currentVideoInfo,
                 platform: platform,  // 保存平台信息
-                video_type: videoType  // 保存影视类型
+                video_type: videoType,  // 保存影视类型
+                // 新增配置字段
+                enable_file_size_check: enableFileSizeCheck,
+                min_file_size: minFileSize,
+                enable_retry: enableRetry,
+                max_retry_count: maxRetryCount,
+                retry_interval: retryInterval
             };
             
             let result;

@@ -14,7 +14,9 @@ class VideoTask:
                  clip_id=None, save_directory=None, cron_expression=None,
                  episodes=None, video_info=None, status='waiting', progress=0,
                  downloaded_episodes=0, create_subfolder=0, platform='mango',
-                 video_type='电视剧', created_at=None, updated_at=None):
+                 video_type='电视剧', enable_file_size_check=0, min_file_size=100,
+                 enable_retry=0, max_retry_count=3, retry_interval=5,
+                 created_at=None, updated_at=None):
         self.id = task_id
         self.name = name
         self.website_url = website_url
@@ -30,13 +32,22 @@ class VideoTask:
         self.create_subfolder = create_subfolder
         self.platform = platform  # 视频平台：mango（芒果TV）、tencent（腾讯视频）
         self.video_type = video_type  # 影视类型：电视剧、电影、综艺、动漫、其他
+        # 文件大小限制配置
+        self.enable_file_size_check = enable_file_size_check  # 0=禁用, 1=启用
+        self.min_file_size = min_file_size  # 最小文件大小(MB)
+        # 失败重试配置
+        self.enable_retry = enable_retry  # 0=禁用, 1=启用
+        self.max_retry_count = max_retry_count  # 最大重试次数(1-10)
+        self.retry_interval = retry_interval  # 重试间隔(分钟)
         self.created_at = created_at
         self.updated_at = updated_at
     
     @staticmethod
     def create(name, website_url, video_id, clip_id, save_directory, 
                cron_expression, episodes, video_info, create_subfolder=0, 
-               selected_episodes=None, platform='mango', video_type='电视剧'):
+               selected_episodes=None, platform='mango', video_type='电视剧',
+               enable_file_size_check=0, min_file_size=100,
+               enable_retry=0, max_retry_count=3, retry_interval=5):
         """创建任务"""
         with get_db() as conn:
             cursor = conn.cursor()
@@ -50,8 +61,10 @@ class VideoTask:
                 (name, website_url, video_id, clip_id, save_directory, 
                  cron_expression, episodes_json, video_info_json, status, 
                  progress, downloaded_episodes, create_subfolder, 
-                 selected_episodes, last_downloaded_episode, platform, video_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, 0, ?, ?, 0, ?, ?)
+                 selected_episodes, last_downloaded_episode, platform, video_type,
+                 enable_file_size_check, min_file_size, enable_retry, 
+                 max_retry_count, retry_interval)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 name, website_url, video_id, clip_id, save_directory,
                 cron_expression, 
@@ -60,7 +73,12 @@ class VideoTask:
                 create_subfolder,
                 json.dumps(selected_episodes, ensure_ascii=False),  # 保存选中的剧集索引
                 platform,
-                video_type
+                video_type,
+                enable_file_size_check,
+                min_file_size,
+                enable_retry,
+                max_retry_count,
+                retry_interval
             ))
             return cursor.lastrowid
     
@@ -92,7 +110,9 @@ class VideoTask:
             'name', 'website_url', 'video_id', 'clip_id', 'save_directory',
             'cron_expression', 'episodes_json', 'video_info_json', 'status',
             'progress', 'downloaded_episodes', 'create_subfolder',
-            'selected_episodes', 'last_downloaded_episode', 'platform', 'video_type'
+            'selected_episodes', 'last_downloaded_episode', 'platform', 'video_type',
+            'enable_file_size_check', 'min_file_size', 'enable_retry',
+            'max_retry_count', 'retry_interval'
         ]
         
         # 处理episodes和video_info的JSON序列化
@@ -174,6 +194,11 @@ class VideoTask:
             create_subfolder=row['create_subfolder'] if 'create_subfolder' in row.keys() else 0,
             platform=row['platform'] if 'platform' in row.keys() else 'mango',
             video_type=row['video_type'] if 'video_type' in row.keys() else '电视剧',
+            enable_file_size_check=row['enable_file_size_check'] if 'enable_file_size_check' in row.keys() else 0,
+            min_file_size=row['min_file_size'] if 'min_file_size' in row.keys() else 100,
+            enable_retry=row['enable_retry'] if 'enable_retry' in row.keys() else 0,
+            max_retry_count=row['max_retry_count'] if 'max_retry_count' in row.keys() else 3,
+            retry_interval=row['retry_interval'] if 'retry_interval' in row.keys() else 5,
             created_at=row['created_at'],
             updated_at=row['updated_at']
         )
@@ -202,6 +227,11 @@ class VideoTask:
             'video_type': self.video_type,
             'selected_episodes': getattr(self, 'selected_episodes', []),
             'last_downloaded_episode': getattr(self, 'last_downloaded_episode', 0),
+            'enable_file_size_check': self.enable_file_size_check,
+            'min_file_size': self.min_file_size,
+            'enable_retry': self.enable_retry,
+            'max_retry_count': self.max_retry_count,
+            'retry_interval': self.retry_interval,
             'created_at': self.created_at,
             'updated_at': self.updated_at
         }

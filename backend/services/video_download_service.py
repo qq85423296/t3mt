@@ -26,6 +26,35 @@ class VideoDownloadService:
         """判断是否为m3u8地址"""
         return url.lower().endswith('.m3u8') or 'm3u8' in url.lower()
     
+    def _validate_file_size(self, file_path: str, min_size_mb: int) -> tuple:
+        """
+        验证文件大小是否满足最小要求
+        
+        Args:
+            file_path: 文件路径
+            min_size_mb: 最小文件大小(MB)
+            
+        Returns:
+            (is_valid, actual_size_mb, message) 元组
+            - is_valid: 是否验证通过
+            - actual_size_mb: 实际文件大小(MB)
+            - message: 验证消息
+        """
+        # 检查文件是否存在
+        if not os.path.exists(file_path):
+            return False, 0, "文件不存在"
+        
+        # 获取文件大小（字节）
+        file_size_bytes = os.path.getsize(file_path)
+        # 转换为MB
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        
+        # 验证文件大小
+        if file_size_mb < min_size_mb:
+            return False, int(file_size_mb), f"文件大小不足: {file_size_mb:.2f}MB < {min_size_mb}MB"
+        
+        return True, int(file_size_mb), f"文件大小验证通过: {file_size_mb:.2f}MB"
+    
     def _parse_m3u8(self, m3u8_content: str, base_url: str) -> tuple:
         """
         解析m3u8文件，获取初始化片段和所有ts片段URL
@@ -704,6 +733,191 @@ class VideoDownloadService:
                 'url': episode_url
             }
     
+    def download_episode_with_validation(self, episode_url: str, save_path: str,
+                                        episode_name: str,
+                                        task_config: Dict,
+                                        retry_manager,
+                                        progress_callback: Optional[Callable] = None,
+                                        log_callback: Optional[Callable] = None) -> Dict:
+        """
+        下载单集并进行文件大小验证和重试管理
+        
+        Args:
+            episode_url: 剧集官网地址
+            save_path: 保存路径（完整文件路径）
+            episode_name: 集数名称
+            task_config: 任务配置，包含:
+                - task_id: 任务ID
+                - enable_file_size_check: 是否启用文件大小检查
+                - min_file_size: 最小文件大小(MB)
+                - enable_retry: 是否启用重试
+                - max_retry_count: 最大重试次数
+                - retry_interval: 重试间隔(分钟)
+            retry_manager: 重试管理器实例
+            progress_callback: 进度回调函数
+            log_callback: 日志回调函数
+        
+        Returns:
+            下载结果字典
+        """
+        try:
+            # 1. 检查是否需要重试
+            if task_config.get('enable_retry'):
+                should_retry, current_count, reason = retry_manager.should_retry(
+                    task_config['task_id'],
+                    episode_url,
+                    task_config['max_retry_count'],
+                    task_config['retry_interval']
+                )
+                
+                if not should_retry:
+                    logger.info(f"跳过剧集 {episode_name}: {reason}")
+                    if log_callback:
+                        log_callback(f"跳过: {reason}")
+                    
+                    return {
+                        'success': False,
+                        'message': reason,
+                        'skipped': True,
+                        'retry_exhausted': True,
+                        'url': episode_url
+                    }
+                
+                # 如果有失败记录，记录重试信息
+                if current_count > 0:
+                    remaining = task_config['max_retry_count'] - current_count
+                    logger.info(f"开始第 {current_count + 1} 次重试: {episode_name} (剩余 {remaining} 次)")
+                    if log_callback:
+                        log_callback(f"开始第 {current_count + 1} 次重试 (剩余 {remaining} 次)")
+            
+            # 2. 执行下载
+            result = self.download_episode(
+                episode_url, 
+                save_path, 
+                episode_name,
+                progress_callback,
+                log_callback
+            )
+            
+            # 如果下载失败，记录失败并返回
+            if not result['success']:
+                if task_config.get('enable_retry'):
+                    failure_count = retry_manager.record_failure(
+                        task_config['task_id'],
+                        episode_url,
+                        episode_name,
+                        result['message']
+                    )
+                    result['failure_count'] = failure_count
+                    
+                    remaining = task_config['max_retry_count'] - failure_count
+                    if remaining > 0:
+                        logger.info(f"下载失败，已记录失败次数: {failure_count}/{task_config['max_retry_count']}")
+                        if log_callback:
+                            log_callback(f"下载失败，失败次数: {failure_count}/{task_config['max_retry_count']}")
+                    else:
+                        logger.warning(f"下载失败，已达最大重试次数: {failure_count}/{task_config['max_retry_count']}")
+                        if log_callback:
+                            log_callback(f"已达最大重试次数，停止重试")
+                
+                return result
+            
+            # 如果文件已存在被跳过，清除失败记录
+            if result.get('skipped'):
+                if task_config.get('enable_retry'):
+                    retry_manager.record_success(task_config['task_id'], episode_url)
+                return result
+            
+            # 3. 文件大小验证
+            if task_config.get('enable_file_size_check'):
+                is_valid, actual_size, message = self._validate_file_size(
+                    save_path,
+                    task_config['min_file_size']
+                )
+                
+                logger.info(f"文件大小验证: {episode_name}, {message}")
+                if log_callback:
+                    log_callback(message)
+                
+                if not is_valid:
+                    # 删除不合格的文件
+                    try:
+                        if os.path.exists(save_path):
+                            os.remove(save_path)
+                            logger.info(f"已删除不完整文件: {episode_name}")
+                            if log_callback:
+                                log_callback(f"已删除不完整文件: {episode_name}")
+                    except Exception as e:
+                        logger.error(f"删除文件失败: {str(e)}")
+                    
+                    # 记录失败
+                    failure_count = None
+                    if task_config.get('enable_retry'):
+                        failure_count = retry_manager.record_failure(
+                            task_config['task_id'],
+                            episode_url,
+                            episode_name,
+                            message
+                        )
+                        
+                        remaining = task_config['max_retry_count'] - failure_count
+                        if remaining > 0:
+                            logger.info(f"文件大小验证失败，已记录失败次数: {failure_count}/{task_config['max_retry_count']}")
+                            if log_callback:
+                                log_callback(f"失败次数: {failure_count}/{task_config['max_retry_count']}, 剩余重试: {remaining}")
+                        else:
+                            logger.warning(f"文件大小验证失败，已达最大重试次数")
+                            if log_callback:
+                                log_callback(f"已达最大重试次数，停止重试")
+                    
+                    result_dict = {
+                        'success': False,
+                        'message': message,
+                        'file_size_validation_failed': True,
+                        'actual_size_mb': actual_size,
+                        'skipped': False,
+                        'url': episode_url
+                    }
+                    
+                    if failure_count is not None:
+                        result_dict['failure_count'] = failure_count
+                    
+                    return result_dict
+            
+            # 4. 下载成功，清除失败记录
+            if task_config.get('enable_retry'):
+                retry_manager.record_success(task_config['task_id'], episode_url)
+                logger.info(f"下载成功，已清除失败记录: {episode_name}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"下载验证失败: {episode_name}, 错误: {str(e)}", exc_info=True)
+            
+            # 记录异常失败
+            if task_config.get('enable_retry'):
+                failure_count = retry_manager.record_failure(
+                    task_config['task_id'],
+                    episode_url,
+                    episode_name,
+                    f'下载异常: {str(e)}'
+                )
+                
+                return {
+                    'success': False,
+                    'message': f'下载异常: {str(e)}',
+                    'failure_count': failure_count,
+                    'skipped': False,
+                    'url': episode_url
+                }
+            
+            return {
+                'success': False,
+                'message': f'下载异常: {str(e)}',
+                'skipped': False,
+                'url': episode_url
+            }
+    
     def _download_file(self, url: str, save_path: str, 
                       file_name: str = '',
                       progress_callback: Optional[Callable] = None,
@@ -814,6 +1028,7 @@ class VideoDownloadService:
     def download_task_episodes(self, task_id: int, episodes: list, 
                                save_directory: str,
                                task_name: str = '',
+                               task_config: Optional[Dict] = None,
                                progress_callback: Optional[Callable] = None,
                                log_callback: Optional[Callable] = None) -> Dict:
         """
@@ -824,6 +1039,12 @@ class VideoDownloadService:
             episodes: 剧集列表
             save_directory: 最终保存目录
             task_name: 任务名称（用于创建临时目录）
+            task_config: 任务配置（可选），包含:
+                - enable_file_size_check: 是否启用文件大小检查
+                - min_file_size: 最小文件大小(MB)
+                - enable_retry: 是否启用重试
+                - max_retry_count: 最大重试次数
+                - retry_interval: 重试间隔(分钟)
             progress_callback: 进度回调 callback(current, total, episode_name, status)
             log_callback: 日志回调
             
@@ -834,9 +1055,22 @@ class VideoDownloadService:
         success_count = 0
         failed_count = 0
         skipped_count = 0
+        retry_exhausted_count = 0  # 重试耗尽的剧集数
         results = []
         
         logger.info(f"开始下载任务 {task_id} 的剧集，共 {total} 集")
+        
+        # 如果提供了任务配置，记录配置信息
+        if task_config:
+            if task_config.get('enable_file_size_check'):
+                logger.info(f"文件大小限制已启用: 最小 {task_config.get('min_file_size')}MB")
+                if log_callback:
+                    log_callback(f"文件大小限制: 最小 {task_config.get('min_file_size')}MB")
+            
+            if task_config.get('enable_retry'):
+                logger.info(f"失败重试已启用: 最大 {task_config.get('max_retry_count')} 次, 间隔 {task_config.get('retry_interval')} 分钟")
+                if log_callback:
+                    log_callback(f"失败重试: 最大 {task_config.get('max_retry_count')} 次, 间隔 {task_config.get('retry_interval')} 分钟")
         
         # 获取临时目录配置
         from models.config import ConfigModel
@@ -851,6 +1085,12 @@ class VideoDownloadService:
         logger.info(f"使用临时目录: {temp_task_dir}")
         if log_callback:
             log_callback(f"临时下载目录: {temp_task_dir}")
+        
+        # 初始化重试管理器（如果启用了重试）
+        retry_mgr = None
+        if task_config and task_config.get('enable_retry'):
+            from services.retry_manager import retry_manager
+            retry_mgr = retry_manager
         
         for index, episode in enumerate(episodes, 1):
             episode_name = episode.get('name', f'第{index}集')
@@ -889,7 +1129,12 @@ class VideoDownloadService:
             # 检查最终目录是否已存在（跳过已下载的）
             if os.path.exists(final_file_path):
                 file_size = os.path.getsize(final_file_path)
-                if file_size > 1024 * 1024:  # 大于1MB认为是有效文件
+                # 如果启用了文件大小检查，使用配置的阈值；否则使用默认的1MB
+                min_size_bytes = 1024 * 1024  # 默认1MB
+                if task_config and task_config.get('enable_file_size_check'):
+                    min_size_bytes = task_config.get('min_file_size', 100) * 1024 * 1024
+                
+                if file_size > min_size_bytes:
                     skipped_count += 1
                     results.append({
                         'name': full_name,
@@ -899,6 +1144,11 @@ class VideoDownloadService:
                     })
                     if progress_callback:
                         progress_callback(index, total, full_name, 'skipped')
+                    
+                    # 清除失败记录（如果有）
+                    if retry_mgr:
+                        retry_mgr.record_success(task_id, episode_url)
+                    
                     continue
             
             # 下载剧集到临时目录
@@ -909,13 +1159,30 @@ class VideoDownloadService:
                         downloaded, total_size, percentage
                     )
             
-            result = self.download_episode(
-                episode_url, 
-                temp_file_path,  # 下载到临时目录
-                full_name,
-                episode_progress,
-                log_callback
-            )
+            # 根据是否有任务配置选择下载方法
+            if task_config and (task_config.get('enable_file_size_check') or task_config.get('enable_retry')):
+                # 使用带验证的下载方法
+                config_with_id = task_config.copy()
+                config_with_id['task_id'] = task_id
+                
+                result = self.download_episode_with_validation(
+                    episode_url,
+                    temp_file_path,
+                    full_name,
+                    config_with_id,
+                    retry_mgr,
+                    episode_progress,
+                    log_callback
+                )
+            else:
+                # 使用原有的下载方法
+                result = self.download_episode(
+                    episode_url, 
+                    temp_file_path,
+                    full_name,
+                    episode_progress,
+                    log_callback
+                )
             
             result['name'] = full_name
             results.append(result)
@@ -947,13 +1214,38 @@ class VideoDownloadService:
                         if progress_callback:
                             progress_callback(index, total, full_name, 'failed')
             else:
-                failed_count += 1
-                # 记录详细的失败原因（包含URL）
-                error_msg = result.get('message', '未知错误')
-                logger.error(f"下载失败: {full_name}, URL: {episode_url}, 原因: {error_msg}")
-                if log_callback:
-                    log_callback(f"失败原因: {error_msg}")
-                    log_callback(f"错误URL: {episode_url}")
+                # 检查是否是重试耗尽
+                if result.get('retry_exhausted'):
+                    retry_exhausted_count += 1
+                    logger.warning(f"剧集已达最大重试次数，跳过: {full_name}")
+                    if log_callback:
+                        log_callback(f"跳过: {full_name} (已达最大重试次数)")
+                else:
+                    failed_count += 1
+                    # 记录详细的失败原因（包含URL）
+                    error_msg = result.get('message', '未知错误')
+                    logger.error(f"下载失败: {full_name}, URL: {episode_url}, 原因: {error_msg}")
+                    
+                    # 如果是文件大小验证失败，记录详细信息
+                    if result.get('file_size_validation_failed'):
+                        actual_size = result.get('actual_size_mb', 0)
+                        logger.warning(f"文件大小不足: {full_name}, 实际: {actual_size}MB")
+                        if log_callback:
+                            log_callback(f"文件大小不足: 实际 {actual_size}MB")
+                    
+                    # 如果有失败次数信息，记录
+                    if 'failure_count' in result and task_config and task_config.get('enable_retry'):
+                        failure_count = result['failure_count']
+                        max_count = task_config.get('max_retry_count', 3)
+                        remaining = max_count - failure_count
+                        logger.info(f"失败次数: {failure_count}/{max_count}, 剩余重试: {remaining}")
+                        if log_callback:
+                            log_callback(f"失败次数: {failure_count}/{max_count}, 剩余: {remaining}")
+                    
+                    if log_callback:
+                        log_callback(f"失败原因: {error_msg}")
+                        log_callback(f"错误URL: {episode_url}")
+                
                 if progress_callback:
                     progress_callback(index, total, full_name, 'failed')
         
@@ -974,10 +1266,16 @@ class VideoDownloadService:
         except Exception as e:
             logger.error(f"清理临时目录失败: {str(e)}")
         
-        logger.info(f"任务 {task_id} 下载完成: 成功 {success_count}/{total}, 跳过 {skipped_count}, 失败 {failed_count}")
+        # 输出统计信息
+        logger.info(f"任务 {task_id} 下载完成: 成功 {success_count}/{total}, 跳过 {skipped_count}, 失败 {failed_count}, 重试耗尽 {retry_exhausted_count}")
+        
+        if log_callback:
+            log_callback(f"下载完成: 成功 {success_count}, 跳过 {skipped_count}, 失败 {failed_count}")
+            if retry_exhausted_count > 0:
+                log_callback(f"重试耗尽: {retry_exhausted_count} 个剧集已达最大重试次数")
         
         # 判断任务是否成功：只有当没有失败的剧集时才算成功
-        # 如果有部分成功、部分失败，应该标记为失败
+        # 重试耗尽的剧集不计入失败（它们会在下次执行时继续被跳过）
         is_success = failed_count == 0 and (success_count + skipped_count) > 0
         
         return {
@@ -986,6 +1284,7 @@ class VideoDownloadService:
             'success_count': success_count,
             'skipped_count': skipped_count,
             'failed_count': failed_count,
+            'retry_exhausted_count': retry_exhausted_count,
             'results': results
         }
     

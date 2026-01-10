@@ -17,7 +17,7 @@ class UpgradeManager:
     """升级管理器"""
     
     # 当前版本号
-    CURRENT_VERSION = "2.0.3"
+    CURRENT_VERSION = "2.1.0"
     
     # 备份目录
     BACKUP_DIR = Path(__file__).parent.parent.parent / 'backups'
