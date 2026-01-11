@@ -1,0 +1,199 @@
+<!-- 正则替换示例弹窗组件 -->
+<style>
+    /* 示例弹窗样式 */
+    .example-tabs {
+        display: flex;
+        border-bottom: 2px solid #E5E7EB;
+        margin-bottom: 20px;
+    }
+    
+    .example-tab {
+        padding: 12px 24px;
+        background: transparent;
+        border: none;
+        border-bottom: 3px solid transparent;
+        color: #6B7280;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .example-tab:hover {
+        color: #2563EB;
+    }
+    
+    .example-tab.active {
+        color: #2563EB;
+        border-bottom-color: #2563EB;
+    }
+    
+    .example-content {
+        display: none;
+    }
+    
+    .example-content.active {
+        display: block;
+    }
+    
+    .example-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #FFFFFF;
+        border-radius: 4px;
+        overflow: hidden;
+        font-size: 13px;
+    }
+    
+    .example-table thead {
+        background: #F9FAFB;
+    }
+    
+    .example-table th {
+        padding: 10px 12px;
+        text-align: left;
+        font-weight: 600;
+        color: #374151;
+        border-bottom: 1px solid #E5E7EB;
+    }
+    
+    .example-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #F3F4F6;
+        color: #4B5563;
+    }
+    
+    .example-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+    
+    .example-table tbody tr:hover {
+        background: #F9FAFB;
+    }
+    
+    .example-code {
+        font-family: 'Consolas', 'Monaco', monospace;
+        background: #F3F4F6;
+        padding: 4px 8px;
+        border-radius: 3px;
+        font-size: 12px;
+        color: #DC2626;
+    }
+    
+    .example-result {
+        color: #059669;
+        font-weight: 500;
+    }
+    
+    .copy-rule-btn {
+        padding: 4px 12px;
+        font-size: 12px;
+        background: #2563EB;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    
+    .copy-rule-btn:hover {
+        background: #1D4ED8;
+    }
+</style>
+
+<div id="regexExampleModal" class="modal">
+    <div class="modal-content" style="max-width: 1000px;">
+        <div class="modal-header">
+            <div class="modal-title">正则替换示例参考</div>
+            <button class="modal-close" onclick="RegexConfig.hideExampleModal()">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <!-- 标签页切换 -->
+            <div class="example-tabs">
+                <button class="example-tab active" onclick="RegexConfig.switchTab('basic')">基础示例</button>
+                <button class="example-tab" onclick="RegexConfig.switchTab('advanced')">复杂示例</button>
+            </div>
+            
+            <!-- 基础示例 -->
+            <div id="basicExamples" class="example-content active">
+                <table class="example-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">场景</th>
+                            <th style="width: 18%;">网盘原文件名</th>
+                            <th style="width: 18%;">正则表达式</th>
+                            <th style="width: 18%;">替换表达式</th>
+                            <th style="width: 21%;">转存后文件名</th>
+                            <th style="width: 10%;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>捕获开头数字</td>
+                            <td>01 4K60FPS.mp4</td>
+                            <td><span class="example-code">^(\d+).*$</span></td>
+                            <td><span class="example-code">综艺.2026.S01E\1</span></td>
+                            <td><span class="example-result">综艺.2026.S01E01.mp4</span></td>
+                            <td><button class="copy-rule-btn" onclick="RegexConfig.copyRule('^(\\d+).*$', '综艺.2026.S01E\\1')">复制规则</button></td>
+                        </tr>
+                        <tr>
+                            <td>捕获末尾数字</td>
+                            <td>综艺-高清版05.mp4</td>
+                            <td><span class="example-code">^.*(\d+)$</span></td>
+                            <td><span class="example-code">综艺.2026.E\1</span></td>
+                            <td><span class="example-result">综艺.2026.E05.mp4</span></td>
+                            <td><button class="copy-rule-btn" onclick="RegexConfig.copyRule('^.*(\\d+)$', '综艺.2026.E\\1')">复制规则</button></td>
+                        </tr>
+                        <tr>
+                            <td>替换固定文本</td>
+                            <td>【综艺】02期.mp4</td>
+                            <td><span class="example-code">【综艺】(.*)期</span></td>
+                            <td><span class="example-code">综艺.2026.S01E\1</span></td>
+                            <td><span class="example-result">综艺.2026.S01E02.mp4</span></td>
+                            <td><button class="copy-rule-btn" onclick="RegexConfig.copyRule('【综艺】(.*)期', '综艺.2026.S01E\\1')">复制规则</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 复杂示例 -->
+            <div id="advancedExamples" class="example-content">
+                <table class="example-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">场景</th>
+                            <th style="width: 18%;">网盘原文件名</th>
+                            <th style="width: 18%;">正则表达式</th>
+                            <th style="width: 18%;">替换表达式</th>
+                            <th style="width: 21%;">转存后文件名</th>
+                            <th style="width: 10%;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>捕获季+集号</td>
+                            <td>S02E05-高清版.mkv</td>
+                            <td><span class="example-code">^S(\d+)E(\d+).*$</span></td>
+                            <td><span class="example-code">美剧.2026.S\1E\2.高清</span></td>
+                            <td><span class="example-result">美剧.2026.S02E05.高清.mkv</span></td>
+                            <td><button class="copy-rule-btn" onclick="RegexConfig.copyRule('^S(\\d+)E(\\d+).*$', '美剧.2026.S\\1E\\2.高清')">复制规则</button></td>
+                        </tr>
+                        <tr>
+                            <td>移除多余字符</td>
+                            <td>2026_综艺_03_完整版.mp4</td>
+                            <td><span class="example-code">^\d+_(.*)_(\d+)_.*$</span></td>
+                            <td><span class="example-code">\1.2026.E\2</span></td>
+                            <td><span class="example-result">综艺.2026.E03.mp4</span></td>
+                            <td><button class="copy-rule-btn" onclick="RegexConfig.copyRule('^\\d+_(.*)_(\\d+)_.*$', '\\1.2026.E\\2')">复制规则</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn" onclick="RegexConfig.hideExampleModal()">关闭</button>
+        </div>
+    </div>
+</div>

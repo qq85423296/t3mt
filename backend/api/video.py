@@ -36,7 +36,8 @@ def read_website():
                     'video_info': result['video_info'],
                     'episodes': result['episodes'],
                     'total_episodes': result['total_episodes'],
-                    'platform': result.get('platform', 'mango')  # 返回识别的平台
+                    'platform': result.get('platform', 'mango'),  # 返回识别的平台
+                    'video_type': result.get('video_type', '其他')  # 返回识别的视频类型
                 }
             })
         else:
@@ -67,6 +68,14 @@ def create_task():
         if not platform:
             from services.video_parse_service import video_parse_service
             platform = video_parse_service.detect_platform(data['website_url'])
+        
+        # 验证平台是否支持
+        supported_platforms = ['mango', 'tencent', 'iqiyi', 'youku']
+        if platform not in supported_platforms:
+            return jsonify({
+                'code': 400, 
+                'message': '目前仅支持腾讯、爱奇艺、优酷、芒果平台'
+            })
         
         # 获取文件大小限制配置
         enable_file_size_check = data.get('enable_file_size_check', 0)
@@ -108,7 +117,9 @@ def create_task():
             min_file_size=min_file_size,
             enable_retry=enable_retry,
             max_retry_count=max_retry_count,
-            retry_interval=retry_interval
+            retry_interval=retry_interval,
+            regex_pattern=data.get('regex_pattern'),
+            replacement_pattern=data.get('replacement_pattern')
         )
         
         return jsonify({
@@ -224,6 +235,12 @@ def update_task(task_id):
             if not isinstance(retry_interval, int) or retry_interval < 1:
                 return jsonify({'code': 400, 'message': '重试间隔必须为不小于1的整数'})
             update_data['retry_interval'] = retry_interval
+        
+        # 处理正则替换配置
+        if 'regex_pattern' in data:
+            update_data['regex_pattern'] = data['regex_pattern']
+        if 'replacement_pattern' in data:
+            update_data['replacement_pattern'] = data['replacement_pattern']
         
         VideoTask.update(task_id, **update_data)
         
@@ -631,7 +648,9 @@ def execute_task(task_id):
                     task.name,  # 传入任务名称
                     task_config,  # 传入任务配置
                     progress_callback,
-                    lambda msg: task_logger.info(msg)
+                    lambda msg: task_logger.info(msg),
+                    task.regex_pattern,  # 传入正则表达式
+                    task.replacement_pattern  # 传入替换表达式
                 )
                 
                 # 更新最终状态

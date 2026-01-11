@@ -61,6 +61,10 @@ def create_app():
     app.register_blueprint(config_bp)
     app.register_blueprint(video_bp)
     
+    # 注册正则规则库蓝图
+    from api.regex_rules import regex_rules_bp
+    app.register_blueprint(regex_rules_bp)
+    
     # 注册监控蓝图
     from api.monitor import monitor_bp
     app.register_blueprint(monitor_bp)
@@ -76,6 +80,10 @@ def create_app():
     # 注册升级管理蓝图
     from api.upgrade import upgrade_bp
     app.register_blueprint(upgrade_bp)
+    
+    # 注册测试蓝图
+    from api.test_tencent import test_tencent_bp
+    app.register_blueprint(test_tencent_bp)
     
     # 健康检查接口
     @app.route('/health', methods=['GET'])

@@ -435,35 +435,26 @@
             <!-- 基础信息 -->
             <div class="form-section">
                 <div class="form-group">
-                    <label class="form-label">影视类型 <span class="required">*</span></label>
-                    <select class="form-input" id="videoType" onchange="updateSaveDirectoryPreview()">
-                        <option value="电视剧">电视剧</option>
-                        <option value="电影">电影</option>
-                        <option value="综艺">综艺</option>
-                        <option value="动漫">动漫</option>
-                        <option value="其他">其他</option>
-                    </select>
-                    <div class="form-hint">选择影视类型，将作为子目录名称</div>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">平台选择 <span class="required">*</span></label>
-                    <select class="form-input" id="platformSelect" onchange="onPlatformChange()">
-                        <option value="mango">芒果TV</option>
-                        <option value="tencent">腾讯视频</option>
-                        <option value="iqiyi">爱奇艺</option>
-                        <option value="youku">优酷</option>
-                    </select>
-                    <div class="form-hint">选择影视平台</div>
-                </div>
-                
-                <div class="form-group">
                     <label class="form-label">官网地址 <span class="required">*</span></label>
                     <div class="input-with-button">
-                        <input type="text" class="form-input" id="websiteUrl" placeholder="https://www.mgtv.com/b/821148/23953889.html" />
+                        <input type="text" class="form-input" id="websiteUrl" placeholder="https://www.mgtv.com/b/xxx 或 https://v.qq.com/x/cover/xxx" />
                         <button class="btn-read" onclick="readWebsiteInfo()" id="btnRead">读取</button>
                     </div>
-                    <div class="form-hint" id="urlHint">输入芒果TV影视剧官网地址，点击"读取"按钮获取剧集信息</div>
+                    <div class="form-hint" id="urlHint">输入影视剧官网地址（支持腾讯、爱奇艺、优酷、芒果平台），点击"读取"按钮获取剧集信息</div>
+                </div>
+                
+                <div class="form-group" id="platformInfoGroup" style="display: none;">
+                    <label class="form-label">识别平台</label>
+                    <div style="padding: 8px 12px; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 4px;">
+                        <span id="platformDisplay" style="font-size: 14px; color: #374151;"></span>
+                    </div>
+                </div>
+                
+                <div class="form-group" id="videoTypeInfoGroup" style="display: none;">
+                    <label class="form-label">视频类型</label>
+                    <div style="padding: 8px 12px; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 4px;">
+                        <span id="videoTypeDisplay" style="font-size: 14px; color: #374151;"></span>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -568,6 +559,36 @@
                 </div>
             </div>
             
+            <!-- 正则替换配置 -->
+            <div class="form-section">
+                <div class="form-group">
+                    <label class="form-label">
+                        文件名正则替换
+                        <button type="button" class="btn-select" onclick="RegexConfig.showExampleModal()" 
+                                style="margin-left: 8px; padding: 0 8px; height: 24px; font-size: 12px; width: auto;">
+                            ❓ 查看示例
+                        </button>
+                    </label>
+                    <input type="text" class="form-input" id="videoRegexPattern" 
+                           placeholder="正则表达式 (如: ^第(\d+)集.*$)" style="margin-bottom: 8px;" />
+                    <input type="text" class="form-input" id="videoReplacementPattern" 
+                           placeholder="替换表达式 (如: E\1)" />
+                    <div class="form-hint">使用正则表达式自动重命名下载的视频文件，留空则不替换</div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">预览效果</label>
+                    <div class="input-with-button">
+                        <input type="text" class="form-input" id="videoPreviewFilename" 
+                               placeholder="输入文件名预览 (如: 第01集 - 标题)" />
+                        <button type="button" class="btn-select" onclick="previewVideoRegex()" 
+                                style="width: auto; padding: 0 12px;">预览</button>
+                    </div>
+                    <div id="videoPreviewResult" style="display: none; margin-top: 8px; padding: 12px; 
+                         background: #f5f5f5; border-radius: 4px; font-size: 13px; line-height: 1.6;"></div>
+                </div>
+            </div>
+            
             <!-- 执行时间 -->
             <div class="form-section">
                 <div class="form-group">
@@ -637,37 +658,48 @@
     let currentTaskId = null;
     let episodeData = [];
     let currentVideoInfo = {};
-    let currentPlatform = 'mango';  // 当前选择的平台
+    let currentPlatform = null;  // 当前识别的平台（通过URL自动识别）
+    let currentVideoType = null;  // 当前识别的视频类型
 
-    // 平台切换处理（全局函数）
-    window.onPlatformChange = function() {
-        const platform = document.getElementById('platformSelect').value;
-        currentPlatform = platform;
+    /**
+     * 根据URL识别平台
+     * @param {string} url - 官网地址
+     * @returns {string|null} - 平台标识或null（不支持）
+     */
+    function detectPlatformFromUrl(url) {
+        if (!url) return null;
         
-        // 更新URL输入框的placeholder和提示文本
-        const urlInput = document.getElementById('websiteUrl');
-        const urlHint = document.getElementById('urlHint');
+        const urlLower = url.toLowerCase();
         
-        if (platform === 'tencent') {
-            urlInput.placeholder = 'https://v.qq.com/x/cover/mzc00200abc123.html';
-            urlHint.textContent = '输入腾讯视频官网地址，点击"读取"按钮获取剧集信息';
-        } else if (platform === 'iqiyi') {
-            urlInput.placeholder = 'https://www.iqiyi.com/v_1o68nz8spzc.html';
-            urlHint.textContent = '输入爱奇艺官网地址，点击"读取"按钮获取剧集信息';
-        } else if (platform === 'youku') {
-            urlInput.placeholder = 'http://v.youku.com/v_show/id_XNjUwODQwNDg5Ng==.html';
-            urlHint.textContent = '输入优酷官网地址，点击"读取"按钮获取剧集信息';
-        } else {
-            urlInput.placeholder = 'https://www.mgtv.com/b/821148/23953889.html';
-            urlHint.textContent = '输入芒果TV影视剧官网地址，点击"读取"按钮获取剧集信息';
+        if (urlLower.includes('.qq.com')) {
+            return 'tencent';
+        } else if (urlLower.includes('.iqiyi.com')) {
+            return 'iqiyi';
+        } else if (urlLower.includes('mgtv.com')) {
+            return 'mango';
+        } else if (urlLower.includes('.youku.com')) {
+            return 'youku';
         }
         
-        // 清空已读取的数据
-        document.getElementById('videoInfoGroup').style.display = 'none';
-        document.getElementById('episodeListGroup').style.display = 'none';
-        episodeData = [];
-        currentVideoInfo = {};
+        return null;
     }
+
+    /**
+     * 获取平台显示名称
+     * @param {string} platform - 平台标识
+     * @returns {string} - 平台中文名称
+     */
+    function getPlatformDisplayName(platform) {
+        const platformNames = {
+            'tencent': '腾讯视频',
+            'iqiyi': '爱奇艺',
+            'mango': '芒果TV',
+            'youku': '优酷'
+        };
+        return platformNames[platform] || '未知平台';
+    }
+
+
     
     // 切换文件大小限制配置显示（全局函数）
     window.toggleFileSizeConfig = function() {
@@ -683,35 +715,47 @@
         configGroup.style.display = enabled ? 'block' : 'none';
     }
     
-    // 更新保存目录（全局函数）
-    window.updateSaveDirectoryPreview = function() {
+    /**
+     * 根据视频类型自动更新保存路径
+     * 格式：基础目录/视频类型/任务名称
+     */
+    window.updateSaveDirectoryWithType = function() {
         const saveDirectoryInput = document.getElementById('saveDirectory');
         const currentValue = saveDirectoryInput.value.trim();
-        const videoType = document.getElementById('videoType').value;
         const taskName = document.getElementById('taskName').value.trim();
+        
+        // 如果没有视频类型或任务名称，不做处理
+        if (!currentVideoType || !taskName) {
+            return;
+        }
         
         // 如果没有基础目录，不做处理
         if (!currentValue) {
             return;
         }
         
-        // 如果没有任务名称，不做处理
-        if (!taskName) {
-            return;
-        }
-        
-        // 检查当前值是否已经包含了类型和任务名称的拼接
-        // 如果包含，先提取基础目录
+        // 提取基础目录（移除可能存在的 /类型/任务名称 部分）
         let baseDir = currentValue;
-        const pattern = new RegExp('/(' + videoType + '|电视剧|电影|综艺|动漫|其他)/[^/]+$');
-        if (pattern.test(currentValue)) {
+        
+        // 匹配路径中的类型目录（电视剧、电影、综艺、动漫、其他）
+        const typePattern = /\/(电视剧|电影|综艺|动漫|其他)\/[^/]+$/;
+        
+        if (typePattern.test(currentValue)) {
             // 移除最后的 /类型/任务名称 部分
-            baseDir = currentValue.replace(pattern, '');
+            baseDir = currentValue.replace(typePattern, '');
         }
         
         // 拼接新的完整路径（使用正斜杠）
-        const fullPath = baseDir + '/' + videoType + '/' + taskName;
+        const fullPath = baseDir + '/' + currentVideoType + '/' + taskName;
         saveDirectoryInput.value = fullPath;
+    }
+    
+    // 更新保存目录（全局函数 - 保留用于向后兼容）
+    window.updateSaveDirectoryPreview = function() {
+        // 如果有currentVideoType，使用新的逻辑
+        if (currentVideoType) {
+            updateSaveDirectoryWithType();
+        }
     }
 
     // 加载任务列表
@@ -806,16 +850,21 @@
                 document.getElementById('taskName').value = task.name;
                 document.getElementById('websiteUrl').value = task.website_url;
                 document.getElementById('saveDirectory').value = task.save_directory;  // 直接显示完整路径
-                document.getElementById('videoType').value = task.video_type || '电视剧';
                 document.getElementById('createSubfolder').checked = task.create_subfolder || false;
                 document.getElementById('cronExpression').value = task.cron_expression;
                 document.getElementById('cronDisplay').textContent = CronConfig.parseCronExpression(task.cron_expression);
                 
-                // 设置平台选择
+                // 显示平台信息
                 const platform = task.platform || 'mango';
-                document.getElementById('platformSelect').value = platform;
                 currentPlatform = platform;
-                onPlatformChange();  // 更新UI提示
+                document.getElementById('platformDisplay').textContent = getPlatformDisplayName(platform);
+                document.getElementById('platformInfoGroup').style.display = 'block';
+                
+                // 显示视频类型信息
+                const videoType = task.video_type || '其他';
+                currentVideoType = videoType;  // 设置当前视频类型变量
+                document.getElementById('videoTypeDisplay').textContent = videoType;
+                document.getElementById('videoTypeInfoGroup').style.display = 'block';
                 
                 // 恢复文件大小限制配置
                 const enableFileSizeCheck = task.enable_file_size_check || 0;
@@ -829,6 +878,14 @@
                 document.getElementById('maxRetryCount').value = task.max_retry_count || 3;
                 document.getElementById('retryInterval').value = task.retry_interval || 5;
                 document.getElementById('retryConfigGroup').style.display = enableRetry === 1 ? 'block' : 'none';
+                
+                // 恢复正则替换配置
+                const videoRegexPatternEl = document.getElementById('videoRegexPattern');
+                const videoReplacementPatternEl = document.getElementById('videoReplacementPattern');
+                const videoPreviewResultEl = document.getElementById('videoPreviewResult');
+                if (videoRegexPatternEl) videoRegexPatternEl.value = task.regex_pattern || '';
+                if (videoReplacementPatternEl) videoReplacementPatternEl.value = task.replacement_pattern || '';
+                if (videoPreviewResultEl) videoPreviewResultEl.style.display = 'none';
                 
                 // 恢复剧集数据
                 episodeData = task.episodes || [];
@@ -1312,14 +1369,14 @@
         document.getElementById('taskName').value = '';
         document.getElementById('websiteUrl').value = '';
         document.getElementById('saveDirectory').value = defaultDir;
-        document.getElementById('videoType').value = '电视剧';  // 默认选择电视剧
         document.getElementById('createSubfolder').checked = false;  // 默认不选中
         document.getElementById('cronExpression').value = '';
         document.getElementById('cronDisplay').textContent = '点击设置执行时间';
-        document.getElementById('platformSelect').value = 'mango';
         document.getElementById('episodeListGroup').style.display = 'none';
         document.getElementById('videoInfoGroup').style.display = 'none';
         document.getElementById('episodeList').innerHTML = '';
+        document.getElementById('platformInfoGroup').style.display = 'none';
+        document.getElementById('videoTypeInfoGroup').style.display = 'none';  // 隐藏视频类型显示区域
         
         // 重置文件大小限制配置
         document.getElementById('enableFileSizeCheck').checked = false;
@@ -1332,39 +1389,34 @@
         document.getElementById('retryInterval').value = '5';
         document.getElementById('retryConfigGroup').style.display = 'none';
         
+        // 重置正则替换配置
+        const videoRegexPatternEl = document.getElementById('videoRegexPattern');
+        const videoReplacementPatternEl = document.getElementById('videoReplacementPattern');
+        const videoPreviewFilenameEl = document.getElementById('videoPreviewFilename');
+        const videoPreviewResultEl = document.getElementById('videoPreviewResult');
+        if (videoRegexPatternEl) videoRegexPatternEl.value = '';
+        if (videoReplacementPatternEl) videoReplacementPatternEl.value = '';
+        if (videoPreviewFilenameEl) videoPreviewFilenameEl.value = '';
+        if (videoPreviewResultEl) videoPreviewResultEl.style.display = 'none';
+        
         episodeData = [];
-        currentPlatform = 'mango';
-        onPlatformChange();  // 更新UI提示
+        currentPlatform = null;
+        currentVideoType = null;  // 重置视频类型变量
     }
 
     // 读取官网信息（全局函数）
     window.readWebsiteInfo = async function() {
         const url = document.getElementById('websiteUrl').value.trim();
-        const platform = document.getElementById('platformSelect').value;
         
         if (!url) {
             Message.warning('请输入官网地址');
             return;
         }
         
-        // 验证URL格式
-        if (platform === 'mango' && !url.includes('mgtv.com')) {
-            Message.warning('请输入芒果TV官网地址');
-            return;
-        }
-        
-        if (platform === 'tencent' && !url.includes('qq.com')) {
-            Message.warning('请输入腾讯视频官网地址');
-            return;
-        }
-        
-        if (platform === 'iqiyi' && !url.includes('iqiyi.com')) {
-            Message.warning('请输入爱奇艺官网地址');
-            return;
-        }
-        
-        if (platform === 'youku' && !url.includes('youku.com')) {
-            Message.warning('请输入优酷官网地址');
+        // 前端验证：检查是否为支持的平台
+        const platform = detectPlatformFromUrl(url);
+        if (!platform) {
+            Message.error('目前仅支持腾讯、爱奇艺、优酷、芒果平台');
             return;
         }
         
@@ -1378,18 +1430,29 @@
             if (result.code === 200 && result.data) {
                 const { video_info, episodes, total_episodes } = result.data;
                 
+                // 显示平台信息
+                document.getElementById('platformDisplay').textContent = 
+                    getPlatformDisplayName(result.data.platform || platform);
+                document.getElementById('platformInfoGroup').style.display = 'block';
+                
+                // 显示视频类型信息
+                const videoType = result.data.video_type || '其他';
+                document.getElementById('videoTypeDisplay').textContent = videoType;
+                document.getElementById('videoTypeInfoGroup').style.display = 'block';
+                
                 // 保存数据
                 episodeData = episodes;
                 currentVideoInfo = video_info;
-                currentPlatform = result.data.platform || platform;
+                currentPlatform = result.data.platform || platform;  // 存储平台标识供保存时使用
+                currentVideoType = videoType;  // 存储视频类型供保存时使用
                 
                 // 自动填充任务名称
                 if (!document.getElementById('taskName').value) {
                     document.getElementById('taskName').value = video_info.title || video_info.clip_name;
                 }
                 
-                // 更新保存目录预览
-                updateSaveDirectoryPreview();
+                // 调用路径自动更新函数
+                updateSaveDirectoryWithType();
                 
                 // 显示影视基础信息
                 displayVideoInfo(video_info, total_episodes);
@@ -1511,14 +1574,39 @@
         
         document.getElementById('episodeCount').textContent = `(共${episodes.length}集)`;
         
+        // 综艺类型显示日期，其他类型不显示
+        const showDate = currentVideoType === '综艺';
+        
         container.innerHTML = episodes.map((ep, index) => {
             const vipBadge = ep.is_vip ? '<span style="color: #E4B659; font-size: 11px; margin-left: 4px;">VIP</span>' : '';
             const downloadedBadge = ep.downloaded ? '<span class="episode-downloaded">已下载</span>' : '';
             
-            // 构建显示文本：如果title为空，只显示name；否则显示 name - title
-            const displayText = ep.title ? `${ep.name} - ${ep.title}` : ep.name;
+            // 构建完整标题
+            let displayParts = [];
             
-            // 显示时长信息
+            // 综艺类型：添加发布日期
+            if (showDate) {
+                // 支持不同平台的日期字段名：period（爱奇艺）、publish_date（腾讯视频）
+                const dateStr = ep.period || ep.publish_date || '';
+                if (dateStr) {
+                    displayParts.push(dateStr);
+                }
+            }
+            
+            // 添加期数/集数
+            if (ep.name) {
+                displayParts.push(ep.name);
+            }
+            
+            // 添加详细标题
+            if (ep.title) {
+                displayParts.push(ep.title);
+            }
+            
+            // 用空格连接各部分
+            const displayText = displayParts.join(' ');
+            
+            // 只在右侧显示时长信息
             const durationText = ep.duration || ep.time || '';
             
             return `
@@ -1660,10 +1748,9 @@
         const name = document.getElementById('taskName').value.trim();
         const websiteUrl = document.getElementById('websiteUrl').value.trim();
         const saveDirectory = document.getElementById('saveDirectory').value.trim();
-        const videoType = document.getElementById('videoType').value;
+        const videoType = currentVideoType || '其他';  // 使用自动识别的视频类型
         const createSubfolder = false;  // 强制设置为false
         const cronExpression = document.getElementById('cronExpression').value;
-        const platform = document.getElementById('platformSelect').value;
         
         // 获取文件大小限制配置
         const enableFileSizeCheck = document.getElementById('enableFileSizeCheck').checked ? 1 : 0;
@@ -1673,6 +1760,12 @@
         const enableRetry = document.getElementById('enableRetry').checked ? 1 : 0;
         const maxRetryCount = parseInt(document.getElementById('maxRetryCount').value) || 3;
         const retryInterval = parseInt(document.getElementById('retryInterval').value) || 5;
+        
+        // 获取正则替换配置
+        const videoRegexPatternEl = document.getElementById('videoRegexPattern');
+        const videoReplacementPatternEl = document.getElementById('videoReplacementPattern');
+        const regexPattern = videoRegexPatternEl ? (videoRegexPatternEl.value.trim() || null) : null;
+        const replacementPattern = videoReplacementPatternEl ? (videoReplacementPatternEl.value.trim() || null) : null;
         
         if (!name) {
             Message.warning('请输入任务名称');
@@ -1743,14 +1836,17 @@
                 episodes: episodeData,  // 保存完整的剧集列表
                 selected_episodes: selectedIndices,  // 保存选中的剧集索引
                 video_info: currentVideoInfo,
-                platform: platform,  // 保存平台信息
+                platform: currentPlatform,  // 使用自动识别的平台
                 video_type: videoType,  // 保存影视类型
                 // 新增配置字段
                 enable_file_size_check: enableFileSizeCheck,
                 min_file_size: minFileSize,
                 enable_retry: enableRetry,
                 max_retry_count: maxRetryCount,
-                retry_interval: retryInterval
+                retry_interval: retryInterval,
+                // 正则替换配置
+                regex_pattern: regexPattern,
+                replacement_pattern: replacementPattern
             };
             
             let result;
@@ -1783,9 +1879,68 @@
     window.closeExecuteLogModal = closeExecuteLogModal;
     window.toggleTask = toggleTask;
     window.deleteTask = deleteTask;
+    
+    // 正则预览函数（影视下载专用）
+    window.previewVideoRegex = async function() {
+        const regexEl = document.getElementById('videoRegexPattern');
+        const replaceEl = document.getElementById('videoReplacementPattern');
+        const filenameEl = document.getElementById('videoPreviewFilename');
+        const resultEl = document.getElementById('videoPreviewResult');
+        
+        const regex = regexEl ? regexEl.value.trim() : '';
+        const replacement = replaceEl ? replaceEl.value.trim() : '';
+        const filename = filenameEl ? filenameEl.value.trim() : '';
+        
+        if (!regex) {
+            Message.warning('请输入正则表达式');
+            return;
+        }
+        if (!filename) {
+            Message.warning('请输入要预览的文件名');
+            return;
+        }
+        
+        try {
+            const result = await RegexAPI.preview({
+                regex_pattern: regex,
+                replacement_pattern: replacement,
+                filename: filename
+            });
+            
+            if (resultEl && result.code === 200 && result.data) {
+                if (result.data.matched) {
+                    resultEl.innerHTML = '<div style="color:#059669;font-weight:500;">✓ 匹配成功</div>' +
+                        '<div style="margin-top:8px;"><span style="color:#6B7280;">原文件名：</span><span style="color:#374151;">' + escapeHtml(result.data.original) + '</span></div>' +
+                        '<div style="margin-top:4px;"><span style="color:#6B7280;">新文件名：</span><span style="color:#059669;font-weight:500;">' + escapeHtml(result.data.result) + '</span></div>';
+                } else {
+                    resultEl.innerHTML = '<div style="color:#D97706;font-weight:500;">○ 不匹配</div><div style="margin-top:8px;color:#6B7280;">正则表达式不匹配该文件名，将保持原样</div>';
+                }
+                resultEl.style.display = 'block';
+            }
+        } catch (err) {
+            console.error('预览失败:', err);
+            Message.error('预览失败');
+        }
+    };
+    
+    // HTML转义函数
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
 
     // 初始化
     loadTasks();
+    
+    // 监听任务名称变化，自动更新路径
+    const taskNameInput = document.getElementById('taskName');
+    if (taskNameInput) {
+        taskNameInput.addEventListener('input', function() {
+            if (currentVideoType) {
+                updateSaveDirectoryWithType();
+            }
+        });
+    }
     
     // 检查是否有待添加的影视任务
     const pendingTask = sessionStorage.getItem('pendingVideoTask');
@@ -1818,16 +1973,15 @@
                 document.getElementById('taskName').value = '';
                 document.getElementById('websiteUrl').value = '';
                 document.getElementById('saveDirectory').value = defaultDir;
-                document.getElementById('videoType').value = '电视剧';
                 document.getElementById('createSubfolder').checked = false;
                 document.getElementById('cronExpression').value = '';
                 document.getElementById('cronDisplay').textContent = '点击设置执行时间';
-                document.getElementById('platformSelect').value = 'mango';
                 document.getElementById('episodeListGroup').style.display = 'none';
                 document.getElementById('videoInfoGroup').style.display = 'none';
+                document.getElementById('platformInfoGroup').style.display = 'none';
                 document.getElementById('episodeList').innerHTML = '';
                 episodeData = [];
-                currentPlatform = 'mango';
+                currentPlatform = null;
                 
                 // 填充待添加任务的数据
                 if (taskData.url) {
@@ -1838,24 +1992,7 @@
                     document.getElementById('taskName').value = taskData.title;
                 }
                 
-                // 设置平台
-                if (taskData.platform) {
-                    const platformMap = {
-                        'youku': 'youku',
-                        'qq': 'tencent',
-                        'qiyi': 'iqiyi',
-                        'imgo': 'mango',
-                        'bilibili': 'mango',
-                        'bilibili1': 'mango',
-                        'levp': 'mango',
-                        'm1905': 'mango',
-                        'douyin': 'mango'
-                    };
-                    const platform = platformMap[taskData.platform] || 'mango';
-                    document.getElementById('platformSelect').value = platform;
-                    currentPlatform = platform;
-                    onPlatformChange();
-                }
+                // 平台将在读取URL时自动识别，无需手动设置
                 
                 // 打开弹窗
                 document.getElementById('taskModal').classList.add('show');
@@ -1868,4 +2005,18 @@
         }
     }
 })();
+</script>
+
+<!-- 动态加载正则示例弹窗 -->
+<div id="regexExampleModalContainer"></div>
+<script>
+    fetch('../components/regex-example-modal.html')
+        .then(response => response.text())
+        .then(html => {
+            const container = document.getElementById('regexExampleModalContainer');
+            if (container) {
+                container.innerHTML = html;
+            }
+        })
+        .catch(err => console.error('加载正则示例弹窗失败:', err));
 </script>

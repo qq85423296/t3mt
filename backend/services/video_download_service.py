@@ -1030,7 +1030,9 @@ class VideoDownloadService:
                                task_name: str = '',
                                task_config: Optional[Dict] = None,
                                progress_callback: Optional[Callable] = None,
-                               log_callback: Optional[Callable] = None) -> Dict:
+                               log_callback: Optional[Callable] = None,
+                               regex_pattern: str = None,
+                               replacement_pattern: str = None) -> Dict:
         """
         下载任务的所有剧集
         
@@ -1047,6 +1049,8 @@ class VideoDownloadService:
                 - retry_interval: 重试间隔(分钟)
             progress_callback: 进度回调 callback(current, total, episode_name, status)
             log_callback: 日志回调
+            regex_pattern: 正则表达式（可选）
+            replacement_pattern: 替换表达式（可选）
             
         Returns:
             下载结果
@@ -1197,6 +1201,26 @@ class VideoDownloadService:
                     try:
                         # 确保正式目录存在
                         os.makedirs(save_directory, exist_ok=True)
+                        
+                        # 应用正则替换（如果配置了）
+                        final_safe_name = safe_name
+                        if regex_pattern:
+                            try:
+                                from utils.filename_replacer import FilenameReplacer
+                                # 对文件名（不含扩展名）应用正则替换
+                                success, new_name, msg = FilenameReplacer.apply_regex_replacement(
+                                    safe_name, regex_pattern, replacement_pattern or ''
+                                )
+                                if success and new_name != safe_name:
+                                    final_safe_name = self._sanitize_filename(new_name)
+                                    logger.info(f"正则替换: {safe_name} -> {final_safe_name}")
+                                    if log_callback:
+                                        log_callback(f"文件名替换: {safe_name} -> {final_safe_name}")
+                            except Exception as e:
+                                logger.warning(f"正则替换失败: {str(e)}, 使用原文件名")
+                        
+                        # 最终文件路径
+                        final_file_path = os.path.join(save_directory, f"{final_safe_name}.mp4")
                         
                         # 移动文件
                         import shutil

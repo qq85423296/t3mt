@@ -16,8 +16,12 @@ from utils.logger import logger
 class ConfigCrypto:
     """配置加密管理器"""
     
-    # 加密配置文件路径
-    ENCRYPTED_CONFIG_PATH = 'config/encrypted_config.dat'
+    # 加密配置文件路径（使用绝对路径）
+    ENCRYPTED_CONFIG_PATH = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'config',
+        'encrypted_config.dat'
+    )
     
     def __init__(self):
         self._cipher = None

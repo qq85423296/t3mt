@@ -11,6 +11,61 @@ from utils.logger import logger
 transfer_bp = Blueprint('transfer', __name__, url_prefix='/api/transfer')
 
 
+def create_path_recursive(quark, full_path, add_log=None, idx=1, total=1):
+    """
+    递归创建目录路径
+    
+    Args:
+        quark: QuarkService实例
+        full_path: 完整路径，如 /夸克自动转存测试/20260111
+        add_log: 日志函数
+        idx: 当前索引
+        total: 总数
+    
+    Returns:
+        str: 最终目录的FID，失败返回"0"
+    """
+    if not full_path or full_path == '/':
+        return "0"
+    
+    # 分割路径
+    parts = [p for p in full_path.split('/') if p]
+    if not parts:
+        return "0"
+    
+    current_fid = "0"  # 从根目录开始
+    current_path = ""
+    
+    for part in parts:
+        current_path = f"{current_path}/{part}"
+        
+        # 先查询该路径是否存在
+        fid_infos = quark.get_fids_by_paths([current_path])
+        
+        if fid_infos and len(fid_infos) > 0:
+            fid_info = fid_infos[0]
+            if isinstance(fid_info, dict) and 'fid' in fid_info:
+                current_fid = fid_info['fid']
+                continue
+        
+        # 路径不存在，创建目录（只传文件夹名称和父目录FID）
+        mkdir_result = quark.mkdir(part, current_fid)
+        logger.info(f"创建目录 {part} (父目录FID: {current_fid}) 结果: {mkdir_result}")
+        
+        if mkdir_result.get('code') == 0:
+            current_fid = mkdir_result['data']['fid']
+            if add_log:
+                add_log(f"[{idx}/{total}] 创建子目录成功: {part}", 'info')
+        else:
+            error_msg = mkdir_result.get('message', '未知错误')
+            logger.error(f"创建目录失败: {part}, 错误: {error_msg}")
+            if add_log:
+                add_log(f"[{idx}/{total}] 创建子目录失败: {part}, 错误: {error_msg}", 'error')
+            return "0"
+    
+    return current_fid
+
+
 @transfer_bp.route('/tasks', methods=['GET'])
 def get_tasks():
     """获取转存任务列表"""
@@ -499,27 +554,21 @@ def execute_task(task_id):
                                 add_log(f"[{idx}/{len(share_urls)}] 找到目标文件夹 FID: {target_fid}", 'info')
                             else:
                                 add_log(f"[{idx}/{len(share_urls)}] 路径查询返回数据格式异常: {fid_info}", 'warning')
-                                # 尝试创建目录
+                                # 尝试逐级创建目录
                                 add_log(f"[{idx}/{len(share_urls)}] 尝试创建目录...", 'info')
-                                mkdir_result = quark.mkdir(final_target_path)
-                                logger.info(f"创建目录结果: {mkdir_result}")
-                                
-                                if mkdir_result.get('code') == 0:
-                                    target_fid = mkdir_result['data']['fid']
+                                target_fid = create_path_recursive(quark, final_target_path, add_log, idx, len(share_urls))
+                                if target_fid:
                                     add_log(f"[{idx}/{len(share_urls)}] 创建目录成功，FID: {target_fid}", 'success')
                                 else:
-                                    add_log(f"[{idx}/{len(share_urls)}] 创建目录失败: {mkdir_result.get('message', '未知错误')}，使用根目录", 'warning')
+                                    add_log(f"[{idx}/{len(share_urls)}] 创建目录失败，使用根目录", 'warning')
                         else:
-                            # 目标路径不存在，尝试创建
+                            # 目标路径不存在，尝试逐级创建
                             add_log(f"[{idx}/{len(share_urls)}] 目标路径不存在，尝试创建...", 'info')
-                            mkdir_result = quark.mkdir(final_target_path)
-                            logger.info(f"创建目录结果: {mkdir_result}")
-                            
-                            if mkdir_result.get('code') == 0:
-                                target_fid = mkdir_result['data']['fid']
+                            target_fid = create_path_recursive(quark, final_target_path, add_log, idx, len(share_urls))
+                            if target_fid:
                                 add_log(f"[{idx}/{len(share_urls)}] 创建目录成功，FID: {target_fid}", 'success')
                             else:
-                                add_log(f"[{idx}/{len(share_urls)}] 创建目录失败: {mkdir_result.get('message', '未知错误')}，使用根目录", 'warning')
+                                add_log(f"[{idx}/{len(share_urls)}] 创建目录失败，使用根目录", 'warning')
                     else:
                         add_log(f"[{idx}/{len(share_urls)}] 使用根目录，FID: 0", 'info')
                     
@@ -613,10 +662,38 @@ def execute_task(task_id):
                                     target_file_names = {f['file_name'] for f in target_files}
                                     
                                     original_count = len(files_to_transfer)
-                                    files_to_transfer = [
-                                        f for f in files_to_transfer 
-                                        if f['item']['file_name'] not in target_file_names
-                                    ]
+                                    
+                                    # 根据check_mode决定使用哪个文件名进行检查
+                                    check_mode = task.get('check_mode', 'replaced')
+                                    regex_pattern = task.get('regex_pattern')
+                                    
+                                    if check_mode == 'replaced' and regex_pattern:
+                                        # 使用替换后的文件名检查
+                                        from utils.filename_replacer import FilenameReplacer
+                                        replacer = FilenameReplacer()
+                                        
+                                        filtered_files = []
+                                        for f in files_to_transfer:
+                                            original_name = f['item']['file_name']
+                                            # 应用正则替换 (返回: success, new_filename, message)
+                                            matched, new_name, _ = replacer.apply_regex_replacement(
+                                                original_name,
+                                                regex_pattern,
+                                                task.get('replacement_pattern', '')
+                                            )
+                                            # 使用替换后的文件名检查是否存在
+                                            check_name = new_name if matched else original_name
+                                            if check_name not in target_file_names:
+                                                filtered_files.append(f)
+                                        
+                                        files_to_transfer = filtered_files
+                                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 使用替换后文件名检查重复", 'info')
+                                    else:
+                                        # 使用原文件名检查
+                                        files_to_transfer = [
+                                            f for f in files_to_transfer 
+                                            if f['item']['file_name'] not in target_file_names
+                                        ]
                                     
                                     if original_count > len(files_to_transfer):
                                         add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 跳过 {original_count - len(files_to_transfer)} 个已存在文件", 'info')
@@ -660,6 +737,61 @@ def execute_task(task_id):
                             if task_status == 2:
                                 add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 转存成功", 'success')
                                 total_transferred += len(files_to_transfer)
+                                
+                                # 应用正则替换重命名文件
+                                if task.get('regex_pattern'):
+                                    add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 开始应用正则替换...", 'info')
+                                    try:
+                                        from utils.filename_replacer import FilenameReplacer
+                                        replacer = FilenameReplacer()
+                                        
+                                        # 获取目标文件夹中的文件列表
+                                        target_files_response = quark.get_file_list(folder_target_fid, 1, 500)
+                                        if target_files_response.get('code') == 0:
+                                            target_files = target_files_response['data']['list']
+                                            
+                                            # 只处理刚转存的文件
+                                            transferred_filenames = {f['item']['file_name'] for f in files_to_transfer}
+                                            files_to_rename = [f for f in target_files if f['file_name'] in transferred_filenames]
+                                            
+                                            renamed_count = 0
+                                            for file_obj in files_to_rename:
+                                                original_name = file_obj['file_name']
+                                                
+                                                # 应用正则替换 (返回: success, new_filename, message)
+                                                matched, new_name, _ = replacer.apply_regex_replacement(
+                                                    original_name,
+                                                    task['regex_pattern'],
+                                                    task.get('replacement_pattern', '')
+                                                )
+                                                
+                                                if matched and new_name != original_name:
+                                                    # 检查目标文件名是否已存在
+                                                    if any(f['file_name'] == new_name for f in target_files if f['fid'] != file_obj['fid']):
+                                                        # 生成唯一文件名
+                                                        new_name = replacer.generate_unique_filename(
+                                                            new_name,
+                                                            [f['file_name'] for f in target_files if f['fid'] != file_obj['fid']]
+                                                        )
+                                                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 文件名冲突，使用唯一名称: {new_name}", 'warning')
+                                                    
+                                                    # 执行重命名
+                                                    rename_result = quark.rename(file_obj['fid'], new_name)
+                                                    if rename_result.get('status') == 200:
+                                                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 重命名: {original_name} -> {new_name}", 'success')
+                                                        renamed_count += 1
+                                                    else:
+                                                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 重命名失败: {original_name}, 错误: {rename_result.get('message', '未知错误')}", 'error')
+                                                elif matched:
+                                                    add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 文件名未改变: {original_name}", 'info')
+                                            
+                                            if renamed_count > 0:
+                                                add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 成功重命名 {renamed_count} 个文件", 'success')
+                                        else:
+                                            add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 获取文件列表失败，跳过重命名", 'warning')
+                                    except Exception as rename_error:
+                                        logger.error(f"应用正则替换失败: {rename_error}", exc_info=True)
+                                        add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 正则替换失败: {str(rename_error)}", 'error')
                             else:
                                 error_msg = task_result.get('data', {}).get('message') or task_result.get('message', '未知错误')
                                 add_log(f"[{idx}/{len(share_urls)}] [{folder_display}] 转存失败: {error_msg}", 'error')

@@ -17,19 +17,32 @@ class IqiyiService:
         # 从加密配置中获取爱奇艺API配置
         self.config = config_crypto.get_config('video_parse.iqiyi', {})
         
-        # 如果配置未加载,抛出错误,不提供默认值
-        if not self.config or not self.config.get('enabled'):
+        # 延迟检查配置，不在初始化时抛出异常
+        self._config_checked = False
+        
+        # 如果配置存在，初始化相关属性
+        if self.config and self.config.get('enabled'):
+            self.headers = {
+                'User-Agent': self.config.get('user_agent'),
+                'Referer': self.config.get('base_url') + '/'
+            }
+            
+            self.base_url = self.config.get('base_url')
+            self.miniapp_api = self.config.get('miniapp_api')
+            self.accelerator_js = self.config.get('accelerator_js')
+            self._config_checked = True
+        else:
+            # 配置不存在时，设置为None
+            self.headers = None
+            self.base_url = None
+            self.miniapp_api = None
+            self.accelerator_js = None
+    
+    def _check_config(self):
+        """检查配置是否可用，在实际调用方法时才检查"""
+        if not self._config_checked:
             logger.error("爱奇艺配置未加载或未启用,无法使用爱奇艺服务")
             raise RuntimeError("爱奇艺服务配置缺失,请联系管理员")
-        
-        self.headers = {
-            'User-Agent': self.config.get('user_agent'),
-            'Referer': self.config.get('base_url') + '/'
-        }
-        
-        self.base_url = self.config.get('base_url')
-        self.miniapp_api = self.config.get('miniapp_api')
-        self.accelerator_js = self.config.get('accelerator_js')
     
     def extract_tvid_from_url(self, url: str) -> Optional[str]:
         """
@@ -40,6 +53,9 @@ class IqiyiService:
         
         例如: https://www.iqiyi.com/v_1o68nz8spzc.html
         """
+        # 检查配置
+        self._check_config()
+        
         try:
             # 方法1: 尝试从URL参数中提取
             if 'tvid=' in url:
@@ -144,6 +160,9 @@ class IqiyiService:
         Returns:
             包含影视信息的字典
         """
+        # 检查配置
+        self._check_config()
+        
         # 使用加密配置中的API地址
         url = f"{self.miniapp_api}/{tvid}/"
         
@@ -155,6 +174,10 @@ class IqiyiService:
             if data.get('code') == 'A00000' and data.get('data'):
                 play_info = data['data'].get('playInfo', {})
                 video_list = data['data'].get('videoList', {})
+                
+                # 处理videoList可能是空字符串的情况(电影类型)
+                if not isinstance(video_list, dict):
+                    video_list = {}
                 
                 return {
                     'success': True,
@@ -188,26 +211,110 @@ class IqiyiService:
                 'error': f'请求失败: {str(e)}'
             }
     
-    def get_episode_list(self, tvid: str) -> Dict:
+    def get_channel_id_from_mobile(self, url: str) -> Optional[int]:
+        """
+        从手机版页面获取channelId用于类型识别
+        channelId映射: 1=电影, 2=电视剧, 4=动漫, 6=综艺
+        
+        Args:
+            url: 爱奇艺官网地址
+            
+        Returns:
+            channelId或None
+        """
+        # 检查配置
+        self._check_config()
+        
+        try:
+            # 将www替换为m，构建手机版URL
+            mobile_url = url.replace('www.iqiyi.com', 'm.iqiyi.com')
+            
+            logger.info(f"请求手机版页面获取channelId: {mobile_url}")
+            
+            # 使用手机版User-Agent
+            mobile_headers = {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+                'Referer': self.base_url + '/'
+            }
+            
+            # 请求手机版页面
+            response = requests.get(mobile_url, headers=mobile_headers, timeout=15)
+            response.raise_for_status()
+            
+            page_content = response.text
+            
+            # 从页面中提取channelId
+            # 查找 "channelId":6 或 "channelId": 6
+            match = re.search(r'"channelId"\s*:\s*(\d+)', page_content)
+            if match:
+                channel_id = int(match.group(1))
+                logger.info(f"从手机版页面提取到channelId: {channel_id}")
+                return channel_id
+            
+            logger.warning(f"无法从手机版页面提取channelId")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"获取channelId失败: {str(e)}")
+            return None
+    
+    def get_episode_list(self, tvid: str, url: str = None) -> Dict:
         """
         获取剧集列表
         
         Args:
             tvid: 视频ID
+            url: 原始URL(用于电影类型返回当前地址)
             
         Returns:
             包含剧集列表的字典
         """
+        # 检查配置
+        self._check_config()
+        
         # 使用加密配置中的API地址
-        url = f"{self.miniapp_api}/{tvid}/"
+        api_url = f"{self.miniapp_api}/{tvid}/"
         
         try:
-            response = requests.get(url, headers=self.headers, timeout=10)
+            response = requests.get(api_url, headers=self.headers, timeout=10)
             response.raise_for_status()
             data = response.json()
             
             if data.get('code') == 'A00000' and data.get('data'):
                 video_list = data['data'].get('videoList', {})
+                
+                # 处理videoList可能是空字符串的情况(电影类型)
+                if not isinstance(video_list, dict):
+                    logger.info("videoList为空或非字典类型,可能是电影类型,返回当前URL作为剧集")
+                    
+                    # 电影类型:返回当前URL作为唯一剧集
+                    if url:
+                        episodes = [{
+                            'name': '正片',
+                            'title': '',
+                            'url': url.replace('www.iqiyi.com', 'm.iqiyi.com'),  # 转换为手机版URL
+                            'video_id': str(tvid),
+                            'qipu_id': str(tvid),
+                            'vid': '',
+                            'duration': '',
+                            'time_length': 0,
+                            'is_vip': False,
+                            'image': '',
+                            'period': '',
+                            'pd': 1
+                        }]
+                        return {
+                            'success': True,
+                            'episodes': episodes,
+                            'total': 1
+                        }
+                    else:
+                        return {
+                            'success': True,
+                            'episodes': [],
+                            'total': 0
+                        }
+                
                 videos = video_list.get('videos', [])
                 
                 # 解析剧集信息
@@ -303,8 +410,13 @@ class IqiyiService:
         if not video_info.get('success'):
             return video_info
         
-        # 获取剧集列表
-        episodes_result = self.get_episode_list(tvid)
+        # 获取channelId用于类型识别
+        channel_id = self.get_channel_id_from_mobile(url)
+        if channel_id:
+            video_info['channelId'] = channel_id
+        
+        # 获取剧集列表(传递URL用于电影类型)
+        episodes_result = self.get_episode_list(tvid, url)
         if not episodes_result.get('success'):
             return episodes_result
         

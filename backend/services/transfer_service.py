@@ -84,8 +84,9 @@ class TransferService:
                         save_mode, target_folder_name,
                         rules, filter_extensions, include_extensions,
                         update_dirs, file_start_date, overwrite_mode, end_date,
-                        cron_expression, status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        cron_expression, regex_pattern, replacement_pattern, check_mode,
+                        status, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     share_urls_json,
@@ -101,6 +102,9 @@ class TransferService:
                     task_data.get('overwrite_mode', 0),
                     task_data.get('end_date'),
                     task_data['cron_expression'],
+                    task_data.get('regex_pattern'),
+                    task_data.get('replacement_pattern'),
+                    task_data.get('check_mode', 'replaced'),
                     'running',
                     datetime.now(),
                     datetime.now()
@@ -133,7 +137,8 @@ class TransferService:
                         rules = ?, filter_extensions = ?,
                         include_extensions = ?, update_dirs = ?,
                         file_start_date = ?, overwrite_mode = ?, end_date = ?,
-                        cron_expression = ?, updated_at = ?
+                        cron_expression = ?, regex_pattern = ?, replacement_pattern = ?,
+                        check_mode = ?, updated_at = ?
                     WHERE id = ?
                 """, (
                     task_data['name'],
@@ -150,6 +155,9 @@ class TransferService:
                     task_data.get('overwrite_mode', 0),
                     task_data.get('end_date'),
                     task_data['cron_expression'],
+                    task_data.get('regex_pattern'),
+                    task_data.get('replacement_pattern'),
+                    task_data.get('check_mode', 'replaced'),
                     datetime.now(),
                     task_id
                 ))

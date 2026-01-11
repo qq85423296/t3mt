@@ -16,6 +16,7 @@ class VideoTask:
                  downloaded_episodes=0, create_subfolder=0, platform='mango',
                  video_type='电视剧', enable_file_size_check=0, min_file_size=100,
                  enable_retry=0, max_retry_count=3, retry_interval=5,
+                 regex_pattern=None, replacement_pattern=None,
                  created_at=None, updated_at=None):
         self.id = task_id
         self.name = name
@@ -39,6 +40,9 @@ class VideoTask:
         self.enable_retry = enable_retry  # 0=禁用, 1=启用
         self.max_retry_count = max_retry_count  # 最大重试次数(1-10)
         self.retry_interval = retry_interval  # 重试间隔(分钟)
+        # 正则替换配置
+        self.regex_pattern = regex_pattern  # 正则表达式
+        self.replacement_pattern = replacement_pattern  # 替换表达式
         self.created_at = created_at
         self.updated_at = updated_at
     
@@ -47,7 +51,8 @@ class VideoTask:
                cron_expression, episodes, video_info, create_subfolder=0, 
                selected_episodes=None, platform='mango', video_type='电视剧',
                enable_file_size_check=0, min_file_size=100,
-               enable_retry=0, max_retry_count=3, retry_interval=5):
+               enable_retry=0, max_retry_count=3, retry_interval=5,
+               regex_pattern=None, replacement_pattern=None):
         """创建任务"""
         with get_db() as conn:
             cursor = conn.cursor()
@@ -63,8 +68,8 @@ class VideoTask:
                  progress, downloaded_episodes, create_subfolder, 
                  selected_episodes, last_downloaded_episode, platform, video_type,
                  enable_file_size_check, min_file_size, enable_retry, 
-                 max_retry_count, retry_interval)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+                 max_retry_count, retry_interval, regex_pattern, replacement_pattern)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 name, website_url, video_id, clip_id, save_directory,
                 cron_expression, 
@@ -78,7 +83,9 @@ class VideoTask:
                 min_file_size,
                 enable_retry,
                 max_retry_count,
-                retry_interval
+                retry_interval,
+                regex_pattern,
+                replacement_pattern
             ))
             return cursor.lastrowid
     
@@ -112,7 +119,7 @@ class VideoTask:
             'progress', 'downloaded_episodes', 'create_subfolder',
             'selected_episodes', 'last_downloaded_episode', 'platform', 'video_type',
             'enable_file_size_check', 'min_file_size', 'enable_retry',
-            'max_retry_count', 'retry_interval'
+            'max_retry_count', 'retry_interval', 'regex_pattern', 'replacement_pattern'
         ]
         
         # 处理episodes和video_info的JSON序列化
@@ -199,6 +206,8 @@ class VideoTask:
             enable_retry=row['enable_retry'] if 'enable_retry' in row.keys() else 0,
             max_retry_count=row['max_retry_count'] if 'max_retry_count' in row.keys() else 3,
             retry_interval=row['retry_interval'] if 'retry_interval' in row.keys() else 5,
+            regex_pattern=row['regex_pattern'] if 'regex_pattern' in row.keys() else None,
+            replacement_pattern=row['replacement_pattern'] if 'replacement_pattern' in row.keys() else None,
             created_at=row['created_at'],
             updated_at=row['updated_at']
         )
@@ -232,6 +241,8 @@ class VideoTask:
             'enable_retry': self.enable_retry,
             'max_retry_count': self.max_retry_count,
             'retry_interval': self.retry_interval,
+            'regex_pattern': self.regex_pattern,
+            'replacement_pattern': self.replacement_pattern,
             'created_at': self.created_at,
             'updated_at': self.updated_at
         }

@@ -737,6 +737,43 @@ class TaskExecutor:
                     
                     if download_success:
                         success_count += 1
+                        
+                        # 应用正则替换重命名文件
+                        if task.get('regex_pattern'):
+                            try:
+                                from utils.filename_replacer import FilenameReplacer
+                                matched, new_name, msg = FilenameReplacer.apply_regex_replacement(
+                                    file_name,
+                                    task['regex_pattern'],
+                                    task.get('replacement_pattern', '')
+                                )
+                                
+                                if matched and new_name != file_name:
+                                    # 构建新的文件路径
+                                    if relative_path:
+                                        new_file_path = os.path.join(target_path, relative_path, new_name)
+                                    else:
+                                        new_file_path = os.path.join(target_path, new_name)
+                                    
+                                    # 检查目标文件是否已存在
+                                    if os.path.exists(new_file_path):
+                                        # 生成唯一文件名
+                                        base, ext = os.path.splitext(new_name)
+                                        counter = 1
+                                        while os.path.exists(new_file_path):
+                                            new_name = f"{base}_{counter}{ext}"
+                                            if relative_path:
+                                                new_file_path = os.path.join(target_path, relative_path, new_name)
+                                            else:
+                                                new_file_path = os.path.join(target_path, new_name)
+                                            counter += 1
+                                        cls._add_log(task_id, f"   文件名冲突，使用: {new_name}", 'warning')
+                                    
+                                    # 执行重命名
+                                    os.rename(local_file_path, new_file_path)
+                                    cls._add_log(task_id, f"   重命名: {file_name} -> {new_name}", 'success')
+                            except Exception as rename_error:
+                                cls._add_log(task_id, f"   正则替换失败: {str(rename_error)}", 'error')
                     else:
                         fail_count += 1
                     

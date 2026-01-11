@@ -293,3 +293,9 @@ const VideoAPI = {
     // 立即执行任务
     execute: (id) => API.post(`/api/video/task/${id}/execute`)
 };
+
+// 正则规则API
+const RegexAPI = {
+    // 预览替换效果
+    preview: (data) => API.post('/api/regex-rules/preview', data)
+};

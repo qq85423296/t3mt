@@ -81,7 +81,7 @@ class Database:
                 ON quark_accounts(status)
             ''')
             
-            # 创建转存任务表（包含schedule_period字段）
+            # 创建转存任务表（包含schedule_period字段和正则替换字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS transfer_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,13 +103,26 @@ class Database:
                     status VARCHAR(20) DEFAULT 'running',
                     last_execute_time DATETIME,
                     next_execute_time DATETIME,
+                    regex_pattern TEXT,
+                    replacement_pattern TEXT,
+                    check_mode VARCHAR(20) DEFAULT 'replaced',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (target_account_id) REFERENCES quark_accounts(id)
                 )
             ''')
             
-            # 创建下载任务表（包含filter_extensions和include_extensions字段）
+            # 迁移：为已存在的transfer_tasks表添加正则替换字段
+            try:
+                cursor.execute("SELECT regex_pattern FROM transfer_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN regex_pattern TEXT")
+                cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN replacement_pattern TEXT")
+                cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN check_mode VARCHAR(20) DEFAULT 'replaced'")
+                print("✅ transfer_tasks表已添加正则替换字段")
+            
+            # 创建下载任务表（包含filter_extensions和include_extensions字段和正则替换字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS download_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,6 +136,8 @@ class Database:
                     only_new_files TINYINT DEFAULT 1,
                     keep_structure TINYINT DEFAULT 1,
                     delete_after_download TINYINT DEFAULT 0,
+                    regex_pattern TEXT,
+                    replacement_pattern TEXT,
                     status VARCHAR(20) DEFAULT 'running',
                     progress INTEGER DEFAULT 0,
                     last_execute_time DATETIME,
@@ -132,6 +147,15 @@ class Database:
                     FOREIGN KEY (source_account_id) REFERENCES quark_accounts(id)
                 )
             ''')
+            
+            # 迁移：为已存在的download_tasks表添加正则替换字段
+            try:
+                cursor.execute("SELECT regex_pattern FROM download_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE download_tasks ADD COLUMN regex_pattern TEXT")
+                cursor.execute("ALTER TABLE download_tasks ADD COLUMN replacement_pattern TEXT")
+                print("✅ download_tasks表已添加正则替换字段")
             
             # 创建影视下载任务表（包含create_subfolder、集数选择和影视类型字段）
             cursor.execute('''
@@ -158,6 +182,15 @@ class Database:
                 )
             ''')
             
+            # 迁移：为已存在的video_tasks表添加正则替换字段
+            try:
+                cursor.execute("SELECT regex_pattern FROM video_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE video_tasks ADD COLUMN regex_pattern TEXT")
+                cursor.execute("ALTER TABLE video_tasks ADD COLUMN replacement_pattern TEXT")
+                print("✅ video_tasks表已添加正则替换字段")
+            
             # 创建任务执行历史表（包含schedule_period字段和唯一约束）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS task_execution_history (
@@ -177,6 +210,24 @@ class Database:
                     error_message TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
+            ''')
+            
+            # 创建正则规则库表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS regex_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name VARCHAR(100) NOT NULL,
+                    regex_pattern TEXT NOT NULL,
+                    replacement_pattern TEXT NOT NULL,
+                    description TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_regex_rules_name
+                ON regex_rules(name)
             ''')
             
             # 创建唯一约束索引

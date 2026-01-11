@@ -58,8 +58,9 @@ class DownloadService:
                         name, source_account_id, source_path, target_path,
                         cron_expression, filter_extensions, include_extensions,
                         only_new_files, keep_structure, delete_after_download,
+                        regex_pattern, replacement_pattern,
                         status, progress, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     task_data['source_account_id'],
@@ -71,6 +72,8 @@ class DownloadService:
                     task_data.get('only_new_files', 1),
                     task_data.get('keep_structure', 1),
                     task_data.get('delete_after_download', 0),
+                    task_data.get('regex_pattern'),
+                    task_data.get('replacement_pattern'),
                     'running',
                     0,
                     datetime.now(),
@@ -99,7 +102,9 @@ class DownloadService:
                         target_path = ?, cron_expression = ?,
                         filter_extensions = ?, include_extensions = ?,
                         only_new_files = ?, keep_structure = ?,
-                        delete_after_download = ?, updated_at = ?
+                        delete_after_download = ?,
+                        regex_pattern = ?, replacement_pattern = ?,
+                        updated_at = ?
                     WHERE id = ?
                 """, (
                     task_data['name'],
@@ -112,6 +117,8 @@ class DownloadService:
                     task_data.get('only_new_files', 1),
                     task_data.get('keep_structure', 1),
                     task_data.get('delete_after_download', 0),
+                    task_data.get('regex_pattern'),
+                    task_data.get('replacement_pattern'),
                     datetime.now(),
                     task_id
                 ))

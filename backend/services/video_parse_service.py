@@ -63,20 +63,26 @@ class VideoParseService:
             url: 官网地址
             
         Returns:
-            平台标识: 'mango'、'tencent'、'iqiyi' 或 'youku'
+            平台标识: 'mango'、'tencent'、'iqiyi'、'youku' 或 'unknown'
         """
-        if 'mgtv.com' in url:
+        url_lower = url.lower()
+        
+        if 'mgtv.com' in url_lower:
+            logger.info(f"识别平台为芒果TV: {url}")
             return 'mango'
-        elif 'qq.com' in url or 'v.qq.com' in url:
+        elif '.qq.com' in url_lower:
+            logger.info(f"识别平台为腾讯视频: {url}")
             return 'tencent'
-        elif 'iqiyi.com' in url:
+        elif '.iqiyi.com' in url_lower:
+            logger.info(f"识别平台为爱奇艺: {url}")
             return 'iqiyi'
-        elif 'youku.com' in url:
+        elif '.youku.com' in url_lower:
+            logger.info(f"识别平台为优酷: {url}")
             return 'youku'
         else:
-            # 默认返回芒果TV
-            logger.warning(f"无法识别平台: {url}，默认使用芒果TV")
-            return 'mango'
+            # 返回unknown而不是默认值
+            logger.warning(f"无法识别平台: {url}，不支持的平台")
+            return 'unknown'
     
     def read_website(self, url: str, platform: str = None) -> Dict:
         """
@@ -94,17 +100,34 @@ class VideoParseService:
         if not platform:
             platform = self.detect_platform(url)
         
+        # 验证平台是否支持
+        if platform == 'unknown':
+            logger.error(f"不支持的平台: {url}")
+            return {
+                'success': False,
+                'error': '目前仅支持腾讯、爱奇艺、优酷、芒果平台'
+            }
+        
         logger.info(f"读取官网信息，平台: {platform}, URL: {url}")
         
         # 根据平台调用对应的服务
         if platform == 'tencent':
-            return self.tencent_service.read_website(url)
+            result = self.tencent_service.read_website(url)
         elif platform == 'iqiyi':
-            return self.iqiyi_service.read_website(url)
+            result = self.iqiyi_service.read_website(url)
         elif platform == 'youku':
-            return self.youku_service.read_website(url)
+            result = self.youku_service.read_website(url)
         else:
-            return self.mango_service.read_website(url)
+            result = self.mango_service.read_website(url)
+        
+        # 在返回结果前，添加视频类型识别
+        if result.get('success'):
+            video_info = result.get('video_info', {})
+            video_type = self.detect_video_type(platform, video_info)
+            result['video_type'] = video_type
+            logger.info(f"识别视频类型: {video_type}")
+        
+        return result
     
     def _get_config(self):
         """从数据库获取解析配置(支持多接口)"""
@@ -331,6 +354,175 @@ class VideoParseService:
             'message': f'所有解析接口均失败。{error_summary}',
             'errors': all_errors
         }
+    
+    def detect_video_type(self, platform: str, video_info: Dict) -> str:
+        """
+        根据平台和视频信息识别视频类型
+        
+        Args:
+            platform: 平台标识 ('mango', 'tencent', 'iqiyi', 'youku')
+            video_info: 视频信息字典
+            
+        Returns:
+            视频类型: '电视剧', '电影', '综艺', '动漫', '其他'
+        """
+        logger.info(f"开始识别视频类型，平台: {platform}")
+        
+        if platform == 'tencent':
+            return self._detect_tencent_type(video_info)
+        elif platform == 'iqiyi':
+            return self._detect_iqiyi_type(video_info)
+        elif platform == 'mango':
+            return self._detect_mango_type(video_info)
+        elif platform == 'youku':
+            return self._detect_youku_type(video_info)
+        else:
+            logger.warning(f"未知平台: {platform}, 使用默认类型")
+            return '其他'
+    
+    def _detect_tencent_type(self, video_info: Dict) -> str:
+        """
+        识别腾讯视频类型
+        基于businessInfo.video_category字段
+        1=电影, 2=电视剧, 3=综艺, 4=动漫
+        
+        Args:
+            video_info: 视频信息字典
+            
+        Returns:
+            视频类型
+        """
+        try:
+            business_info = video_info.get('businessInfo', {})
+            
+            # 处理businessInfo可能是JSON字符串的情况
+            if isinstance(business_info, str):
+                import json
+                business_info = json.loads(business_info)
+            
+            video_category = business_info.get('video_category')
+            
+            # 类型映射
+            type_mapping = {
+                1: '电影',
+                2: '电视剧',
+                3: '综艺',
+                4: '动漫'
+            }
+            
+            video_type = type_mapping.get(video_category, '其他')
+            logger.info(f"腾讯视频类型识别: category={video_category}, type={video_type}")
+            return video_type
+            
+        except Exception as e:
+            logger.warning(f"腾讯视频类型识别失败: {str(e)}, 使用默认类型")
+            return '其他'
+    
+    def _detect_iqiyi_type(self, video_info: Dict) -> str:
+        """
+        识别爱奇艺视频类型
+        基于channelId字段: 1=电影, 2=电视剧, 4=动漫, 6=综艺
+        
+        Args:
+            video_info: 视频信息字典
+            
+        Returns:
+            视频类型
+        """
+        try:
+            channel_id = video_info.get('channelId')
+            
+            # 类型映射
+            type_mapping = {
+                1: '电影',
+                2: '电视剧',
+                4: '动漫',
+                6: '综艺'
+            }
+            
+            video_type = type_mapping.get(channel_id, '其他')
+            logger.info(f"爱奇艺类型识别: channelId={channel_id}, type={video_type}")
+            return video_type
+                
+        except Exception as e:
+            logger.warning(f"爱奇艺类型识别失败: {str(e)}, 使用默认类型")
+            return '其他'
+    
+    def _detect_mango_type(self, video_info: Dict) -> str:
+        """
+        识别芒果TV视频类型
+        基于type和kind字段
+        
+        Args:
+            video_info: 视频信息字典
+            
+        Returns:
+            视频类型
+        """
+        try:
+            type_str = video_info.get('type', '').lower()
+            kind_str = video_info.get('kind', '').lower()
+            
+            # 合并两个字段进行匹配
+            combined = f"{type_str} {kind_str}"
+            
+            if '电视剧' in combined or '剧集' in combined:
+                logger.info(f"芒果TV类型识别: type={type_str}, kind={kind_str}, result=电视剧")
+                return '电视剧'
+            elif '电影' in combined:
+                logger.info(f"芒果TV类型识别: type={type_str}, kind={kind_str}, result=电影")
+                return '电影'
+            elif '综艺' in combined:
+                logger.info(f"芒果TV类型识别: type={type_str}, kind={kind_str}, result=综艺")
+                return '综艺'
+            elif '动漫' in combined or '动画' in combined:
+                logger.info(f"芒果TV类型识别: type={type_str}, kind={kind_str}, result=动漫")
+                return '动漫'
+            else:
+                logger.warning(f"芒果TV类型无法识别: type={type_str}, kind={kind_str}, 使用默认类型")
+                return '其他'
+                
+        except Exception as e:
+            logger.warning(f"芒果TV类型识别失败: {str(e)}, 使用默认类型")
+            return '其他'
+    
+    def _detect_youku_type(self, video_info: Dict) -> str:
+        """
+        识别优酷视频类型
+        基于category和show_type字段
+        
+        Args:
+            video_info: 视频信息字典
+            
+        Returns:
+            视频类型
+        """
+        try:
+            category = video_info.get('category', '').lower()
+            show_type = video_info.get('show_type', '').lower()
+            
+            # 合并两个字段进行匹配
+            combined = f"{category} {show_type}"
+            
+            if '电视剧' in combined or '剧集' in combined:
+                logger.info(f"优酷类型识别: category={category}, show_type={show_type}, result=电视剧")
+                return '电视剧'
+            elif '电影' in combined:
+                logger.info(f"优酷类型识别: category={category}, show_type={show_type}, result=电影")
+                return '电影'
+            elif '综艺' in combined:
+                logger.info(f"优酷类型识别: category={category}, show_type={show_type}, result=综艺")
+                return '综艺'
+            elif '动漫' in combined or '动画' in combined:
+                logger.info(f"优酷类型识别: category={category}, show_type={show_type}, result=动漫")
+                return '动漫'
+            else:
+                logger.warning(f"优酷类型无法识别: category={category}, show_type={show_type}, 使用默认类型")
+                return '其他'
+                
+        except Exception as e:
+            logger.warning(f"优酷类型识别失败: {str(e)}, 使用默认类型")
+            return '其他'
     
     def parse_episode(self, episode_url: str, episode_name: str = '') -> Dict:
         """

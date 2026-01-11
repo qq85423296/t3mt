@@ -166,6 +166,25 @@ class TencentService:
                         item_data_lists = module.get('item_data_lists', {})
                         item_datas = item_data_lists.get('item_datas', [])
                         
+                        # 从第一个剧集中提取businessInfo用于类型识别
+                        if not video_info.get('businessInfo') and len(item_datas) > 0:
+                            first_item = item_datas[0]
+                            item_params = first_item.get('item_params', {})
+                            business_info_str = item_params.get('businessInfo', '')
+                            if business_info_str:
+                                try:
+                                    # businessInfo是JSON字符串,需要解析
+                                    if isinstance(business_info_str, str):
+                                        business_info = json.loads(business_info_str)
+                                    else:
+                                        business_info = business_info_str
+                                    
+                                    # 将businessInfo添加到video_info中供类型识别使用
+                                    video_info['businessInfo'] = business_info
+                                    logger.info(f"提取到businessInfo: video_category={business_info.get('video_category')}")
+                                except Exception as e:
+                                    logger.warning(f"解析businessInfo失败: {e}")
+                        
                         episodes = self._parse_episodes(item_datas, cid, seen_vids)
                         all_episodes.extend(episodes)
                         logger.info(f"首次请求获取到 {len(episodes)} 集")
@@ -258,6 +277,41 @@ class TencentService:
             play_title = item_params.get('play_title', '')
             title = item_params.get('title', '')
             video_subtitle = item_params.get('video_subtitle', '')  # 剧集副标题/简介
+            
+            # 处理play_title：去掉前面的剧名部分
+            # 格式通常是：剧名 第X集 详细标题
+            # 我们需要去掉剧名，只保留：第X集 详细标题
+            episode_name = play_title
+            if play_title:
+                # 尝试匹配"第X集"或"第X话"或"第X期"的位置
+                import re
+                match = re.search(r'第\d+[集话期]', play_title)
+                if match:
+                    # 从"第X集"开始截取，去掉前面的剧名
+                    episode_name = play_title[match.start():]
+                else:
+                    # 如果没有匹配到标准格式，保持原样
+                    episode_name = play_title
+            
+            # 综艺节目特殊处理：添加日期前缀
+            # 检查是否为综艺节目（video_category=3）
+            business_info_str = item_params.get('businessInfo', '')
+            is_variety_show = False
+            if business_info_str:
+                try:
+                    import json
+                    business_info = json.loads(business_info_str) if isinstance(business_info_str, str) else business_info_str
+                    video_category = business_info.get('video_category', 0)
+                    is_variety_show = (video_category == 3)
+                except:
+                    pass
+            
+            # 如果是综艺节目且有日期信息，添加日期前缀
+            if is_variety_show:
+                tag_right_text = item_params.get('tag_right_text', '')
+                if tag_right_text:
+                    # 格式：日期 + 原名称
+                    episode_name = f"{tag_right_text} {episode_name}"
             
             # 获取时长（秒）
             duration_seconds = item_params.get('duration', 0)
@@ -383,6 +437,18 @@ class TencentService:
             
             # 获取发布日期
             date_str = item_params.get('date', '')
+            
+            # 如果date字段为空，尝试从其他字段获取日期
+            if not date_str:
+                # 尝试从update_time字段获取
+                date_str = item_params.get('update_time', '')
+                if not date_str:
+                    # 尝试从online_time字段获取
+                    date_str = item_params.get('online_time', '')
+                if not date_str:
+                    # 尝试从publish_time字段获取
+                    date_str = item_params.get('publish_time', '')
+            
             if date_str:
                 try:
                     date_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
@@ -390,8 +456,12 @@ class TencentService:
                 except:
                     date_str = date_str.split(' ')[0] if ' ' in date_str else date_str
             
+            # 调试日志：输出所有可能的日期字段
+            if not date_str:
+                logger.debug(f"剧集 {episode_name}: 未找到日期信息。item_params中的所有字段: {list(item_params.keys())}")
+            
             episodes.append({
-                'name': play_title if play_title else f"第{title}集",
+                'name': episode_name if episode_name else f"第{title}集",
                 'title': video_subtitle,  # 剧集副标题
                 'url': f"{self.base_url}/x/cover/{cid}/{vid}.html",
                 'vid': vid,
@@ -570,7 +640,8 @@ class TencentService:
                 'hotval': video_info.get('hotval', ''),
                 'broadcast_time': video_info.get('broadcast_time', ''),
                 'tag_text': video_info.get('tag_text', ''),
-                'cid': cid
+                'cid': cid,
+                'businessInfo': video_info.get('businessInfo', {})  # 添加businessInfo用于类型识别
             },
             'episodes': episodes,
             'total_episodes': len(episodes),

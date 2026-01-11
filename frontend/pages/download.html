@@ -384,6 +384,36 @@
                         </label>
                     </div>
                 </div>
+                
+                <!-- 正则替换配置 -->
+                <div class="form-group">
+                    <label class="form-label">
+                        文件名正则替换
+                        <button type="button" class="btn-select" onclick="RegexConfig.showExampleModal()" 
+                                style="margin-left: 8px; padding: 0 8px; height: 24px; font-size: 12px; width: auto;">
+                            ❓ 查看示例
+                        </button>
+                    </label>
+                    <input type="text" class="form-input" id="dlRegexPattern" 
+                           placeholder="正则表达式 (如: ^(\d+).*$)" style="margin-bottom: 8px;" />
+                    <input type="text" class="form-input" id="dlReplacementPattern" 
+                           placeholder="替换表达式 (如: 综艺.2026.S01E\1)" />
+                    <div class="form-hint">使用正则表达式自动重命名下载的文件，留空则不替换</div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">预览效果</label>
+                    <div class="input-with-button">
+                        <input type="text" class="form-input" id="dlPreviewFilename" 
+                               placeholder="输入文件名预览 (如: 01 4K60FPS.mp4)" />
+                        <button type="button" class="btn-select" onclick="previewDownloadRegex()" 
+                                style="width: auto; padding: 0 12px;">预览</button>
+                        <button type="button" class="btn-select" onclick="loadCloudFilesForPreview()" 
+                                style="width: auto; padding: 0 12px;">从网盘加载</button>
+                    </div>
+                    <div id="dlPreviewResult" style="display: none; margin-top: 8px; padding: 12px; 
+                         background: #f5f5f5; border-radius: 4px; font-size: 13px; line-height: 1.6;"></div>
+                </div>
             </div>
             
             <!-- 模块4：执行时间 -->
@@ -687,7 +717,7 @@
         
         // 获取系统配置的默认下载目录
         try {
-            const configResult = await ConfigAPI.getConfig();
+            const configResult = await ConfigAPI.get();
             if (configResult.code === 200 && configResult.data && configResult.data.download) {
                 document.getElementById('targetPath').value = configResult.data.download.default_dir || '';
             } else {
@@ -705,6 +735,17 @@
         document.getElementById('deleteAfterDownload').checked = false;
         document.getElementById('cronExpression').value = '';
         document.getElementById('cronDisplay').textContent = '点击设置执行时间';
+        
+        // 重置正则替换字段（添加空值检查）
+        const dlRegexPattern = document.getElementById('dlRegexPattern');
+        const dlReplacementPattern = document.getElementById('dlReplacementPattern');
+        const dlPreviewFilename = document.getElementById('dlPreviewFilename');
+        const dlPreviewResult = document.getElementById('dlPreviewResult');
+        
+        if (dlRegexPattern) dlRegexPattern.value = '';
+        if (dlReplacementPattern) dlReplacementPattern.value = '';
+        if (dlPreviewFilename) dlPreviewFilename.value = '';
+        if (dlPreviewResult) dlPreviewResult.style.display = 'none';
     }
 
     // 选择源路径
@@ -783,14 +824,24 @@
     // 选择常用路径
     function selectCommonPath(path) {
         document.getElementById('targetPath').value = path;
-        // 关闭模态框
-        document.querySelector('.modal.show').remove();
+        // 关闭本地路径选择弹窗（查找包含customLocalPath的弹窗）
+        const localPathModal = document.getElementById('customLocalPath');
+        if (localPathModal) {
+            const modal = localPathModal.closest('.modal');
+            if (modal) modal.remove();
+        }
         Message.success('已选择路径: ' + path);
     }
 
     // 确认自定义路径
     function confirmCustomPath() {
-        const path = document.getElementById('customLocalPath').value.trim();
+        const customPathInput = document.getElementById('customLocalPath');
+        if (!customPathInput) {
+            Message.warning('找不到路径输入框');
+            return;
+        }
+        
+        const path = customPathInput.value.trim();
         if (!path) {
             Message.warning('请输入路径');
             return;
@@ -803,8 +854,9 @@
         }
         
         document.getElementById('targetPath').value = path;
-        // 关闭模态框
-        document.querySelector('.modal.show').remove();
+        // 关闭本地路径选择弹窗
+        const modal = customPathInput.closest('.modal');
+        if (modal) modal.remove();
         Message.success('已设置路径: ' + path);
     }
 
@@ -958,6 +1010,10 @@
             return;
         }
 
+        // 获取正则字段（添加空值检查）
+        const dlRegexPatternEl = document.getElementById('dlRegexPattern');
+        const dlReplacementPatternEl = document.getElementById('dlReplacementPattern');
+        
         const taskData = {
             name,
             source_account_id: parseInt(sourceAccountId),
@@ -968,7 +1024,9 @@
             only_new_files: document.getElementById('onlyNewFiles').checked ? 1 : 0,
             keep_structure: document.getElementById('keepStructure').checked ? 1 : 0,
             delete_after_download: document.getElementById('deleteAfterDownload').checked ? 1 : 0,
-            cron_expression: cronExpression
+            cron_expression: cronExpression,
+            regex_pattern: dlRegexPatternEl ? (dlRegexPatternEl.value.trim() || null) : null,
+            replacement_pattern: dlReplacementPatternEl ? (dlReplacementPatternEl.value.trim() || null) : null
         };
 
         try {
@@ -1023,6 +1081,17 @@
         document.getElementById('deleteAfterDownload').checked = task.delete_after_download;
         document.getElementById('cronExpression').value = task.cron_expression;
         document.getElementById('cronDisplay').textContent = CronConfig.parseCronExpression(task.cron_expression);
+        
+        // 回填正则替换字段（添加空值检查）
+        const dlRegexPattern = document.getElementById('dlRegexPattern');
+        const dlReplacementPattern = document.getElementById('dlReplacementPattern');
+        const dlPreviewFilename = document.getElementById('dlPreviewFilename');
+        const dlPreviewResult = document.getElementById('dlPreviewResult');
+        
+        if (dlRegexPattern) dlRegexPattern.value = task.regex_pattern || '';
+        if (dlReplacementPattern) dlReplacementPattern.value = task.replacement_pattern || '';
+        if (dlPreviewFilename) dlPreviewFilename.value = '';
+        if (dlPreviewResult) dlPreviewResult.style.display = 'none';
     }
 
     // 执行任务（异步+轮询）
@@ -1984,9 +2053,361 @@
     window.navigateToFolder = navigateToFolder;
     window.hideFolderSelector = hideFolderSelector;
     window.confirmFolderSelection = confirmFolderSelection;
+    
+    // ========== 正则替换预览功能 ==========
+    
+    // 下载任务的正则预览缓存
+    let dlCloudFilesCache = null;
+    
+    // 预览正则替换效果
+    async function previewDownloadRegex() {
+        const regex = document.getElementById('dlRegexPattern').value.trim();
+        const replacement = document.getElementById('dlReplacementPattern').value.trim();
+        const filename = document.getElementById('dlPreviewFilename').value.trim();
+        
+        if (!regex) {
+            Message.warning('请输入正则表达式');
+            return;
+        }
+        if (!filename) {
+            Message.warning('请输入要预览的文件名');
+            return;
+        }
+        
+        try {
+            const result = await RegexAPI.preview({
+                regex_pattern: regex,
+                replacement_pattern: replacement,
+                filename: filename
+            });
+            
+            const previewResult = document.getElementById('dlPreviewResult');
+            if (result.code === 200 && result.data) {
+                if (result.data.matched) {
+                    previewResult.innerHTML = 
+                        '<div style="color:#059669;font-weight:500;">✓ 匹配成功</div>' +
+                        '<div style="margin-top:8px;"><span style="color:#6B7280;">原文件名：</span>' +
+                        '<span style="color:#374151;">' + escapeHtml(result.data.original) + '</span></div>' +
+                        '<div style="margin-top:4px;"><span style="color:#6B7280;">新文件名：</span>' +
+                        '<span style="color:#059669;font-weight:500;">' + escapeHtml(result.data.result) + '</span></div>';
+                } else {
+                    previewResult.innerHTML = 
+                        '<div style="color:#D97706;font-weight:500;">○ 不匹配</div>' +
+                        '<div style="margin-top:8px;color:#6B7280;">正则表达式不匹配该文件名，将保持原样</div>';
+                }
+                previewResult.style.display = 'block';
+            }
+        } catch (err) {
+            console.error('预览失败:', err);
+            Message.error('预览失败');
+        }
+    }
+    
+    // 从网盘加载文件列表用于预览
+    async function loadCloudFilesForPreview() {
+        const accountId = document.getElementById('sourceAccount').value;
+        const sourcePath = document.getElementById('sourcePath').value.trim();
+        const regex = document.getElementById('dlRegexPattern').value.trim();
+        
+        if (!accountId) {
+            Message.warning('请先选择源账号');
+            return;
+        }
+        if (!sourcePath) {
+            Message.warning('请先选择网盘目录');
+            return;
+        }
+        if (!regex) {
+            Message.warning('请先输入正则表达式');
+            return;
+        }
+        
+        // 显示浏览弹窗
+        showCloudFileBrowserModal();
+        
+        // 加载文件列表
+        await browseCloudFolder(accountId, sourcePath, '0', []);
+    }
+    
+    // 显示网盘文件浏览弹窗
+    function showCloudFileBrowserModal() {
+        let modal = document.getElementById('dlCloudBrowserModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'dlCloudBrowserModal';
+            modal.className = 'modal';
+            modal.innerHTML = 
+                '<div class="modal-content" style="max-width:800px;">' +
+                '<div class="modal-header"><div class="modal-title">浏览网盘文件</div>' +
+                '<button class="modal-close" onclick="hideCloudFileBrowserModal()">×</button></div>' +
+                '<div class="modal-body">' +
+                '<div id="dlCloudBreadcrumb" style="margin-bottom:12px;padding:8px;background:#f5f5f5;border-radius:4px;">' +
+                '<span style="color:#666;">路径：</span><span id="dlBreadcrumbPath">根目录</span></div>' +
+                '<div id="dlCloudFileList" style="max-height:400px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:4px;">' +
+                '<div style="padding:40px;text-align:center;color:#999;">加载中...</div></div></div>' +
+                '<div class="modal-footer"><button class="btn" onclick="hideCloudFileBrowserModal()">关闭</button>' +
+                '<button class="btn btn-primary" onclick="testCloudFolderFiles()">测试当前目录文件</button></div></div>';
+            document.body.appendChild(modal);
+        }
+        modal.classList.add('show');
+    }
+    
+    // 隐藏网盘文件浏览弹窗
+    function hideCloudFileBrowserModal() {
+        const modal = document.getElementById('dlCloudBrowserModal');
+        if (modal) modal.classList.remove('show');
+    }
+    
+    // 浏览网盘文件夹
+    async function browseCloudFolder(accountId, basePath, folderId, pathStack) {
+        const fileListEl = document.getElementById('dlCloudFileList');
+        if (!fileListEl) return;
+        
+        fileListEl.innerHTML = '<div style="padding:40px;text-align:center;color:#999;">加载中...</div>';
+        
+        try {
+            const result = await fetch(`${API_BASE_URL}/api/quark/files?account_id=${accountId}&folder_id=${folderId}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            }).then(res => res.json());
+            
+            if (result.code === 200 && result.data) {
+                const files = result.data.items || [];
+                dlCloudFilesCache = { accountId, basePath, folderId, pathStack, files };
+                updateCloudBreadcrumb(pathStack);
+                renderCloudFileList(files, pathStack);
+            } else {
+                fileListEl.innerHTML = '<div style="padding:40px;text-align:center;color:#f87171;">' + 
+                    (result.message || '加载失败') + '</div>';
+            }
+        } catch (err) {
+            console.error('浏览网盘文件失败:', err);
+            fileListEl.innerHTML = '<div style="padding:40px;text-align:center;color:#f87171;">加载失败: ' + err.message + '</div>';
+        }
+    }
+    
+    // 渲染网盘文件列表
+    function renderCloudFileList(files, pathStack) {
+        const fileListEl = document.getElementById('dlCloudFileList');
+        if (!fileListEl) return;
+        
+        if (files.length === 0) {
+            fileListEl.innerHTML = '<div style="padding:40px;text-align:center;color:#999;">该目录为空</div>';
+            return;
+        }
+        
+        let html = '<table style="width:100%;border-collapse:collapse;">' +
+            '<thead><tr style="background:#f9fafb;"><th style="padding:10px;text-align:left;border-bottom:1px solid #e5e7eb;">文件名</th>' +
+            '<th style="padding:10px;text-align:right;border-bottom:1px solid #e5e7eb;width:100px;">大小</th></tr></thead><tbody>';
+        
+        // 返回上级按钮
+        if (pathStack.length > 0) {
+            html += '<tr style="cursor:pointer;" onclick="goBackCloudFolder()">' +
+                '<td style="padding:10px;border-bottom:1px solid #f3f4f6;"><span style="color:#2563eb;">📁 ..</span></td>' +
+                '<td style="padding:10px;text-align:right;border-bottom:1px solid #f3f4f6;color:#999;">返回上级</td></tr>';
+        }
+        
+        // 文件夹
+        const folders = files.filter(f => f.isFolder);
+        for (const folder of folders) {
+            html += '<tr style="cursor:pointer;" onclick="enterCloudFolder(\'' + folder.id + '\', \'' + 
+                escapeHtml(folder.name).replace(/'/g, "\\'") + '\')">' +
+                '<td style="padding:10px;border-bottom:1px solid #f3f4f6;"><span style="color:#2563eb;">📁 ' + 
+                escapeHtml(folder.name) + '</span></td>' +
+                '<td style="padding:10px;text-align:right;border-bottom:1px solid #f3f4f6;color:#999;">文件夹</td></tr>';
+        }
+        
+        // 文件
+        const fileItems = files.filter(f => !f.isFolder);
+        for (const file of fileItems) {
+            html += '<tr><td style="padding:10px;border-bottom:1px solid #f3f4f6;"><span style="color:#374151;">📄 ' + 
+                escapeHtml(file.name) + '</span></td>' +
+                '<td style="padding:10px;text-align:right;border-bottom:1px solid #f3f4f6;color:#999;">' + 
+                formatFileSize(file.size) + '</td></tr>';
+        }
+        
+        html += '</tbody></table>';
+        fileListEl.innerHTML = html;
+    }
+    
+    // 进入网盘子文件夹
+    function enterCloudFolder(fid, folderName) {
+        if (!dlCloudFilesCache) return;
+        const newPathStack = dlCloudFilesCache.pathStack.slice();
+        newPathStack.push({ fid: dlCloudFilesCache.folderId, name: folderName });
+        browseCloudFolder(dlCloudFilesCache.accountId, dlCloudFilesCache.basePath, fid, newPathStack);
+    }
+    
+    // 返回上级文件夹
+    function goBackCloudFolder() {
+        if (!dlCloudFilesCache || dlCloudFilesCache.pathStack.length === 0) return;
+        const newPathStack = dlCloudFilesCache.pathStack.slice();
+        const parent = newPathStack.pop();
+        browseCloudFolder(dlCloudFilesCache.accountId, dlCloudFilesCache.basePath, parent.fid, newPathStack);
+    }
+    
+    // 返回根目录
+    function goToCloudRoot() {
+        if (!dlCloudFilesCache) return;
+        // 需要重新获取根目录的folderId
+        const accountId = document.getElementById('sourceAccount').value;
+        const sourcePath = document.getElementById('sourcePath').value.trim();
+        browseCloudFolder(accountId, sourcePath, '0', []);
+    }
+    
+    // 更新网盘路径面包屑
+    function updateCloudBreadcrumb(pathStack) {
+        const breadcrumbEl = document.getElementById('dlBreadcrumbPath');
+        if (!breadcrumbEl) return;
+        
+        let html = '<span style="color:#2563eb;cursor:pointer;" onclick="goToCloudRoot()">根目录</span>';
+        for (const item of pathStack) {
+            html += ' / <span style="color:#374151;">' + escapeHtml(item.name) + '</span>';
+        }
+        breadcrumbEl.innerHTML = html;
+    }
+    
+    // 测试当前目录的文件
+    async function testCloudFolderFiles() {
+        if (!dlCloudFilesCache || !dlCloudFilesCache.files) {
+            Message.warning('请先加载文件列表');
+            return;
+        }
+        
+        const files = dlCloudFilesCache.files.filter(f => !f.isFolder);
+        if (files.length === 0) {
+            Message.warning('当前目录没有文件');
+            return;
+        }
+        
+        const regex = document.getElementById('dlRegexPattern').value.trim();
+        const replacement = document.getElementById('dlReplacementPattern').value.trim();
+        
+        if (!regex) {
+            Message.warning('请先输入正则表达式');
+            return;
+        }
+        
+        hideCloudFileBrowserModal();
+        await batchPreviewCloudFiles(files, regex, replacement);
+    }
+    
+    // 批量预览网盘文件
+    async function batchPreviewCloudFiles(files, regex, replacement) {
+        const previewResult = document.getElementById('dlPreviewResult');
+        if (!previewResult) return;
+        
+        let html = '<div style="color:#2563EB;font-weight:500;margin-bottom:12px;">📁 批量预览 (共' + files.length + '个文件)</div>';
+        html += '<div style="max-height:300px;overflow-y:auto;" id="dlBatchPreviewList"><div style="padding:20px;text-align:center;color:#999;">处理中...</div></div>';
+        previewResult.innerHTML = html;
+        previewResult.style.display = 'block';
+        
+        const listEl = document.getElementById('dlBatchPreviewList');
+        const results = [];
+        let processed = 0;
+        const total = Math.min(files.length, 30);
+        
+        for (let i = 0; i < total; i++) {
+            const file = files[i];
+            try {
+                const result = await RegexAPI.preview({
+                    regex_pattern: regex,
+                    replacement_pattern: replacement,
+                    filename: file.name
+                });
+                results[i] = { file, result };
+            } catch (err) {
+                results[i] = { file, error: err };
+            }
+            processed++;
+            
+            if (processed === total) {
+                renderBatchPreviewResults(results, files.length);
+            }
+        }
+    }
+    
+    // 渲染批量预览结果
+    function renderBatchPreviewResults(results, totalFiles) {
+        const listEl = document.getElementById('dlBatchPreviewList');
+        if (!listEl) return;
+        
+        let html = '';
+        for (const item of results) {
+            if (!item) continue;
+            
+            const file = item.file;
+            const result = item.result;
+            
+            if (result && result.code === 200 && result.data) {
+                const matched = result.data.matched;
+                const icon = matched ? '✓' : '○';
+                const color = matched ? '#059669' : '#D97706';
+                
+                html += '<div style="padding:8px 0;border-bottom:1px solid #E5E7EB;">';
+                html += '<div style="display:flex;align-items:center;gap:8px;">';
+                html += '<span style="color:' + color + ';">' + icon + '</span>';
+                html += '<span style="color:#6B7280;font-size:12px;">原:</span>';
+                html += '<span style="color:#374151;font-size:13px;">' + escapeHtml(file.name) + '</span></div>';
+                
+                if (matched) {
+                    html += '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;padding-left:20px;">';
+                    html += '<span style="color:#6B7280;font-size:12px;">新:</span>';
+                    html += '<span style="color:#059669;font-size:13px;font-weight:500;">' + escapeHtml(result.data.result) + '</span></div>';
+                }
+                html += '</div>';
+            }
+        }
+        
+        if (totalFiles > 30) {
+            html += '<div style="padding:8px 0;color:#6B7280;font-size:12px;">... 还有 ' + (totalFiles - 30) + ' 个文件未显示</div>';
+        }
+        
+        listEl.innerHTML = html;
+        Message.success('已测试 ' + results.length + ' 个文件');
+    }
+    
+    // HTML转义
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    
+    // 格式化文件大小
+    function formatFileSize(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    // 暴露正则相关函数
+    window.previewDownloadRegex = previewDownloadRegex;
+    window.loadCloudFilesForPreview = loadCloudFilesForPreview;
+    window.hideCloudFileBrowserModal = hideCloudFileBrowserModal;
+    window.enterCloudFolder = enterCloudFolder;
+    window.goBackCloudFolder = goBackCloudFolder;
+    window.goToCloudRoot = goToCloudRoot;
+    window.testCloudFolderFiles = testCloudFolderFiles;
 
     // 初始化
     loadAccounts();
     loadTasks();
 })();
+</script>
+
+<!-- 动态加载正则示例弹窗 -->
+<div id="regexExampleModalContainer"></div>
+<script>
+    fetch('../components/regex-example-modal.html')
+        .then(response => response.text())
+        .then(html => {
+            const container = document.getElementById('regexExampleModalContainer');
+            if (container) {
+                container.innerHTML = html;
+            }
+        })
+        .catch(error => console.error('加载正则示例弹窗失败:', error));
 </script>
