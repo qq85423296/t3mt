@@ -59,7 +59,14 @@ class MigrationRunner:
             )
             conn.commit()
     
-    def _check_migration_needed(self):
+    def _get_table_columns(self, table_name):
+        """获取表的所有列名"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            return [row[1] for row in cursor.fetchall()]
+    
+    def _check_file_size_retry_migration_needed(self):
         """检查是否需要执行文件大小和重试功能的迁移"""
         migration_name = 'add_file_size_and_retry_config'
         applied_migrations = self._get_applied_migrations()
@@ -68,17 +75,33 @@ class MigrationRunner:
             return False
         
         # 检查字段是否已存在（可能是手动添加的）
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(video_tasks)")
-            columns = [row[1] for row in cursor.fetchall()]
-            
-            # 检查关键字段
-            if 'enable_file_size_check' in columns and 'enable_retry' in columns:
-                # 字段已存在，记录迁移但不执行
-                print(f"  迁移 {migration_name} 的字段已存在，跳过执行")
-                self._record_migration(migration_name)
-                return False
+        columns = self._get_table_columns('video_tasks')
+        
+        # 检查关键字段
+        if 'enable_file_size_check' in columns and 'enable_retry' in columns:
+            # 字段已存在，记录迁移但不执行
+            print(f"  迁移 {migration_name} 的字段已存在，跳过执行")
+            self._record_migration(migration_name)
+            return False
+        
+        return True
+    
+    def _check_regex_pattern_migration_needed(self):
+        """检查是否需要执行正则替换字段的迁移"""
+        migration_name = 'add_regex_pattern_fields'
+        applied_migrations = self._get_applied_migrations()
+        
+        if migration_name in applied_migrations:
+            return False
+        
+        # 检查 transfer_tasks 表的字段是否已存在
+        columns = self._get_table_columns('transfer_tasks')
+        
+        if 'regex_pattern' in columns and 'replacement_pattern' in columns and 'check_mode' in columns:
+            # 字段已存在，记录迁移但不执行
+            print(f"  迁移 {migration_name} 的字段已存在，跳过执行")
+            self._record_migration(migration_name)
+            return False
         
         return True
     
@@ -94,19 +117,33 @@ class MigrationRunner:
             return True
         
         try:
-            # 检查是否需要执行文件大小和重试功能的迁移
-            if self._check_migration_needed():
+            migrations_executed = False
+            
+            # 迁移1：文件大小和重试功能
+            if self._check_file_size_retry_migration_needed():
                 print("\n检测到需要执行迁移: add_file_size_and_retry_config")
                 print("正在执行迁移...")
                 
-                # 导入并执行迁移
                 from migrations.add_file_size_and_retry_config import upgrade
                 upgrade()
                 
-                # 记录迁移
                 self._record_migration('add_file_size_and_retry_config')
-                print("✅ 迁移执行成功")
-            else:
+                print("✅ 迁移 add_file_size_and_retry_config 执行成功")
+                migrations_executed = True
+            
+            # 迁移2：正则替换字段
+            if self._check_regex_pattern_migration_needed():
+                print("\n检测到需要执行迁移: add_regex_pattern_fields")
+                print("正在执行迁移...")
+                
+                from migrations.add_regex_pattern_fields import upgrade
+                upgrade()
+                
+                self._record_migration('add_regex_pattern_fields')
+                print("✅ 迁移 add_regex_pattern_fields 执行成功")
+                migrations_executed = True
+            
+            if not migrations_executed:
                 print("✅ 所有迁移已是最新状态")
             
             print("=" * 80)
