@@ -81,10 +81,6 @@ def create_app():
     from api.upgrade import upgrade_bp
     app.register_blueprint(upgrade_bp)
     
-    # 注册测试蓝图
-    from api.test_tencent import test_tencent_bp
-    app.register_blueprint(test_tencent_bp)
-    
     # 健康检查接口
     @app.route('/health', methods=['GET'])
     def health_check():
