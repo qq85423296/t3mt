@@ -1394,8 +1394,16 @@
             // 构建播放平台按钮
             let platformButtons = '';
             Object.keys(playlinks).forEach(platform => {
-                const link = playlinks[platform];
-                if (link) {
+                let link = playlinks[platform];
+                // 处理link可能是数组的情况
+                if (Array.isArray(link)) {
+                    link = link[0]; // 取第一个链接
+                }
+                // 处理link可能是对象的情况
+                if (typeof link === 'object' && link !== null) {
+                    link = link.url || link.link || '';
+                }
+                if (link && typeof link === 'string') {
                     const linkEscaped = escapeHtml(link).replace(/'/g, "\\'");
                     platformButtons += `
                         <button class="official-platform-btn" onclick="addVideoTask('${linkEscaped}', '${titleEscaped}', '${platform}')">
