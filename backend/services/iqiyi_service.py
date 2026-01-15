@@ -4,6 +4,7 @@
 用于读取爱奇艺影视信息和剧集列表
 """
 import re
+import json
 import requests
 from typing import Dict, List, Optional
 from utils.logger import logger
@@ -272,6 +273,38 @@ class IqiyiService:
         # 检查配置
         self._check_config()
         
+        # 方案A: 尝试使用API获取（支持分页）
+        result = self._get_episode_list_from_api(tvid, url)
+        
+        # 检查数据完整性
+        if result.get('success'):
+            episodes = result.get('episodes', [])
+            expected_count = result.get('expected_count', 0)
+            
+            # 如果API返回的集数少于预期，尝试使用HTML解析作为备用方案
+            if expected_count > 0 and len(episodes) < expected_count:
+                logger.warning(f"API返回集数不完整: 期望{expected_count}集，实际{len(episodes)}集，尝试HTML解析")
+                
+                # 方案B: 使用HTML解析作为备用
+                if url:
+                    html_result = self._get_episode_list_from_html(url, tvid)
+                    if html_result.get('success') and len(html_result.get('episodes', [])) > len(episodes):
+                        logger.info(f"HTML解析成功，获取到{len(html_result.get('episodes', []))}集")
+                        return html_result
+        
+        return result
+    
+    def _get_episode_list_from_api(self, tvid: str, url: str = None) -> Dict:
+        """
+        从API获取剧集列表（支持按月份获取综艺）
+        
+        Args:
+            tvid: 视频ID
+            url: 原始URL(用于电影类型返回当前地址)
+            
+        Returns:
+            包含剧集列表的字典
+        """
         # 使用加密配置中的API地址
         api_url = f"{self.miniapp_api}/{tvid}/"
         
@@ -281,7 +314,11 @@ class IqiyiService:
             data = response.json()
             
             if data.get('code') == 'A00000' and data.get('data'):
+                play_info = data['data'].get('playInfo', {})
                 video_list = data['data'].get('videoList', {})
+                
+                # 获取预期的总集数
+                expected_count = play_info.get('videoCount', 0)
                 
                 # 处理videoList可能是空字符串的情况(电影类型)
                 if not isinstance(video_list, dict):
@@ -306,72 +343,44 @@ class IqiyiService:
                         return {
                             'success': True,
                             'episodes': episodes,
-                            'total': 1
+                            'total': 1,
+                            'expected_count': 1
                         }
                     else:
                         return {
                             'success': True,
                             'episodes': [],
-                            'total': 0
+                            'total': 0,
+                            'expected_count': 0
                         }
                 
+                # 获取当前月份的视频
                 videos = video_list.get('videos', [])
                 
-                # 解析剧集信息
-                episodes = []
-                for video in videos:
-                    # 过滤掉花絮、预告等非正片内容
-                    # type=1表示正片，type=3表示花絮/预告
-                    if video.get('type') != 1:
-                        continue
-                    
-                    # 检查标题是否包含预告关键词
-                    title = video.get('subTitle', '')
-                    short_title = video.get('shortTitle', '')
-                    
-                    preview_keywords = [
-                        '幕后', '纪录片', '畅谈', '揭秘', '挑战', '先导', 
-                        '花絮', '特辑', '预告', '片花', '采访', '访谈',
-                        '拍摄', '制作', '幕后花絮', '独家', '精彩看点',
-                        '绕口令', '憋笑', '爆改', '劝和', '命题', '看点',
-                        '彩蛋', '番外', '剧透', '解说', '盘点', '合集',
-                        '专访', '超前看'
-                    ]
-                    
-                    # 检查标题是否包含预告关键词
-                    is_preview = any(keyword in title for keyword in preview_keywords) or \
-                                any(keyword in short_title for keyword in preview_keywords)
-                    
-                    # 如果是预告片，跳过
-                    if is_preview:
-                        continue
-                    
-                    # 提取集数，格式化为"第X集"
-                    pd = video.get('pd', 0)
-                    episode_name = f"第{pd}集"
-                    
-                    episodes.append({
-                        'name': episode_name,  # 集数名称，统一格式为"第X集"
-                        'title': title,  # 集标题，如"秦枫目睹胡小跃跳楼"
-                        'url': video.get('pageUrl', ''),  # 播放页面URL
-                        'video_id': str(video.get('id', '')),
-                        'qipu_id': str(video.get('qipuId', '')),
-                        'vid': video.get('vid', ''),
-                        'duration': video.get('duration', ''),  # 时长
-                        'time_length': video.get('timeLength', 0),  # 时长（秒）
-                        'is_vip': video.get('payMark') == 1,  # 是否VIP
-                        'image': video.get('imageUrl', ''),
-                        'period': video.get('period', ''),  # 发布日期
-                        'pd': pd  # 集数序号
-                    })
+                # 检查是否有summary字段（综艺按月份分组的标志）
+                summary = video_list.get('summary', [])
                 
-                # 按集数序号排序
-                episodes.sort(key=lambda x: x.get('pd', 0))
+                # 如果有summary且集数不完整，说明是综艺，需要按月份获取
+                if summary and expected_count > len(videos):
+                    logger.info(f"检测到综艺按月份分组，summary: {summary}")
+                    videos = self._fetch_all_episodes_by_month(tvid, summary, videos, expected_count)
+                # 否则尝试传统分页方式
+                elif expected_count > len(videos) and len(videos) > 0:
+                    logger.info(f"检测到集数不完整（{len(videos)}/{expected_count}），尝试分页获取")
+                    videos = self._fetch_all_episodes_with_pagination(tvid, videos, expected_count)
+                
+                # 解析剧集信息
+                episodes = self._parse_episodes(videos)
+                
+                # 数据完整性检查
+                if expected_count > 0 and len(episodes) < expected_count:
+                    logger.warning(f"集数获取不完整: 期望{expected_count}集，实际获取{len(episodes)}集")
                 
                 return {
                     'success': True,
                     'episodes': episodes,
-                    'total': len(episodes)
+                    'total': len(episodes),
+                    'expected_count': expected_count
                 }
             else:
                 return {
@@ -380,9 +389,339 @@ class IqiyiService:
                 }
                 
         except Exception as e:
+            logger.error(f"API获取剧集列表失败: {str(e)}", exc_info=True)
             return {
                 'success': False,
                 'error': f'请求失败: {str(e)}'
+            }
+    
+    def _fetch_all_episodes_by_month(self, tvid: str, summary: List, initial_videos: List, expected_count: int) -> List:
+        """
+        按月份获取所有集数（综艺专用）
+        使用sdvlist API获取指定年月的视频列表
+        
+        Args:
+            tvid: 视频ID
+            summary: 月份摘要列表，格式: [{'year': '2026', 'monthList': ['01']}, ...]
+            initial_videos: 初始获取的视频列表（当前月份）
+            expected_count: 预期的总集数
+            
+        Returns:
+            完整的视频列表
+        """
+        all_videos = []
+        
+        # 首先需要获取albumQipuId
+        api_url = f"{self.miniapp_api}/{tvid}/"
+        
+        try:
+            response = requests.get(api_url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get('code') != 'A00000' or not data.get('data'):
+                logger.error("无法获取albumQipuId")
+                return initial_videos
+            
+            play_info = data['data'].get('playInfo', {})
+            
+            # 从playInfo中获取albumQipuId
+            album_qipu_id = play_info.get('albumQipuId') or play_info.get('albumId')
+            
+            if not album_qipu_id:
+                logger.warning("未找到albumQipuId，无法使用sdvlist API")
+                return initial_videos
+            
+            logger.info(f"获取到albumQipuId: {album_qipu_id}")
+            
+            # 提取当前已有视频的ID，用于去重
+            existing_ids = set()
+            
+            # 遍历所有年份和月份，使用sdvlist API获取数据
+            for year_data in summary:
+                year = year_data.get('year')
+                month_list = year_data.get('monthList', [])
+                
+                for month in month_list:
+                    logger.info(f"获取月份 {year}-{month} 的视频")
+                    
+                    # 使用sdvlist API
+                    sdvlist_url = f"https://miniapp.iqiyi.com/h5/mina/sdvlist/{album_qipu_id}/{year}/{month}/"
+                    
+                    try:
+                        response = requests.get(sdvlist_url, headers=self.headers, timeout=10)
+                        response.raise_for_status()
+                        data = response.json()
+                        
+                        if data.get('code') == 'A00000' and data.get('data'):
+                            month_videos = data['data'].get('videos', [])
+                            
+                            logger.info(f"月份 {year}-{month} 获取到 {len(month_videos)} 个视频")
+                            
+                            # 添加新视频（去重）
+                            new_count = 0
+                            for video in month_videos:
+                                video_id = video.get('id')
+                                if video_id and video_id not in existing_ids:
+                                    all_videos.append(video)
+                                    existing_ids.add(video_id)
+                                    new_count += 1
+                            
+                            if new_count > 0:
+                                logger.info(f"月份 {year}-{month} 新增 {new_count} 个视频，当前总数: {len(all_videos)}")
+                        else:
+                            logger.warning(f"月份 {year}-{month} 获取失败: {data.get('msg', '未知错误')}")
+                            
+                    except Exception as e:
+                        logger.warning(f"获取月份 {year}-{month} 失败: {str(e)}")
+                        continue
+            
+            logger.info(f"按月份获取完成，共获取 {len(all_videos)} 个视频")
+            return all_videos if all_videos else initial_videos
+            
+        except Exception as e:
+            logger.error(f"按月份获取失败: {str(e)}", exc_info=True)
+            return initial_videos
+    
+    def _fetch_all_episodes_with_pagination(self, tvid: str, initial_videos: List, expected_count: int) -> List:
+        """
+        尝试通过分页获取所有集数
+        
+        Args:
+            tvid: 视频ID
+            initial_videos: 初始获取的视频列表
+            expected_count: 预期的总集数
+            
+        Returns:
+            完整的视频列表
+        """
+        all_videos = initial_videos.copy()
+        api_url = f"{self.miniapp_api}/{tvid}/"
+        
+        # 尝试不同的分页参数组合
+        pagination_strategies = [
+            # 策略1: page + pageSize
+            lambda page: {'page': page, 'pageSize': 50},
+            # 策略2: pageNum + pageSize
+            lambda page: {'pageNum': page, 'pageSize': 50},
+            # 策略3: offset + limit
+            lambda page: {'offset': page * 50, 'limit': 50},
+        ]
+        
+        for strategy_idx, strategy in enumerate(pagination_strategies):
+            logger.info(f"尝试分页策略 {strategy_idx + 1}")
+            temp_videos = initial_videos.copy()
+            
+            # 从第2页开始请求（第1页已经有了）
+            page = 2
+            max_pages = 10  # 最多尝试10页，避免无限循环
+            
+            while len(temp_videos) < expected_count and page <= max_pages:
+                try:
+                    params = strategy(page)
+                    logger.debug(f"请求第{page}页，参数: {params}")
+                    
+                    response = requests.get(api_url, headers=self.headers, params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    if data.get('code') == 'A00000' and data.get('data'):
+                        video_list = data['data'].get('videoList', {})
+                        if isinstance(video_list, dict):
+                            new_videos = video_list.get('videos', [])
+                            
+                            if not new_videos:
+                                # 没有更多数据了
+                                logger.debug(f"第{page}页无数据，停止分页")
+                                break
+                            
+                            # 去重：检查是否有新的视频
+                            existing_ids = {v.get('id') for v in temp_videos}
+                            new_count = 0
+                            for video in new_videos:
+                                if video.get('id') not in existing_ids:
+                                    temp_videos.append(video)
+                                    new_count += 1
+                            
+                            logger.debug(f"第{page}页获取到{new_count}个新集数")
+                            
+                            if new_count == 0:
+                                # 没有新数据，说明分页参数无效
+                                logger.debug(f"第{page}页无新数据，分页参数可能无效")
+                                break
+                            
+                            page += 1
+                        else:
+                            break
+                    else:
+                        logger.debug(f"第{page}页请求失败: {data.get('msg', '未知错误')}")
+                        break
+                        
+                except Exception as e:
+                    logger.debug(f"第{page}页请求异常: {str(e)}")
+                    break
+            
+            # 如果这个策略成功获取到更多数据，使用它
+            if len(temp_videos) > len(all_videos):
+                logger.info(f"分页策略 {strategy_idx + 1} 成功，获取到{len(temp_videos)}集")
+                all_videos = temp_videos
+                
+                # 如果已经获取到足够的数据，不再尝试其他策略
+                if len(all_videos) >= expected_count:
+                    break
+        
+        return all_videos
+    
+    def _parse_episodes(self, videos: List) -> List[Dict]:
+        """
+        解析视频列表为剧集信息
+        
+        Args:
+            videos: 原始视频列表
+            
+        Returns:
+            解析后的剧集列表
+        """
+        episodes = []
+        
+        for video in videos:
+            # 过滤掉花絮、预告等非正片内容
+            # type=1表示正片，type=3表示花絮/预告
+            if video.get('type') != 1:
+                continue
+            
+            # 检查标题是否包含预告关键词
+            title = video.get('subTitle', '')
+            short_title = video.get('shortTitle', '')
+            
+            preview_keywords = [
+                '幕后', '纪录片', '畅谈', '揭秘', '挑战', '先导', 
+                '花絮', '特辑', '预告', '片花', '采访', '访谈',
+                '拍摄', '制作', '幕后花絮', '独家', '精彩看点',
+                '绕口令', '憋笑', '爆改', '劝和', '命题', '看点',
+                '彩蛋', '番外', '剧透', '解说', '盘点', '合集',
+                '专访', '超前看'
+            ]
+            
+            # 检查标题是否包含预告关键词
+            is_preview = any(keyword in title for keyword in preview_keywords) or \
+                        any(keyword in short_title for keyword in preview_keywords)
+            
+            # 如果是预告片，跳过
+            if is_preview:
+                continue
+            
+            # 提取集数，格式化为"第X集"
+            pd = video.get('pd', 0)
+            episode_name = f"第{pd}集"
+            
+            episodes.append({
+                'name': episode_name,  # 集数名称，统一格式为"第X集"
+                'title': title,  # 集标题，如"秦枫目睹胡小跃跳楼"
+                'url': video.get('pageUrl', ''),  # 播放页面URL
+                'video_id': str(video.get('id', '')),
+                'qipu_id': str(video.get('qipuId', '')),
+                'vid': video.get('vid', ''),
+                'duration': video.get('duration', ''),  # 时长
+                'time_length': video.get('timeLength', 0),  # 时长（秒）
+                'is_vip': video.get('payMark') == 1,  # 是否VIP
+                'image': video.get('imageUrl', ''),
+                'period': video.get('period', ''),  # 发布日期
+                'pd': pd  # 集数序号
+            })
+        
+        # 按集数序号排序
+        episodes.sort(key=lambda x: x.get('pd', 0))
+        
+        return episodes
+    
+    def _get_episode_list_from_html(self, url: str, tvid: str) -> Dict:
+        """
+        从HTML页面解析剧集列表（备用方案）
+        
+        Args:
+            url: 爱奇艺官网地址
+            tvid: 视频ID
+            
+        Returns:
+            包含剧集列表的字典
+        """
+        try:
+            logger.info(f"尝试从HTML解析剧集列表: {url}")
+            
+            # 请求页面
+            response = requests.get(url, headers=self.headers, timeout=15)
+            response.raise_for_status()
+            page_content = response.text
+            
+            # 方法1: 从JavaScript变量中提取剧集数据
+            # 查找 window.Q.PageInfo.playPageData 或类似的数据结构
+            
+            # 尝试提取JSON数据
+            patterns = [
+                r'window\.Q\.PageInfo\.playPageData\s*=\s*({.+?});',
+                r'window\.__INITIAL_STATE__\s*=\s*({.+?});',
+                r'__NEXT_DATA__\s*=\s*({.+?})</script>',
+            ]
+            
+            episodes_data = None
+            for pattern in patterns:
+                match = re.search(pattern, page_content, re.DOTALL)
+                if match:
+                    try:
+                        json_str = match.group(1)
+                        data = json.loads(json_str)
+                        
+                        # 尝试从不同的路径提取剧集列表
+                        possible_paths = [
+                            ['videoList', 'videos'],
+                            ['albumInfo', 'videos'],
+                            ['episodeList'],
+                            ['data', 'videoList', 'videos'],
+                        ]
+                        
+                        for path in possible_paths:
+                            temp_data = data
+                            for key in path:
+                                if isinstance(temp_data, dict) and key in temp_data:
+                                    temp_data = temp_data[key]
+                                else:
+                                    temp_data = None
+                                    break
+                            
+                            if temp_data and isinstance(temp_data, list):
+                                episodes_data = temp_data
+                                logger.info(f"从HTML中提取到剧集数据，路径: {' -> '.join(path)}")
+                                break
+                        
+                        if episodes_data:
+                            break
+                            
+                    except json.JSONDecodeError:
+                        continue
+            
+            if episodes_data:
+                # 解析剧集信息
+                episodes = self._parse_episodes(episodes_data)
+                
+                return {
+                    'success': True,
+                    'episodes': episodes,
+                    'total': len(episodes),
+                    'source': 'html'
+                }
+            else:
+                logger.warning("无法从HTML中提取剧集数据，HTML解析方案不适用于此页面")
+                return {
+                    'success': False,
+                    'error': '无法从HTML中提取剧集数据'
+                }
+                
+        except Exception as e:
+            logger.error(f"HTML解析失败: {str(e)}", exc_info=True)
+            return {
+                'success': False,
+                'error': f'HTML解析失败: {str(e)}'
             }
     
     def read_website(self, url: str) -> Dict:
