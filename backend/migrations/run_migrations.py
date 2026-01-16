@@ -105,6 +105,25 @@ class MigrationRunner:
         
         return True
     
+    def _check_cloud_type_migration_needed(self):
+        """检查是否需要执行cloud_type字段的迁移"""
+        migration_name = 'add_cloud_type_field'
+        applied_migrations = self._get_applied_migrations()
+        
+        if migration_name in applied_migrations:
+            return False
+        
+        # 检查 quark_accounts 表的字段是否已存在
+        columns = self._get_table_columns('quark_accounts')
+        
+        if 'cloud_type' in columns:
+            # 字段已存在，记录迁移但不执行
+            print(f"  迁移 {migration_name} 的字段已存在，跳过执行")
+            self._record_migration(migration_name)
+            return False
+        
+        return True
+    
     def run_migrations(self):
         """执行所有待执行的迁移"""
         print("=" * 80)
@@ -141,6 +160,18 @@ class MigrationRunner:
                 
                 self._record_migration('add_regex_pattern_fields')
                 print("✅ 迁移 add_regex_pattern_fields 执行成功")
+                migrations_executed = True
+            
+            # 迁移3：cloud_type字段（多云盘支持）
+            if self._check_cloud_type_migration_needed():
+                print("\n检测到需要执行迁移: add_cloud_type_field")
+                print("正在执行迁移...")
+                
+                from migrations.add_cloud_type_field import migrate_add_cloud_type
+                migrate_add_cloud_type()
+                
+                self._record_migration('add_cloud_type_field')
+                print("✅ 迁移 add_cloud_type_field 执行成功")
                 migrations_executed = True
             
             if not migrations_executed:

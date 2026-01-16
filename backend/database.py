@@ -51,7 +51,7 @@ class Database:
                 )
             ''')
             
-            # 创建夸克账号表（包含member_type和member_exp_at字段）
+            # 创建夸克账号表（包含member_type、member_exp_at和cloud_type字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS quark_accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +65,7 @@ class Database:
                     used_size BIGINT,
                     is_main TINYINT DEFAULT 0,
                     status TINYINT DEFAULT 1,
+                    cloud_type VARCHAR(20) DEFAULT 'quark',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
@@ -81,7 +82,7 @@ class Database:
                 ON quark_accounts(status)
             ''')
             
-            # 创建转存任务表（包含schedule_period字段和正则替换字段）
+            # 创建转存任务表（包含schedule_period字段、正则替换字段和cloud_type字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS transfer_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,6 +107,7 @@ class Database:
                     regex_pattern TEXT,
                     replacement_pattern TEXT,
                     check_mode VARCHAR(20) DEFAULT 'replaced',
+                    cloud_type VARCHAR(20) DEFAULT 'quark',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (target_account_id) REFERENCES quark_accounts(id)
@@ -122,7 +124,7 @@ class Database:
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN check_mode VARCHAR(20) DEFAULT 'replaced'")
                 print("✅ transfer_tasks表已添加正则替换字段")
             
-            # 创建下载任务表（包含filter_extensions和include_extensions字段和正则替换字段）
+            # 创建下载任务表（包含filter_extensions、include_extensions、正则替换字段和cloud_type字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS download_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,6 +144,7 @@ class Database:
                     progress INTEGER DEFAULT 0,
                     last_execute_time DATETIME,
                     next_execute_time DATETIME,
+                    cloud_type VARCHAR(20) DEFAULT 'quark',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (source_account_id) REFERENCES quark_accounts(id)
@@ -157,7 +160,7 @@ class Database:
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN replacement_pattern TEXT")
                 print("✅ download_tasks表已添加正则替换字段")
             
-            # 创建影视下载任务表（包含create_subfolder、集数选择和影视类型字段）
+            # 创建影视下载任务表（包含create_subfolder、集数选择、影视类型和cloud_type字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS video_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,6 +180,7 @@ class Database:
                     last_downloaded_episode INTEGER DEFAULT 0,
                     platform VARCHAR(20) DEFAULT 'mango',
                     video_type VARCHAR(20) DEFAULT '电视剧',
+                    cloud_type VARCHAR(20) DEFAULT 'quark',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
