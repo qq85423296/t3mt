@@ -5,11 +5,50 @@
  * 手机端: <768px
  */
 
+/* ========== CSS变量定义 ========== */
+:root {
+    /* 断点 */
+    --mobile-breakpoint: 768px;
+    --small-mobile-breakpoint: 375px;
+    
+    /* 触控目标尺寸 */
+    --touch-target-size: 44px;
+    --touch-target-small: 36px;
+    
+    /* 移动端间距 */
+    --mobile-padding: 12px;
+    --mobile-gap: 8px;
+    --mobile-gap-large: 16px;
+    
+    /* 移动端字体 */
+    --mobile-font-size: 14px;
+    --mobile-font-size-small: 13px;
+    --mobile-font-size-large: 16px;
+    
+    /* 移动端输入框 */
+    --mobile-input-height: 44px;
+    --mobile-input-font-size: 16px; /* 防止iOS自动缩放 */
+    
+    /* 移动端圆角 */
+    --mobile-border-radius: 8px;
+    --mobile-border-radius-small: 6px;
+    --mobile-border-radius-large: 12px;
+}
+
 /* ========== 移动端基础样式 ========== */
 @media (max-width: 768px) {
     /* 全局字体和间距调整 */
     body {
         font-size: 14px;
+    }
+
+    /* ========== 移动端布局容器强制重置 ========== */
+    .app-container {
+        display: block !important;  /* 取消flex布局，改为块级布局 */
+        position: relative !important;
+        width: 100% !important;
+        height: 100vh !important;
+        overflow-x: hidden !important;  /* 防止横向滚动 */
     }
 
     /* ========== 侧边栏底部用户信息适配 ========== */
@@ -37,20 +76,37 @@
         font-size: 14px;
     }
 
-    /* ========== 左侧导航栏 - 抽屉式 ========== */
+    /* ========== 左侧导航栏 - 抽屉式（强制修复版） ========== */
+    
+    /* 强制重置菜单基础样式 */
     .sidebar {
-        position: fixed;
-        left: -80%;
-        top: 0;
-        width: 80%;
-        height: 100vh;
-        z-index: 1000;
-        transition: left 0.3s ease;
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        height: 100vh !important;
+        width: 80% !important;  /* 展开时宽度为屏幕80% */
+        max-width: 300px !important;  /* 最大宽度限制 */
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+        z-index: 1001 !important;  /* 确保在遮罩层之上 */
+        transform: translateX(-100%) !important;  /* 默认完全隐藏在左侧外 */
+        transition: transform 0.3s ease !important;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15) !important;
+        overflow-y: auto !important;  /* 强制开启垂直滚动 */
     }
 
+    /* 展开时：菜单滑入可视区域 */
     .sidebar.show {
-        left: 0;
+        transform: translateX(0) !important;
+    }
+
+    /* ========== 主内容区强制全屏（折叠状态） ========== */
+    .main-content {
+        width: 100% !important;
+        margin-left: 0 !important;
+        padding-left: 0 !important;
+        transition: none !important;  /* 移动端不需要过渡，菜单是覆盖式 */
     }
     
     /* 移动端折叠按钮调整 */
@@ -61,62 +117,79 @@
     /* 移动端显示汉堡菜单按钮 */
     .hamburger-btn-mobile {
         position: fixed;
-        left: 12px;
-        top: 12px;
-        width: 40px;
-        height: 40px;
+        left: 10px;
+        top: 10px;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
         background: #fff;
         border: 1px solid #e8e8e8;
-        border-radius: 8px;
+        border-radius: 6px;
         cursor: pointer;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        gap: 5px;
-        z-index: 999;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        transition: all 0.2s;
+        gap: 4px;
+        z-index: 1002;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+        transition: all 0.2s ease;
+        padding: 0;
+    }
+    
+    .hamburger-btn-mobile:hover {
+        background: #f5f5f5;
+        border-color: #1890ff;
     }
     
     .hamburger-btn-mobile:active {
         transform: scale(0.95);
+        background: #e6f7ff;
     }
     
     .hamburger-btn-mobile span {
         display: block;
-        width: 20px;
+        width: 16px;
         height: 2px;
         background: #333;
-        transition: all 0.3s;
+        transition: all 0.3s ease;
+        border-radius: 1px;
     }
     
+    /* 汉堡菜单动画：三条横线变X */
     .hamburger-btn-mobile.active span:nth-child(1) {
-        transform: rotate(45deg) translate(6px, 6px);
+        transform: rotate(45deg) translate(5px, 5px);
+        background: #1890ff;
     }
     
     .hamburger-btn-mobile.active span:nth-child(2) {
         opacity: 0;
+        transform: translateX(-10px);
     }
     
     .hamburger-btn-mobile.active span:nth-child(3) {
-        transform: rotate(-45deg) translate(6px, -6px);
+        transform: rotate(-45deg) translate(5px, -5px);
+        background: #1890ff;
     }
 
     /* 遮罩层 */
     .sidebar-overlay {
-        display: none;
+        display: none;  /* 默认隐藏 */
         position: fixed;
         top: 0;
         left: 0;
         width: 100%;
         height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 999;
+        background: rgba(0, 0, 0, 0.5);  /* 半透明黑色 */
+        z-index: 1000;  /* 在内容之上，在侧边栏之下 */
+        opacity: 0;
+        transition: opacity 0.3s ease;  /* 淡入淡出动画 */
     }
 
     .sidebar-overlay.show {
         display: block;
+        opacity: 1;  /* 显示时完全不透明 */
     }
 
     .logo {
@@ -128,19 +201,32 @@
         padding: 14px 16px;
         margin: 4px 8px;
         font-size: 14px;
+        min-height: 44px;  /* 符合触控交互规范 */
+        white-space: nowrap;  /* 防止文字换行 */
+        overflow: hidden;  /* 隐藏溢出内容 */
+        text-overflow: ellipsis;  /* 文字过长时显示省略号 */
     }
 
     .menu-icon {
         font-size: 18px;
     }
 
-    /* ========== 内容区域 ========== */
+    /* ========== 内容区域（强制全屏） ========== */
     .main-content {
-        width: 100%;
+        display: block !important;
+        width: 100% !important;
+        height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        flex: none !important;  /* 取消flex属性 */
+        position: relative !important;
     }
 
     .content-area {
         padding: 12px 8px;
+        padding-top: 68px;  /* 为汉堡按钮留出空间 */
+        height: 100%;
+        overflow-y: auto;
     }
 
     .page-container {
@@ -195,7 +281,8 @@
     .filter-input {
         width: 100%;
         height: 44px;
-        font-size: 14px;
+        min-height: 44px;
+        font-size: 16px;  /* 防止iOS自动缩放 */
         padding: 0 12px;
     }
 
@@ -217,24 +304,51 @@
     /* 按钮 */
     .btn {
         height: 44px;
+        min-height: 44px;
         padding: 0 16px;
         font-size: 14px;
         border-radius: 8px;
+        transition: all 0.2s ease;
+    }
+    
+    /* 触控反馈效果 */
+    .btn:active {
+        transform: scale(0.98);
+        opacity: 0.9;
     }
 
     .btn-small {
         height: 36px;
+        min-height: 36px;
         padding: 0 12px;
         font-size: 13px;
+    }
+    
+    .btn-small:active {
+        transform: scale(0.98);
+        opacity: 0.9;
     }
 
     /* 表单 */
     .form-input,
     .search-input {
         height: 44px;
+        min-height: 44px;
         padding: 12px;
-        font-size: 14px;
+        font-size: 16px;  /* 防止iOS自动缩放 */
         border-radius: 8px;
+    }
+    
+    select.form-input,
+    select.filter-select {
+        height: 44px;
+        min-height: 44px;
+        font-size: 16px;  /* 防止iOS自动缩放 */
+    }
+    
+    textarea.form-input {
+        min-height: 80px;
+        font-size: 16px;  /* 防止iOS自动缩放 */
     }
 
     .form-group {
@@ -244,6 +358,39 @@
     .form-label {
         font-size: 14px;
         margin-bottom: 8px;
+        font-weight: 500;
+    }
+    
+    /* 表单行 - 改为纵向布局 */
+    .form-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    
+    .form-row-label {
+        font-size: 14px;
+        font-weight: 500;
+        color: #666;
+    }
+    
+    .form-row-content {
+        width: 100%;
+    }
+    
+    .form-row-content input,
+    .form-row-content select,
+    .form-row-content textarea {
+        width: 100%;
+        height: 44px;
+        min-height: 44px;
+        font-size: 16px;  /* 防止iOS自动缩放 */
+    }
+    
+    .form-row-content textarea {
+        min-height: 80px;
+        height: auto;
     }
 
     /* 卡片 */
@@ -260,9 +407,10 @@
 
     /* 模态框 */
     .modal-content {
-        width: 90% !important;
+        width: 95% !important;
         max-width: 500px !important;
         margin: 0 auto;
+        border-radius: 12px;
     }
 
     .modal-header {
@@ -271,10 +419,13 @@
 
     .modal-title {
         font-size: 16px;
+        font-weight: 500;
     }
 
     .modal-body {
         padding: 16px;
+        max-height: 70vh;
+        overflow-y: auto;
     }
 
     .modal-footer {
@@ -297,6 +448,96 @@
     .data-table td {
         padding: 8px;
         font-size: 13px;
+    }
+    
+    /* ========== 表格到卡片转换通用方案 ========== */
+    
+    /* 隐藏表格头部 */
+    .data-table thead {
+        display: none !important;
+    }
+    
+    /* 将表格元素改为块级元素 */
+    .data-table,
+    .data-table tbody,
+    .data-table tr,
+    .data-table td {
+        display: block;
+        width: 100%;
+    }
+    
+    /* 每个tr改为卡片样式 */
+    .data-table tr {
+        margin-bottom: 12px;
+        padding: 12px;
+        border: 1px solid #e8e8e8;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        position: relative;
+    }
+    
+    .data-table tr:hover {
+        background: #fafafa;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    
+    /* 单元格样式 */
+    .data-table td {
+        padding: 8px 0;
+        border: none;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+    
+    /* 为每个单元格添加数据标签（使用data-label属性） */
+    .data-table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: #666;
+        min-width: 80px;
+        flex-shrink: 0;
+    }
+    
+    /* 如果单元格没有data-label属性，不显示::before */
+    .data-table td:not([data-label])::before {
+        content: none;
+    }
+    
+    /* 优化卡片内部布局 */
+    
+    /* 单元格内容区域 */
+    .data-table td > * {
+        flex: 1;
+        min-width: 0;  /* 允许内容收缩 */
+    }
+    
+    /* 处理长文本溢出 */
+    .data-table td {
+        word-break: break-word;
+        overflow-wrap: break-word;
+    }
+    
+    /* 任务名称、标题等重要信息 */
+    .data-table td:first-child {
+        font-weight: 500;
+        color: #333;
+        font-size: 14px;
+    }
+    
+    /* 操作按钮单元格 */
+    .data-table td:last-child {
+        padding-top: 12px;
+        margin-top: 8px;
+        border-top: 1px solid #f0f0f0;
+    }
+    
+    .data-table td:last-child::before {
+        display: none;  /* 操作列不显示标签 */
     }
 
     /* 操作按钮组 - 改为图标按钮 */
@@ -334,190 +575,699 @@
         font-size: 13px;
     }
 
-    /* ========== 调度监控页面适配 ========== */
+    /* ========== 调度监控页面适配（美化升级版） ========== */
     
-    /* 统计卡片 - 纵向堆叠 */
+    /* 统计卡片容器 - 2x2网格布局 */
     .stats-container {
-        flex-direction: column;
-        padding: 12px;
-        gap: 12px;
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 10px !important;
+        padding: 12px !important;
+        background: #f8f9fa !important;
     }
 
+    /* 单个统计卡片 - 精致卡片样式 */
     .stat-card {
-        width: 100%;
-        padding: 16px;
-        border-radius: 8px;
+        background: #fff !important;
+        border: 1px solid #e8e8e8 !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+        text-align: center !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        box-sizing: border-box !important;
+        transition: box-shadow 0.2s ease !important;
+    }
+
+    .stat-card:active {
+        box-shadow: 0 1px 2px rgba(0,0,0,0.08) !important;
+    }
+
+    /* 统计卡片状态色 - 左边框高亮 */
+    .stat-card.success,
+    .stat-card[data-status="success"] {
+        border-left: 3px solid #52c41a !important;
+    }
+
+    .stat-card.failed,
+    .stat-card[data-status="failed"] {
+        border-left: 3px solid #ff4d4f !important;
+    }
+
+    .stat-card.running,
+    .stat-card[data-status="running"] {
+        border-left: 3px solid #1890ff !important;
+    }
+
+    .stat-card.pending,
+    .stat-card[data-status="pending"] {
+        border-left: 3px solid #faad14 !important;
     }
 
     .stat-label {
-        font-size: 14px;
+        font-size: 11px !important;
+        color: #888 !important;
+        margin-bottom: 4px !important;
+        font-weight: 500 !important;
     }
 
     .stat-value {
-        font-size: 24px;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: #333 !important;
+        line-height: 1.2 !important;
     }
 
     .stat-unit {
-        font-size: 13px;
+        font-size: 10px !important;
+        color: #999 !important;
     }
 
-    /* 批量操作栏 */
+    /* ========== 筛选区域 - 强制2列网格布局 ========== */
+    .filter-bar,
+    .filter-section {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;  /* 强制2列 */
+        gap: 6px 8px !important;  /* 垂直6px，水平8px */
+        padding: 10px !important;
+        background: #fafafa !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 8px !important;
+        margin: 0 0 10px 0 !important;
+    }
+
+    /* 筛选项：占1格 */
+    .filter-item {
+        display: flex !important;
+        flex-direction: column !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* 筛选标签：12px，灰色#666，底部2px间距 */
+    .filter-item label,
+    .filter-label {
+        font-size: 12px !important;
+        color: #666 !important;
+        margin: 0 0 2px 0 !important;
+        padding: 0 !important;
+        font-weight: 500 !important;
+        line-height: 1.2 !important;
+    }
+
+    /* 输入框/选择框：11px字体，4px 8px内边距 */
+    .filter-select,
+    .filter-input {
+        font-size: 11px !important;
+        padding: 4px 8px !important;
+        height: auto !important;
+        min-height: 26px !important;
+        border: 1px solid #d9d9d9 !important;
+        border-radius: 4px !important;
+        background: #fff !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        line-height: 1.3 !important;
+        margin: 0 !important;
+    }
+
+    .filter-select:focus,
+    .filter-input:focus {
+        border-color: #1890ff !important;
+        outline: none !important;
+    }
+
+    /* 搜索+重置按钮组：占1格 */
+    .filter-actions,
+    .search-reset-group {
+        display: flex !important;
+        gap: 6px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        align-items: flex-end !important;
+    }
+
+    .btn-search,
+    .search-btn {
+        flex: 1 !important;
+        background: #1890ff !important;
+        color: #fff !important;
+        border: none !important;
+        border-radius: 4px !important;
+        height: 26px !important;
+        font-size: 11px !important;
+        font-weight: 500 !important;
+        padding: 4px 8px !important;
+        cursor: pointer !important;
+        margin: 0 !important;
+    }
+
+    .btn-reset,
+    .reset-btn {
+        flex: 1 !important;
+        background: #fff !important;
+        color: #666 !important;
+        border: 1px solid #d9d9d9 !important;
+        border-radius: 4px !important;
+        height: 26px !important;
+        font-size: 11px !important;
+        padding: 4px 8px !important;
+        cursor: pointer !important;
+        margin: 0 !important;
+    }
+
+    /* 更多筛选按钮：小型文本按钮，右下角 */
+    .btn-more-filter,
+    .more-filter-btn {
+        grid-column: 2 !important;  /* 放在第2列 */
+        justify-self: end !important;  /* 右对齐 */
+        background: transparent !important;
+        border: none !important;
+        color: #1890ff !important;
+        font-size: 12px !important;
+        padding: 2px 4px !important;
+        margin: 0 !important;
+        cursor: pointer !important;
+    }
+
+    /* ========== 批量操作栏 - 紧凑版 ========== */
     .batch-actions-bar {
-        flex-wrap: wrap;
-        padding: 12px;
-        gap: 8px;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        padding: 8px 10px !important;
+        gap: 6px !important;
+        background: #fafafa !important;
+        border-bottom: 1px solid #f0f0f0 !important;
     }
 
     .batch-info {
-        width: 100%;
-        font-size: 13px;
+        font-size: 11px !important;
+        color: #666 !important;
+        flex-shrink: 0 !important;
     }
 
     .batch-btn {
-        flex: 1;
-        min-width: calc(50% - 4px);
-        height: 40px;
+        font-size: 11px !important;
+        padding: 4px 10px !important;
+        height: 26px !important;
+        min-width: 50px !important;
+        border-radius: 4px !important;
+        font-weight: 500 !important;
     }
 
-    /* 任务表格 - 改为卡片式布局 */
-    .task-table-container {
-        padding: 0 12px 12px;
+    /* 批量操作按钮配色 */
+    .batch-btn.terminate,
+    .batch-btn[data-action="terminate"] {
+        background: #ff4d4f !important;
+        color: #fff !important;
+        border: none !important;
+    }
+
+    .batch-btn.retry,
+    .batch-btn[data-action="retry"] {
+        background: #52c41a !important;
+        color: #fff !important;
+        border: none !important;
+    }
+
+    /* ========== 任务列表 - 完整显示版（禁止截断） ========== */
+    
+    /* 一、任务列表容器：可垂直滚动，禁止横向滚动 */
+    .task-table-container,
+    .task-list {
+        padding: 12px !important;
+        background: #fafafa !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        height: auto !important;
+        max-height: calc(100vh - 180px) !important;  /* 自适应屏幕剩余空间 */
     }
 
     .task-table thead {
-        display: none;
+        display: none !important;
     }
 
     .task-table,
-    .task-table tbody,
+    .task-table tbody {
+        display: block !important;
+        width: 100% !important;
+    }
+
+    /* 二、每个任务项：独立白色卡片，完整展开 */
     .task-table tr,
-    .task-table td {
-        display: block;
-        width: 100%;
+    .task-item {
+        position: relative !important;
+        display: block !important;
+        background: #fff !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 8px !important;
+        padding: 10px !important;
+        padding-top: 36px !important;  /* 为右上角类型标签留空间 */
+        margin-bottom: 10px !important;
+        box-shadow: none !important;
+        /* 禁止卡片内部滚动或折叠 */
+        overflow: visible !important;
+        height: auto !important;
+        min-height: auto !important;
+        max-height: none !important;
     }
 
-    .task-table tr {
-        margin-bottom: 16px;
-        border: 1px solid #e8e8e8;
-        border-radius: 8px;
-        padding: 12px;
-        background: #fff;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    .task-table tr:active,
+    .task-item:active {
+        background: #f9f9f9 !important;
     }
 
+    /* 三、任务项内部：垂直排列，行高1.3，禁止折叠 */
     .task-table td {
-        padding: 8px 0 !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: flex-start !important;
+        padding: 3px 0 !important;
         border: none !important;
         text-align: left !important;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
+        gap: 8px !important;
+        font-size: 12px !important;
+        line-height: 1.3 !important;
+        color: #333 !important;
+        width: 100% !important;
+        /* 禁止截断，完整显示 */
+        overflow: visible !important;
+        white-space: normal !important;
+        text-overflow: unset !important;
     }
 
-    /* 复选框单独一行 */
+    /* 四、信息标签：固定宽度50px，加粗灰色 */
+    .task-table td:before {
+        display: inline-block !important;
+        font-size: 12px !important;
+        color: #666 !important;
+        font-weight: 600 !important;
+        min-width: 50px !important;
+        width: 50px !important;
+        flex-shrink: 0 !important;
+        text-align: left !important;
+        line-height: 1.3 !important;
+    }
+
+    /* 五、第一行：选择框单独一行 */
     .task-table td:first-child {
-        justify-content: flex-start;
-        padding-bottom: 4px !important;
+        padding-bottom: 6px !important;
+        margin-bottom: 4px !important;
+        border-bottom: 1px dashed #f0f0f0 !important;
+    }
+    .task-table td:first-child:before {
+        content: none !important;
+        display: none !important;
     }
 
-    /* 为每个单元格添加标签 */
+    /* 六、单元格标签文字 */
     .task-table td:nth-child(2):before {
-        content: "类型: ";
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+        content: "类型：";
     }
 
     .task-table td:nth-child(3):before {
-        content: "任务: ";
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+        content: "任务：";
     }
 
     .task-table td:nth-child(4):before {
-        content: "账期: ";
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+        content: "账期：";
     }
 
     .task-table td:nth-child(5):before {
-        content: "开始: ";
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+        content: "开始：";
     }
 
     .task-table td:nth-child(6):before {
-        content: "结束: ";
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+        content: "结束：";
     }
 
     .task-table td:nth-child(7):before {
-        content: "时长: ";
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+        content: "时长：";
     }
 
     .task-table td:nth-child(8):before {
-        content: "状态: ";
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+        content: "状态：";
     }
 
-    .task-table td:nth-child(9):before {
-        content: "操作: ";
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+    /* 七、最后一行：操作按钮，底部右侧 */
+    .task-table td:nth-child(9):before,
+    .task-table td:last-child:before {
+        content: none !important;
+        display: none !important;
     }
 
     .task-table td:last-child {
-        padding-top: 12px !important;
-        border-top: 1px solid #f0f0f0 !important;
+        padding-top: 10px !important;
+        margin-top: 8px !important;
+        border-top: 1px solid #eee !important;
+        justify-content: flex-end !important;
     }
 
-    /* 任务名称 */
+    /* 八、任务名称：完整显示，禁止截断 */
     .task-name-cell {
-        max-width: 100%;
-        font-size: 13px;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        color: #333 !important;
+        /* 完整显示，允许换行 */
         white-space: normal !important;
-        word-break: break-word;
-        flex: 1;
+        word-break: break-word !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
+        flex: 1 !important;
+        line-height: 1.3 !important;
     }
 
-    /* 操作按钮 */
-    .task-table .action-buttons {
-        flex-wrap: wrap;
-        width: 100%;
+    /* 九、操作按钮容器：底部右侧，间距6px */
+    .task-table .action-buttons,
+    .task-actions {
+        display: flex !important;
+        justify-content: flex-end !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+        width: 100% !important;
     }
 
-    .task-table .btn-action {
-        flex: 1;
-        min-width: calc(50% - 4px);
-        margin-bottom: 4px;
+    /* 十、操作按钮：小巧精致，浅灰边框圆角4px */
+    .task-table .btn-action,
+    .task-action-btn {
+        flex: 0 0 auto !important;
+        min-width: auto !important;
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+        height: auto !important;
+        line-height: 1.3 !important;
+        border-radius: 4px !important;
+        border: 1px solid #d9d9d9 !important;
+        background: #fff !important;
+        color: #666 !important;
+        font-weight: 500 !important;
+        cursor: pointer !important;
+        /* 按钮文字完整显示 */
+        white-space: nowrap !important;
     }
 
-    /* 状态标签 */
+    .task-table .btn-action:active,
+    .task-action-btn:active {
+        background: #f5f5f5 !important;
+    }
+
+    /* 状态标签 - 彩色背景小标签，完整显示 */
     .status-badge {
-        padding: 3px 8px;
-        font-size: 11px;
+        display: inline-block !important;
+        padding: 2px 8px !important;
+        font-size: 11px !important;
+        border-radius: 4px !important;
+        font-weight: 500 !important;
+        white-space: nowrap !important;
     }
 
-    /* 操作按钮 - 改为图标 */
+    /* 操作按钮通用样式 */
     .btn-action {
-        padding: 0 8px;
-        height: 32px;
-        font-size: 12px;
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+        border-radius: 4px !important;
+        border: 1px solid #d9d9d9 !important;
+        background: #fff !important;
+        white-space: nowrap !important;
+    }
+
+    /* 十一、类型标签：固定在卡片右上角 */
+    .task-tag,
+    .cloud-type-badge,
+    .task-type-tag {
+        position: absolute !important;
+        top: 8px !important;
+        right: 10px !important;
+        font-size: 10px !important;
+        padding: 3px 8px !important;
+        border-radius: 4px !important;
+        font-weight: 600 !important;
+        display: inline-block !important;
+        z-index: 1 !important;
+    }
+
+    /* 云盘类型标签配色 */
+    .task-tag.tianyi,
+    .task-tag[data-type="tianyi"],
+    .cloud-type-badge.tianyi,
+    .task-type-tag.tianyi {
+        background: #1890ff !important;
+        color: #fff !important;
+        border: none !important;
+    }
+
+    .task-tag.quark,
+    .task-tag[data-type="quark"],
+    .cloud-type-badge.quark,
+    .task-type-tag.quark {
+        background: #fa8c16 !important;
+        color: #fff !important;
+        border: none !important;
+    }
+
+    .task-tag.tencent,
+    .task-tag[data-type="tencent"],
+    .cloud-type-badge.tencent,
+    .task-type-tag.tencent {
+        background: #52c41a !important;
+        color: #fff !important;
+        border: none !important;
+    }
+
+    .task-tag.aliyun,
+    .task-tag[data-type="aliyun"],
+    .cloud-type-badge.aliyun,
+    .task-type-tag.aliyun {
+        background: #ff4d4f !important;
+        color: #fff !important;
+        border: none !important;
+    }
+
+    .task-tag.baidu,
+    .task-tag[data-type="baidu"],
+    .cloud-type-badge.baidu,
+    .task-type-tag.baidu {
+        background: #722ed1 !important;
+        color: #fff !important;
+        border: none !important;
+    }
+
+    /* 189云盘 */
+    .task-tag.cloud189,
+    .task-tag[data-type="cloud189"],
+    .cloud-type-badge.cloud189 {
+        background: #1890ff !important;
+        color: #fff !important;
+        border: none !important;
+    }
+
+    /* 任务状态标签 - 颜色醒目，边框区分 */
+    .task-status,
+    .status-text {
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        padding: 3px 8px !important;
+        border-radius: 4px !important;
+        display: inline-block !important;
+    }
+
+    .task-status.success,
+    .task-status[data-status="success"],
+    .status-text.success {
+        color: #52c41a !important;
+        background: #f6ffed !important;
+        border: 1px solid #b7eb8f !important;
+    }
+
+    .task-status.failed,
+    .task-status.error,
+    .task-status[data-status="failed"],
+    .status-text.failed {
+        color: #ff4d4f !important;
+        background: #fff2f0 !important;
+        border: 1px solid #ffccc7 !important;
+    }
+
+    .task-status.running,
+    .task-status.processing,
+    .task-status[data-status="running"],
+    .status-text.running {
+        color: #1890ff !important;
+        background: #e6f7ff !important;
+        border: 1px solid #91d5ff !important;
+    }
+
+    .task-status.pending,
+    .task-status.waiting,
+    .task-status[data-status="pending"],
+    .status-text.pending {
+        color: #faad14 !important;
+        background: #fffbe6 !important;
+        border: 1px solid #ffe58f !important;
+    }
+
+    .task-status.stopped,
+    .task-status.cancelled,
+    .task-status[data-status="stopped"],
+    .status-text.stopped {
+        color: #8c8c8c !important;
+        background: #f5f5f5 !important;
+        border: 1px solid #d9d9d9 !important;
+    }
+
+    /* 操作按钮美化 - 统一配色 */
+    .task-action-btn,
+    .btn-action {
+        font-size: 11px !important;
+        padding: 5px 10px !important;
+        height: 28px !important;
+        min-width: 56px !important;
+        border-radius: 4px !important;
+        border: 1px solid #d9d9d9 !important;
+        background: #fff !important;
+        color: #666 !important;
+        cursor: pointer !important;
+        transition: all 0.2s ease !important;
+        font-weight: 500 !important;
+    }
+
+    .task-action-btn:active,
+    .btn-action:active {
+        transform: scale(0.95) !important;
+        background: #f5f5f5 !important;
+    }
+
+    /* 操作按钮配色 - 带边框版 */
+    .task-action-btn.view,
+    .task-action-btn[data-action="view"],
+    .btn-action.view {
+        background: #e6f7ff !important;
+        color: #1890ff !important;
+        border-color: #91d5ff !important;
+    }
+
+    .task-action-btn.retry,
+    .task-action-btn[data-action="retry"],
+    .btn-action.retry {
+        background: #f6ffed !important;
+        color: #52c41a !important;
+        border-color: #b7eb8f !important;
+    }
+
+    .task-action-btn.stop,
+    .task-action-btn.terminate,
+    .task-action-btn[data-action="stop"],
+    .btn-action.stop {
+        background: #fff1f0 !important;
+        color: #ff4d4f !important;
+        border-color: #ffa39e !important;
+    }
+
+    .task-action-btn.log,
+    .task-action-btn[data-action="log"],
+    .btn-action.log {
+        background: #f9f0ff !important;
+        color: #722ed1 !important;
+        border-color: #d3adf7 !important;
+    }
+
+    .task-action-btn.edit,
+    .task-action-btn[data-action="edit"],
+    .btn-action.edit {
+        background: #fff7e6 !important;
+        color: #fa8c16 !important;
+        border-color: #ffd591 !important;
+    }
+
+    .task-action-btn.delete,
+    .task-action-btn[data-action="delete"],
+    .btn-action.delete {
+        background: #fff1f0 !important;
+        color: #ff4d4f !important;
+        border-color: #ffa39e !important;
     }
 
     /* ========== 资源搜索页面适配 ========== */
+    
+    /* 搜索头部区域 */
+    .search-header {
+        padding: 12px;
+        margin-bottom: 12px;
+    }
+    
+    /* 搜索框容器 - 改为纵向堆叠 */
+    .search-box {
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch;
+    }
+    
+    /* 平台标签容器 - 横向滚动 */
+    .platform-tabs {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 4px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+    
+    .platform-tabs::-webkit-scrollbar {
+        height: 3px;
+    }
+    
+    .platform-tabs::-webkit-scrollbar-track {
+        background: #f5f5f5;
+        border-radius: 2px;
+    }
+    
+    .platform-tabs::-webkit-scrollbar-thumb {
+        background: #d9d9d9;
+        border-radius: 2px;
+    }
+    
+    .platform-tab {
+        flex-shrink: 0;
+        padding: 8px 16px;
+        font-size: 14px;
+        white-space: nowrap;
+    }
+    
+    /* 搜索输入框 */
+    .search-box input {
+        width: 100%;
+        height: 44px;
+        min-height: 44px;
+        padding: 12px;
+        font-size: 16px; /* 防止iOS自动缩放 */
+        border-radius: 6px;
+    }
+    
+    /* 搜索类型选择器 */
+    .search-type-selector {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+    }
+    
+    .search-type-radio {
+        padding: 6px 12px;
+        font-size: 14px;
+    }
+    
+    .search-type-radio input[type="radio"] {
+        width: 16px;
+        height: 16px;
+    }
+    
+    /* 搜索按钮 */
+    .search-box .btn {
+        width: 100%;
+        height: 44px;
+        min-height: 44px;
+        font-size: 15px;
+    }
     
     /* 搜索选项卡 */
     .search-tabs {
@@ -528,23 +1278,6 @@
     .search-tab {
         padding: 8px 12px;
         font-size: 14px;
-    }
-
-    /* 搜索框 */
-    .search-box {
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .search-box input {
-        width: 100%;
-        height: 44px;
-        padding: 12px;
-        font-size: 14px;
-    }
-
-    .search-box .btn {
-        width: 100%;
     }
 
     /* 搜索统计 */
@@ -589,6 +1322,7 @@
 
     .result-title {
         font-size: 14px;
+        font-weight: 500;
     }
 
     .result-meta {
@@ -599,6 +1333,7 @@
 
     .result-link {
         word-break: break-all;
+        font-size: 12px;
     }
 
     .result-actions {
@@ -610,6 +1345,117 @@
     .result-actions .btn {
         flex: 1;
         min-width: calc(50% - 4px);
+        height: 44px;
+        font-size: 14px;
+    }
+    
+    .result-actions .btn-small {
+        height: 40px;
+        font-size: 13px;
+    }
+    
+    /* 官方资源搜索结果 - 横向卡片布局适配 */
+    .official-results-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-top: 12px;
+    }
+    
+    .official-card {
+        height: auto;
+        min-height: 120px;
+    }
+    
+    .official-card-poster {
+        width: 80px;
+    }
+    
+    .official-card-content {
+        padding: 12px;
+    }
+    
+    .official-card-title {
+        font-size: 14px;
+        margin-bottom: 6px;
+    }
+    
+    .official-card-meta {
+        font-size: 11px;
+        margin-bottom: 6px;
+    }
+    
+    .official-card-desc {
+        font-size: 12px;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+    }
+    
+    .official-card-platforms {
+        gap: 6px;
+        margin-top: 8px;
+    }
+    
+    .official-platform-btn {
+        padding: 4px 10px;
+        font-size: 12px;
+        height: 32px;
+        min-height: 32px;
+    }
+    
+    .official-card-score {
+        font-size: 11px;
+        padding: 2px 6px;
+    }
+    
+    /* 影视卡片网格适配 */
+    .video-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+    
+    .video-card {
+        border-radius: 6px;
+    }
+    
+    .video-title {
+        font-size: 13px;
+    }
+    
+    .video-secondary-info {
+        font-size: 11px;
+    }
+    
+    .video-score {
+        font-size: 11px;
+    }
+    
+    .video-badge {
+        font-size: 10px;
+        padding: 2px 6px;
+    }
+    
+    /* 影视分类区域 */
+    .video-category-section {
+        margin-bottom: 16px;
+        padding: 12px;
+    }
+    
+    .video-category-header {
+        margin-bottom: 10px;
+    }
+    
+    .video-category-title {
+        font-size: 15px;
+    }
+    
+    /* 隐藏移动端不必要的元数据 */
+    .result-meta > span:nth-child(n+4) {
+        display: none;
+    }
+    
+    /* 移动端不显示hover详情 */
+    .video-hover-overlay {
+        display: none !important;
     }
 
     /* ========== 夸克网盘页面适配 ========== */
@@ -644,7 +1490,7 @@
         display: none;
     }
 
-    /* ========== 影视下载页面适配 ========== */
+    /* ========== 影视下载页面适配 - 紧凑横向按钮版 ========== */
     
     /* 影视任务弹窗 */
     .video-task-modal {
@@ -653,109 +1499,227 @@
     }
 
     .video-task-modal .modal-header {
-        padding: 0 16px;
-        height: 52px;
+        padding: 0 12px !important;
+        height: 48px !important;
     }
 
     .video-task-modal .modal-title {
-        font-size: 15px;
+        font-size: 14px !important;
     }
 
     .video-task-modal .modal-body {
-        padding: 16px;
+        padding: 12px !important;
     }
 
     .video-task-modal .form-section {
-        padding-top: 12px;
-        margin-top: 12px;
+        padding-top: 10px !important;
+        margin-top: 10px !important;
     }
 
-    /* 进度条 */
+    /* 进度条 - 紧凑版 */
     .progress-bar {
-        height: 24px;
-        border-radius: 12px;
+        height: 18px !important;
+        border-radius: 9px !important;
     }
 
     .progress-fill {
-        font-size: 11px;
+        font-size: 10px !important;
     }
 
-    /* 任务列表 - 卡片式布局 */
+    /* 任务列表容器 */
     .video-task-table thead {
-        display: none;
+        display: none !important;
     }
 
     .video-task-table,
-    .video-task-table tbody,
+    .video-task-table tbody {
+        display: block !important;
+        width: 100% !important;
+    }
+
+    /* 每个任务项：紧凑卡片 */
     .video-task-table tr,
-    .video-task-table td {
-        display: block;
-        width: 100%;
+    .video-task-item {
+        display: block !important;
+        width: 100% !important;
+        margin-bottom: 10px !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 8px !important;
+        padding: 8px !important;
+        background: #fff !important;
+        box-shadow: none !important;
+        position: relative !important;
     }
 
-    .video-task-table tr {
-        margin-bottom: 16px;
-        border: 1px solid #e8e8e8;
-        border-radius: 8px;
-        padding: 12px;
-        background: #fff;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-
+    /* 任务信息区：标题+平台+进度同一行 */
     .video-task-table td {
-        padding: 8px 0 !important;
+        display: block !important;
+        width: 100% !important;
+        padding: 3px 0 !important;
         border: none !important;
         text-align: left !important;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
+        font-size: 12px !important;
+        line-height: 1.4 !important;
     }
 
+    /* 隐藏默认标签 */
     .video-task-table td:before {
-        font-weight: 600;
-        color: #666;
-        min-width: 70px;
+        display: none !important;
+        content: none !important;
     }
 
-    .video-task-table td:nth-child(1):before {
-        content: "任务名称: ";
+    /* 第一行：任务标题 */
+    .video-task-table td:nth-child(1) {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        padding-bottom: 4px !important;
     }
 
-    .video-task-table td:nth-child(2):before {
-        content: "进度: ";
+    /* 任务名称 */
+    .video-task-table .task-name-cell,
+    .video-task-name {
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        color: #333 !important;
+        flex: 1 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
 
-    .video-task-table td:nth-child(3):before {
-        content: "状态: ";
+    /* 平台标签 */
+    .video-task-table .platform-tag,
+    .video-platform-tag {
+        font-size: 10px !important;
+        padding: 2px 6px !important;
+        border-radius: 3px !important;
+        background: #1890ff !important;
+        color: #fff !important;
+        flex-shrink: 0 !important;
     }
 
-    .video-task-table td:last-child:before {
-        content: "操作: ";
+    /* 进度条行 */
+    .video-task-table td:nth-child(2) {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        padding: 4px 0 !important;
     }
 
-    .video-task-table td:last-child {
-        padding-top: 12px !important;
+    .video-task-table .progress-bar {
+        flex: 1 !important;
+        height: 16px !important;
+        border-radius: 8px !important;
+        background: #f0f0f0 !important;
+        overflow: hidden !important;
+    }
+
+    .video-task-table .progress-text {
+        font-size: 11px !important;
+        color: #666 !important;
+        min-width: 36px !important;
+        text-align: right !important;
+    }
+
+    /* 任务链接：11px灰色，省略号 */
+    .video-task-table td:nth-child(3),
+    .video-task-url {
+        font-size: 11px !important;
+        color: #999 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        padding: 2px 0 !important;
+    }
+
+    /* 操作按钮容器：横向滚动 */
+    .video-task-table td:last-child,
+    .video-task-table .action-buttons,
+    .video-task-actions {
+        display: flex !important;
+        flex-wrap: nowrap !important;  /* 禁止换行 */
+        overflow-x: auto !important;  /* 横向滚动 */
+        overflow-y: hidden !important;
+        gap: 6px !important;
+        padding: 4px 0 !important;
+        margin-top: 6px !important;
         border-top: 1px solid #f0f0f0 !important;
+        -webkit-overflow-scrolling: touch !important;  /* iOS流畅滚动 */
+        scrollbar-width: thin !important;  /* Firefox细滚动条 */
     }
 
-    /* 任务名称列 */
-    .video-task-table .task-name-cell {
-        max-width: 100%;
-        white-space: normal;
-        word-break: break-word;
-        flex: 1;
+    /* 隐藏滚动条（Webkit） */
+    .video-task-table td:last-child::-webkit-scrollbar,
+    .video-task-table .action-buttons::-webkit-scrollbar,
+    .video-task-actions::-webkit-scrollbar {
+        height: 2px !important;
     }
 
-    /* 操作按钮 */
-    .video-task-table .action-buttons {
-        flex-wrap: wrap;
-        width: 100%;
+    .video-task-table td:last-child::-webkit-scrollbar-track,
+    .video-task-table .action-buttons::-webkit-scrollbar-track,
+    .video-task-actions::-webkit-scrollbar-track {
+        background: transparent !important;
     }
 
-    .video-task-table .action-buttons .btn-small {
-        flex: 1;
-        min-width: calc(50% - 4px);
+    .video-task-table td:last-child::-webkit-scrollbar-thumb,
+    .video-task-table .action-buttons::-webkit-scrollbar-thumb,
+    .video-task-actions::-webkit-scrollbar-thumb {
+        background: #ddd !important;
+        border-radius: 1px !important;
+    }
+
+    /* 操作按钮：统一尺寸，11px字体，4px 8px内边距 */
+    .video-task-table .btn-small,
+    .video-task-table .btn-action,
+    .video-task-btn {
+        flex-shrink: 0 !important;  /* 禁止压缩 */
+        font-size: 11px !important;
+        padding: 4px 8px !important;
+        border-radius: 4px !important;
+        border: 1px solid #d9d9d9 !important;
+        background: #fff !important;
+        color: #666 !important;
+        white-space: nowrap !important;
+        cursor: pointer !important;
+        height: auto !important;
+        line-height: 1.3 !important;
+    }
+
+    .video-task-table .btn-small:active,
+    .video-task-table .btn-action:active,
+    .video-task-btn:active {
+        background: #f5f5f5 !important;
+    }
+
+    /* 删除按钮：红色，但尺寸一致 */
+    .video-task-table .btn-danger,
+    .video-task-table .btn-delete,
+    .video-task-btn.delete {
+        background: #ff4d4f !important;
+        color: #fff !important;
+        border-color: #ff4d4f !important;
+        font-size: 11px !important;
+        padding: 4px 8px !important;
+    }
+
+    /* 执行按钮：蓝色 */
+    .video-task-table .btn-primary,
+    .video-task-table .btn-execute,
+    .video-task-btn.execute {
+        background: #1890ff !important;
+        color: #fff !important;
+        border-color: #1890ff !important;
+    }
+
+    /* 启动按钮：绿色 */
+    .video-task-table .btn-success,
+    .video-task-table .btn-start,
+    .video-task-btn.start {
+        background: #52c41a !important;
+        color: #fff !important;
+        border-color: #52c41a !important;
     }
 
     /* ========== 系统配置页面适配 ========== */
@@ -1209,6 +2173,12 @@
 
 /* ========== 超小屏幕适配 (≤375px) ========== */
 @media (max-width: 375px) {
+    /* 侧边栏宽度缩小 */
+    .sidebar {
+        width: 70%;  /* 小屏幕上缩小侧边栏宽度 */
+        max-width: 240px;
+    }
+    
     .header {
         padding: 0 8px;
     }
@@ -1221,45 +2191,197 @@
         padding: 8px;
     }
 
-    .toolbar,
-    .filter-bar {
+    .toolbar {
         padding: 8px;
     }
 
+    /* 筛选区域 - 超小屏2列网格 */
+    .filter-bar,
+    .filter-section {
+        padding: 8px !important;
+        gap: 4px 6px !important;
+        grid-template-columns: 1fr 1fr !important;
+    }
+
+    .filter-item label,
+    .filter-label {
+        font-size: 11px !important;
+        margin-bottom: 1px !important;
+    }
+
+    .filter-select,
+    .filter-input {
+        font-size: 10px !important;
+        padding: 3px 6px !important;
+        min-height: 24px !important;
+    }
+
+    .btn-search,
+    .btn-reset,
+    .search-btn,
+    .reset-btn {
+        height: 24px !important;
+        font-size: 10px !important;
+        padding: 3px 6px !important;
+    }
+
+    .filter-actions,
+    .search-reset-group {
+        gap: 4px !important;
+    }
+
+    .btn-more-filter,
+    .more-filter-btn {
+        font-size: 11px !important;
+    }
+
+    /* 统计卡片 - 超小屏更紧凑 */
     .stats-container {
-        padding: 8px;
-        gap: 8px;
+        padding: 6px !important;
+        gap: 4px !important;
     }
 
     .stat-card {
-        padding: 12px;
+        padding: 6px 8px !important;
+        flex: 1 1 calc(50% - 3px) !important;
+        min-width: calc(50% - 3px) !important;
+    }
+
+    .stat-label {
+        font-size: 10px !important;
     }
 
     .stat-value {
-        font-size: 20px;
+        font-size: 16px !important;
     }
 
-    .task-table,
-    .data-table {
-        font-size: 11px;
+    /* 筛选区域 - 超小屏 */
+    .filter-bar,
+    .filter-section {
+        padding: 8px !important;
     }
 
+    .filter-select,
+    .filter-input {
+        font-size: 12px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+    }
+
+    .btn-search,
+    .btn-reset {
+        height: 32px !important;
+        font-size: 12px !important;
+    }
+
+    /* 任务列表容器 - 超小屏 */
+    .task-table-container,
+    .task-list {
+        padding: 8px !important;
+        max-height: calc(100vh - 160px) !important;
+    }
+
+    /* 任务卡片 - 超小屏，完整显示 */
+    .task-table tr,
+    .task-item {
+        padding: 8px !important;
+        padding-top: 32px !important;  /* 为类型标签留空间 */
+        margin-bottom: 8px !important;
+        border-radius: 6px !important;
+        overflow: visible !important;
+    }
+
+    .task-table td {
+        font-size: 11px !important;
+        padding: 2px 0 !important;
+        gap: 6px !important;
+        line-height: 1.3 !important;
+        /* 完整显示 */
+        overflow: visible !important;
+        white-space: normal !important;
+    }
+
+    .task-table td:before {
+        font-size: 11px !important;
+        min-width: 45px !important;
+        width: 45px !important;
+    }
+
+    /* 任务名称 - 超小屏完整显示 */
+    .task-name-cell {
+        font-size: 11px !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+        overflow: visible !important;
+    }
+
+    /* 云盘标签 - 超小屏 */
+    .task-tag,
+    .cloud-type-badge,
+    .task-type-tag {
+        font-size: 9px !important;
+        padding: 2px 6px !important;
+        top: 6px !important;
+        right: 6px !important;
+    }
+
+    /* 状态标签 - 超小屏 */
+    .task-status,
+    .status-text,
+    .status-badge {
+        font-size: 10px !important;
+        padding: 2px 6px !important;
+    }
+
+    /* 按钮 - 超小屏 */
     .btn-small {
-        padding: 0 6px;
-        height: 30px;
-        font-size: 11px;
+        padding: 3px 6px !important;
+        font-size: 10px !important;
+    }
+
+    /* 操作按钮 - 超小屏 */
+    .btn-action,
+    .task-action-btn {
+        padding: 3px 6px !important;
+        font-size: 10px !important;
+        white-space: nowrap !important;
+    }
+
+    .task-table .action-buttons,
+    .task-actions {
+        gap: 4px !important;
+    }
+
+    /* 批量操作栏 - 超小屏 */
+    .batch-actions-bar {
+        padding: 6px 8px !important;
+        gap: 4px !important;
+    }
+
+    .batch-btn {
+        font-size: 10px !important;
+        padding: 4px 8px !important;
+        height: 26px !important;
+    }
+    
+    /* 汉堡按钮位置微调 */
+    .hamburger-btn-mobile {
+        left: 8px;
+        top: 8px;
     }
 }
 
 /* ========== 横屏模式优化 ========== */
 @media (max-width: 768px) and (orientation: landscape) {
     .stats-container {
-        flex-direction: row;
-        flex-wrap: wrap;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
     }
 
     .stat-card {
-        width: calc(50% - 6px);
+        flex: 1 1 calc(25% - 6px) !important;  /* 横屏时每行4个 */
+        min-width: calc(25% - 6px) !important;
     }
 
     .modal-content {
