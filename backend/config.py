@@ -117,4 +117,55 @@ class Config:
         if cls.QUARK_BASE_URL is None:
             cls._load_quark_config()
         return cls.QUARK_BASE_URL is not None
+    
+    # 天翼189云盘API配置 - 延迟加载
+    _cloud189_config_cache = None
+    CLOUD189_BASE_URL = None
+    CLOUD189_USER_AGENT = None
+    CLOUD189_TIMEOUT = 30  # 默认超时时间（秒）
+    CLOUD189_RETRY_TIMES = 3  # 默认重试次数
+    
+    @classmethod
+    def _load_cloud189_config(cls):
+        """从加密配置中加载天翼189云盘API配置"""
+        if cls._cloud189_config_cache is not None:
+            return cls._cloud189_config_cache
+        
+        from utils.config_crypto import config_crypto
+        from utils.logger import logger
+        
+        cloud189_config = config_crypto.get_config('cloud189_api', {})
+        
+        if not cloud189_config:
+            error_msg = "天翼189云盘API配置未加载,请联系管理员获取配置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        # 验证必需的配置项
+        required_keys = ['base_url', 'user_agent']
+        missing_keys = [key for key in required_keys if key not in cloud189_config]
+        if missing_keys:
+            error_msg = f"天翼189云盘API配置缺少必需项: {', '.join(missing_keys)},请联系管理员"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        cls._cloud189_config_cache = cloud189_config
+        cls.CLOUD189_BASE_URL = cloud189_config['base_url']
+        cls.CLOUD189_USER_AGENT = cloud189_config['user_agent']
+        
+        # 可选配置项
+        if 'timeout' in cloud189_config:
+            cls.CLOUD189_TIMEOUT = cloud189_config['timeout']
+        if 'retry_times' in cloud189_config:
+            cls.CLOUD189_RETRY_TIMES = cloud189_config['retry_times']
+        
+        logger.info("天翼189云盘API配置加载成功")
+        return cloud189_config
+    
+    @classmethod
+    def ensure_cloud189_config(cls):
+        """确保天翼189云盘API配置已加载"""
+        if cls.CLOUD189_BASE_URL is None:
+            cls._load_cloud189_config()
+        return cls.CLOUD189_BASE_URL is not None
 

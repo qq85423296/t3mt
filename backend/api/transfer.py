@@ -2,6 +2,7 @@
 """
 转存任务API
 """
+import json
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from services.transfer_service import TransferService
@@ -70,7 +71,12 @@ def create_path_recursive(quark, full_path, add_log=None, idx=1, total=1):
 def get_tasks():
     """获取转存任务列表"""
     try:
-        tasks = TransferService.get_all_tasks()
+        # 获取cloud_type筛选参数
+        cloud_type = request.args.get('cloud_type')
+        
+        # 获取任务列表，支持按cloud_type筛选
+        tasks = TransferService.get_all_tasks(cloud_type=cloud_type)
+        
         return jsonify({
             'code': 200,
             'message': 'success',
@@ -249,6 +255,8 @@ def toggle_task(task_id):
 @transfer_bp.route('/task/<int:task_id>/execute', methods=['POST'])
 def execute_task(task_id):
     """立即执行任务"""
+    print(f"[DEBUG] execute_task被调用: task_id={task_id}")
+    logger.info(f"[execute_task] 开始执行任务: task_id={task_id}")
     execution_id = None
     schedule_period = None
     
@@ -315,7 +323,113 @@ def execute_task(task_id):
             add_log(f"使用账号: {account['remark']}", 'info')
             add_log(f"目标路径: {task['target_path']}", 'info')
             
-            # 初始化夸克服务
+            # 根据账号云盘类型选择服务
+            cloud_type = account.get('cloud_type', 'quark')
+            add_log(f"云盘类型: {cloud_type}", 'info')
+            
+            if cloud_type == 'cloud189':
+                # 天翼云盘
+                from services.cloud189_service import Cloud189Service
+                cloud_service = Cloud189Service(account['cookie'])
+                
+                # 解析分享链接
+                share_urls = task['share_urls']
+                add_log(f"共有 {len(share_urls)} 个分享链接待处理", 'info')
+                
+                success_count = 0
+                fail_count = 0
+                total_files = 0
+                
+                for idx, share_url_obj in enumerate(share_urls, 1):
+                    try:
+                        # 提取URL
+                        if isinstance(share_url_obj, dict):
+                            share_url = share_url_obj['url']
+                            url_status = share_url_obj.get('status', '未检查')
+                        else:
+                            share_url = share_url_obj
+                            url_status = '未检查'
+                        
+                        add_log(f"[{idx}/{len(share_urls)}] 正在处理: {share_url[:60]}...", 'info')
+                        
+                        # 显示链接状态
+                        if url_status != '未检查' and url_status != '正常':
+                            add_log(f"[{idx}/{len(share_urls)}] 跳过异常链接", 'warning')
+                            fail_count += 1
+                            continue
+                        
+                        # 解析分享链接
+                        add_log(f"[{idx}/{len(share_urls)}] 解析分享链接...", 'info')
+                        share_code, access_code = Cloud189Service.parse_share_url(share_url)
+                        add_log(f"[{idx}/{len(share_urls)}] 解析结果: share_code={share_code}", 'info')
+                        
+                        if not share_code:
+                            add_log(f"[{idx}/{len(share_urls)}] 解析失败：无效的分享链接", 'error')
+                            fail_count += 1
+                            continue
+                        
+                        # 执行转存
+                        add_log(f"[{idx}/{len(share_urls)}] 开始转存...", 'info')
+                        
+                        # 获取目标文件夹ID
+                        target_folder_id = '-11'  # 天翼云盘根目录
+                        final_target_path = task['target_path']
+                        
+                        # 处理保存模式
+                        if task.get('save_mode') == 'subfolder' and task.get('target_folder_name'):
+                            final_target_path = f"{task['target_path'].rstrip('/')}/{task['target_folder_name']}"
+                        
+                        # 如果目标路径不是根目录，需要创建或查找目标文件夹
+                        if final_target_path and final_target_path != '/':
+                            add_log(f"[{idx}/{len(share_urls)}] 目标路径: {final_target_path}", 'info')
+                            # 获取或创建目标文件夹
+                            target_folder_id = cloud_service.get_or_create_folder_by_path(final_target_path)
+                            logger.info(f"189云盘目标文件夹ID: {target_folder_id}")
+                        
+                        # 调用转存方法
+                        logger.info(f"调用save_share: url={share_url}, target_folder_id={target_folder_id}")
+                        result = cloud_service.save_share(share_url, target_folder_id, access_code)
+                        logger.info(f"save_share返回: {result}")
+                        
+                        if result.get('success'):
+                            add_log(f"[{idx}/{len(share_urls)}] 转存成功", 'success')
+                            success_count += 1
+                            total_files += 1
+                        else:
+                            add_log(f"[{idx}/{len(share_urls)}] 转存失败: {result.get('message', '未知错误')}", 'error')
+                            fail_count += 1
+                    
+                    except Exception as e:
+                        logger.error(f"处理分享链接失败: {e}", exc_info=True)
+                        add_log(f"[{idx}/{len(share_urls)}] 处理失败: {str(e)}", 'error')
+                        fail_count += 1
+                
+                add_log(f"任务执行完成！成功: {success_count}, 失败: {fail_count}, 文件数: {total_files}", 'success')
+                
+                # 更新执行历史
+                with get_db() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE task_execution_history 
+                        SET status = ?, end_time = ?, logs = ?,
+                            success_count = ?, failed_count = ?, total_count = ?
+                        WHERE id = ?
+                    """, ('completed', datetime.now(), json.dumps(logs, ensure_ascii=False),
+                          success_count, fail_count, total_files, execution_id))
+                    conn.commit()
+                
+                return jsonify({
+                    'code': 200,
+                    'message': '执行完成',
+                    'data': {
+                        'logs': logs,
+                        'success_count': success_count,
+                        'fail_count': fail_count,
+                        'total_files': total_files
+                    }
+                })
+            
+            # 夸克网盘（默认）
             from services.quark_service import QuarkService
             quark = QuarkService(account['cookie'])
             
@@ -842,7 +956,6 @@ def execute_task(task_id):
             
             # 更新执行历史记录
             if execution_id:
-                import json
                 with get_db() as conn:
                     cursor = conn.cursor()
                     logs_json = json.dumps(logs, ensure_ascii=False)
@@ -873,7 +986,6 @@ def execute_task(task_id):
             
             # 更新执行历史记录为失败
             if execution_id:
-                import json
                 with get_db() as conn:
                     cursor = conn.cursor()
                     logs_json = json.dumps(logs, ensure_ascii=False)
@@ -919,9 +1031,16 @@ def check_share_status(task_id):
                 'message': '目标账号不存在'
             })
         
-        # 初始化夸克服务
-        from services.quark_service import QuarkService
-        quark = QuarkService(account['cookie'])
+        # 获取云盘类型
+        cloud_type = account.get('cloud_type', 'quark')
+        
+        # 根据云盘类型初始化服务
+        if cloud_type == 'cloud189':
+            from services.cloud189_service import Cloud189Service
+            cloud_service = Cloud189Service(account['cookie'])
+        else:
+            from services.quark_service import QuarkService
+            cloud_service = QuarkService(account['cookie'])
         
         # 检查每个分享链接
         share_urls = task['share_urls']
@@ -931,25 +1050,86 @@ def check_share_status(task_id):
             url = url_obj['url'] if isinstance(url_obj, dict) else url_obj
             
             try:
-                # 解析分享链接
-                pwd_id, passcode, folder_id = QuarkService.parse_share_url(url)
-                
-                if not pwd_id:
-                    status = '链接格式错误'
-                else:
-                    # 尝试获取分享令牌
-                    token_response = quark.get_stoken(pwd_id, passcode)
+                if cloud_type == 'cloud189':
+                    # 天翼云盘链接检查
+                    share_code, access_code = Cloud189Service.parse_share_url(url)
                     
-                    if token_response.get('code') == 0:
-                        status = '正常'
-                    elif token_response.get('code') == 31001:
-                        status = '分享已失效'
-                    elif token_response.get('code') == 31002:
-                        status = '分享违规'
-                    elif token_response.get('code') == 31003:
-                        status = '密码错误'
+                    if not share_code:
+                        status = '链接格式错误'
                     else:
-                        status = f"异常({token_response.get('code')})"
+                        # 获取分享信息
+                        share_info = cloud_service.get_share_info(share_code)
+                        
+                        if share_info.get('res_code') == 0:
+                            # 尝试直接列出分享内容来判断是否真的需要访问码
+                            share_id = share_info.get('shareId')
+                            file_id = share_info.get('fileId')
+                            share_mode = share_info.get('shareMode')
+                            
+                            if share_id and file_id and share_mode:
+                                # 尝试不带访问码访问
+                                list_result = cloud_service.list_share_dir(
+                                    share_id=share_id,
+                                    file_id=file_id,
+                                    share_mode=share_mode,
+                                    access_code='',
+                                    share_code=share_code,
+                                    root_file_id=file_id
+                                )
+                                
+                                if list_result.get('res_code') == 0:
+                                    # 可以直接访问,不需要访问码
+                                    status = '正常'
+                                elif list_result.get('res_code') == 4031:
+                                    # 需要访问码
+                                    if access_code:
+                                        # 尝试带访问码访问
+                                        list_result2 = cloud_service.list_share_dir(
+                                            share_id=share_id,
+                                            file_id=file_id,
+                                            share_mode=share_mode,
+                                            access_code=access_code,
+                                            share_code=share_code,
+                                            root_file_id=file_id
+                                        )
+                                        if list_result2.get('res_code') == 0:
+                                            status = '正常'
+                                        else:
+                                            status = '访问码错误'
+                                    else:
+                                        status = '需要访问码'
+                                else:
+                                    status = f"异常({list_result.get('res_code')})"
+                            else:
+                                # 缺少必要信息
+                                status = '分享信息不完整'
+                        elif share_info.get('res_code') == 4031:
+                            status = '分享已失效'
+                        elif share_info.get('res_code') == 4032:
+                            status = '分享违规'
+                        else:
+                            status = f"异常({share_info.get('res_code')})"
+                else:
+                    # 夸克云盘链接检查
+                    from services.quark_service import QuarkService
+                    pwd_id, passcode, folder_id = QuarkService.parse_share_url(url)
+                    
+                    if not pwd_id:
+                        status = '链接格式错误'
+                    else:
+                        # 尝试获取分享令牌
+                        token_response = cloud_service.get_stoken(pwd_id, passcode)
+                        
+                        if token_response.get('code') == 0:
+                            status = '正常'
+                        elif token_response.get('code') == 31001:
+                            status = '分享已失效'
+                        elif token_response.get('code') == 31002:
+                            status = '分享违规'
+                        elif token_response.get('code') == 31003:
+                            status = '密码错误'
+                        else:
+                            status = f"异常({token_response.get('code')})"
                 
             except Exception as e:
                 status = f'检查失败: {str(e)}'
@@ -969,7 +1149,6 @@ def check_share_status(task_id):
                 })
         
         # 更新任务
-        import json
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -1035,6 +1214,8 @@ def browse_share():
         pdir_fid = data.get('pdir_fid', '0')  # 父目录ID，默认根目录
         account_id = data.get('account_id')
         
+        logger.info(f"浏览分享文件请求: url={share_url}, pdir_fid={pdir_fid}, account_id={account_id}")
+        
         if not share_url:
             return jsonify({
                 'code': 400,
@@ -1056,63 +1237,172 @@ def browse_share():
                 'message': '账号不存在'
             }), 404
         
-        # 初始化夸克服务
-        from services.quark_service import QuarkService
-        quark = QuarkService(account['cookie'])
+        # 根据云盘类型选择服务
+        cloud_type = account.get('cloud_type', 'quark')
+        logger.info(f"账号云盘类型: {cloud_type}")
         
-        # 解析分享链接
-        pwd_id, passcode, folder_id = QuarkService.parse_share_url(share_url)
-        
-        if not pwd_id:
+        if cloud_type == 'cloud189':
+            # 天翼云盘
+            from services.cloud189_service import Cloud189Service
+            cloud_service = Cloud189Service(account['cookie'])
+            
+            # 解析分享链接
+            share_code, access_code = Cloud189Service.parse_share_url(share_url)
+            logger.info(f"解析结果: share_code={share_code}, access_code={access_code}")
+            
+            if not share_code:
+                return jsonify({
+                    'code': 400,
+                    'message': '无效的分享链接'
+                }), 400
+            
+            # 获取分享信息
+            logger.info(f"获取分享信息: share_code={share_code}")
+            share_info = cloud_service.get_share_info(share_code)
+            logger.info(f"分享信息响应: {share_info}")
+            
+            if share_info.get('res_code') != 0:
+                return jsonify({
+                    'code': 400,
+                    'message': f"获取分享信息失败: {share_info.get('res_message', '未知错误')}"
+                }), 400
+            
+            share_id = share_info.get('shareId')
+            share_mode = share_info.get('shareMode')
+            root_file_id = share_info.get('fileId')  # 分享根目录的fileId
+            is_folder = share_info.get('isFolder', True)
+            logger.info(f"分享ID: {share_id}, 分享模式: {share_mode}, 根文件ID: {root_file_id}, 是否文件夹: {is_folder}")
+            
+            # 验证访问码（如果需要）
+            if access_code:
+                logger.info(f"验证访问码: {access_code}")
+                check_result = cloud_service.check_access_code(share_code, access_code)
+                logger.info(f"访问码验证结果: {check_result}")
+                if check_result.get('res_code') != 0:
+                    return jsonify({
+                        'code': 400,
+                        'message': '访问码错误'
+                    }), 400
+            
+            # 获取分享文件列表
+            # 如果pdir_fid是0或空，使用分享根目录的fileId
+            file_id = pdir_fid if pdir_fid != '0' and pdir_fid else ''
+            logger.info(f"获取分享文件列表: share_id={share_id}, file_id={file_id}, share_mode={share_mode}, root_file_id={root_file_id}")
+            
+            file_list_result = cloud_service.list_share_dir(
+                share_id, file_id, share_mode, access_code, 
+                is_folder=is_folder, share_code=share_code, root_file_id=str(root_file_id)
+            )
+            
+            logger.info(f"分享文件列表响应: {file_list_result}")
+            
+            if file_list_result.get('res_code') != 0:
+                return jsonify({
+                    'code': 400,
+                    'message': f"获取文件列表失败: {file_list_result.get('res_message', '未知错误')}"
+                }), 400
+            
+            # 解析文件列表
+            file_list_ao = file_list_result.get('fileListAO', {})
+            folder_list = file_list_ao.get('folderList', [])
+            file_list = file_list_ao.get('fileList', [])
+            
+            # 格式化文件列表
+            formatted_files = []
+            
+            # 先添加文件夹
+            for folder in folder_list:
+                formatted_files.append({
+                    'fid': str(folder.get('id')),
+                    'file_name': folder.get('name'),
+                    'size': 0,
+                    'file_type': 0,
+                    'dir': True,
+                    'updated_at': folder.get('lastOpTime', ''),
+                    'share_fid_token': ''
+                })
+            
+            # 再添加文件
+            for file in file_list:
+                formatted_files.append({
+                    'fid': str(file.get('id')),
+                    'file_name': file.get('name'),
+                    'size': file.get('size', 0),
+                    'file_type': file.get('mediaType', 0),
+                    'dir': False,
+                    'updated_at': file.get('lastOpTime', ''),
+                    'share_fid_token': ''
+                })
+            
             return jsonify({
-                'code': 400,
-                'message': '无效的分享链接'
-            }), 400
-        
-        # 获取分享令牌
-        token_response = quark.get_stoken(pwd_id, passcode)
-        
-        if token_response.get('code') != 0:
-            return jsonify({
-                'code': 400,
-                'message': f"获取令牌失败: {token_response.get('message', '未知错误')}"
-            }), 400
-        
-        stoken = token_response['data']['stoken']
-        
-        # 获取文件列表
-        detail_response = quark.get_share_detail(pwd_id, stoken, pdir_fid)
-        
-        if detail_response.get('code') != 0:
-            return jsonify({
-                'code': 400,
-                'message': f"获取文件列表失败: {detail_response.get('message', '未知错误')}"
-            }), 400
-        
-        files = detail_response['data']['list']
-        
-        # 格式化文件列表
-        file_list = []
-        for f in files:
-            file_list.append({
-                'fid': f['fid'],
-                'file_name': f['file_name'],
-                'size': f.get('size', 0),
-                'file_type': f.get('file_type', 0),
-                'dir': f.get('dir', False),
-                'updated_at': f.get('updated_at', ''),
-                'share_fid_token': f.get('share_fid_token', '')
+                'code': 200,
+                'message': 'success',
+                'data': {
+                    'files': formatted_files,
+                    'share_id': share_id,
+                    'share_code': share_code,
+                    'share_name': share_info.get('fileName', '')  # 分享标题
+                }
             })
         
-        return jsonify({
-            'code': 200,
-            'message': 'success',
-            'data': {
-                'files': file_list,
-                'pwd_id': pwd_id,
-                'stoken': stoken
-            }
-        })
+        else:
+            # 夸克网盘（默认）
+            from services.quark_service import QuarkService
+            quark = QuarkService(account['cookie'])
+            
+            # 解析分享链接
+            pwd_id, passcode, folder_id = QuarkService.parse_share_url(share_url)
+            
+            if not pwd_id:
+                return jsonify({
+                    'code': 400,
+                    'message': '无效的分享链接'
+                }), 400
+            
+            # 获取分享令牌
+            token_response = quark.get_stoken(pwd_id, passcode)
+            
+            if token_response.get('code') != 0:
+                return jsonify({
+                    'code': 400,
+                    'message': f"获取令牌失败: {token_response.get('message', '未知错误')}"
+                }), 400
+            
+            stoken = token_response['data']['stoken']
+            
+            # 获取文件列表
+            detail_response = quark.get_share_detail(pwd_id, stoken, pdir_fid)
+            
+            if detail_response.get('code') != 0:
+                return jsonify({
+                    'code': 400,
+                    'message': f"获取文件列表失败: {detail_response.get('message', '未知错误')}"
+                }), 400
+            
+            files = detail_response['data']['list']
+            
+            # 格式化文件列表
+            file_list = []
+            for f in files:
+                file_list.append({
+                    'fid': f['fid'],
+                    'file_name': f['file_name'],
+                    'size': f.get('size', 0),
+                    'file_type': f.get('file_type', 0),
+                    'dir': f.get('dir', False),
+                    'updated_at': f.get('updated_at', ''),
+                    'share_fid_token': f.get('share_fid_token', '')
+                })
+            
+            return jsonify({
+                'code': 200,
+                'message': 'success',
+                'data': {
+                    'files': file_list,
+                    'pwd_id': pwd_id,
+                    'stoken': stoken
+                }
+            })
         
     except Exception as e:
         logger.error(f"浏览分享文件失败: {e}", exc_info=True)

@@ -116,14 +116,20 @@ const AuthAPI = {
 
 // 账号管理API
 const AccountAPI = {
-    // 获取账号列表
-    getList: () => API.get('/api/accounts'),
+    // 获取账号列表（支持cloud_type筛选）
+    getList: (params = '') => API.get(`/api/accounts${params}`),
     
     // 获取账号详情
     getDetail: (id) => API.get(`/api/accounts/${id}`),
     
-    // 测试账号
-    test: (cookie) => API.post('/api/accounts/test', { cookie }),
+    // 测试账号（支持cloud_type和账号密码）
+    test: (cookie, cloudType = 'quark', username = '', password = '') => 
+        API.post('/api/accounts/test', { 
+            cookie, 
+            cloud_type: cloudType,
+            username,
+            password
+        }),
     
     // 添加账号
     create: (data) => API.post('/api/accounts', data),
@@ -152,8 +158,8 @@ const QuarkAPI = {
         API.post('/api/quark/folder', { account_id: accountId, parent_id: parentId, name }),
     
     // 删除文件
-    deleteFiles: (accountId, fileIds) => 
-        API.post('/api/quark/delete', { account_id: accountId, file_ids: fileIds }),
+    deleteFiles: (accountId, fileIds, fileInfos = null) => 
+        API.post('/api/quark/delete', { account_id: accountId, file_ids: fileIds, file_infos: fileInfos }),
     
     // 分享文件
     shareFiles: (accountId, fileIds, expireDays, needPassword, password) => 
@@ -181,8 +187,8 @@ const SearchAPI = {
 
 // 转存任务API
 const TransferAPI = {
-    // 获取任务列表
-    getList: () => API.get('/api/transfer/tasks'),
+    // 获取任务列表（支持cloud_type筛选）
+    getList: (params = '') => API.get(`/api/transfer/tasks${params}`),
     
     // 获取任务详情
     getDetail: (id) => API.get(`/api/transfer/task/${id}`),
@@ -214,8 +220,8 @@ const TransferAPI = {
 
 // 下载任务API
 const DownloadAPI = {
-    // 获取任务列表
-    getList: () => API.get('/api/download/tasks'),
+    // 获取任务列表（支持cloud_type筛选）
+    getList: (params = {}) => API.get('/api/download/tasks', params),
     
     // 获取任务详情
     getDetail: (id) => API.get(`/api/download/task/${id}`),

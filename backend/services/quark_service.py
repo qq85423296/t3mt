@@ -554,6 +554,107 @@ class QuarkService:
         response = self._send_request("POST", url, json=payload, params=params).json()
         return response
     
+    def save_share(self, share_url, target_folder_id='0', password=''):
+        """
+        转存分享文件（完整流程）
+        
+        Args:
+            share_url: 分享链接
+            target_folder_id: 目标文件夹ID
+            password: 分享密码
+        
+        Returns:
+            dict: 转存结果
+        """
+        try:
+            # 1. 解析分享链接
+            pwd_id, passcode, folder_id = self.parse_share_url(share_url)
+            if password:
+                passcode = password
+            
+            if not pwd_id:
+                return {
+                    'success': False,
+                    'message': '无效的分享链接格式'
+                }
+            
+            logger.info(f"开始转存夸克分享: pwd_id={pwd_id}")
+            
+            # 2. 获取分享令牌
+            token_result = self.get_stoken(pwd_id, passcode)
+            if token_result.get('code') != 0:
+                return {
+                    'success': False,
+                    'message': token_result.get('message', '获取分享令牌失败')
+                }
+            
+            stoken = token_result.get('data', {}).get('stoken')
+            if not stoken:
+                return {
+                    'success': False,
+                    'message': '无法获取分享令牌'
+                }
+            
+            # 3. 获取分享详情
+            detail_result = self.get_share_detail(pwd_id, stoken, folder_id or '0')
+            if detail_result.get('code') != 0:
+                return {
+                    'success': False,
+                    'message': detail_result.get('message', '获取分享详情失败')
+                }
+            
+            file_list = detail_result.get('data', {}).get('list', [])
+            if not file_list:
+                return {
+                    'success': False,
+                    'message': '分享链接中没有文件'
+                }
+            
+            # 4. 构造转存参数
+            fid_list = [f['fid'] for f in file_list]
+            fid_token_list = [f['share_fid_token'] for f in file_list]
+            
+            # 5. 执行转存
+            save_result = self.save_share_file(
+                fid_list, fid_token_list, target_folder_id, pwd_id, stoken
+            )
+            
+            if save_result.get('code') == 0:
+                # 如果是异步任务，查询任务状态
+                task_id = save_result.get('data', {}).get('task_id')
+                if task_id:
+                    logger.info(f"夸克转存是异步任务，task_id: {task_id}")
+                    task_result = self.query_task(task_id)
+                    
+                    if task_result.get('status') == 200:
+                        return {
+                            'success': True,
+                            'message': '转存成功',
+                            'task_id': task_id
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'message': '转存任务失败'
+                        }
+                else:
+                    return {
+                        'success': True,
+                        'message': '转存成功'
+                    }
+            else:
+                return {
+                    'success': False,
+                    'message': save_result.get('message', '转存失败')
+                }
+                
+        except Exception as e:
+            logger.error(f"夸克转存失败: {e}", exc_info=True)
+            return {
+                'success': False,
+                'message': f'转存失败: {str(e)}'
+            }
+    
     def get_share_url(self, share_id):
         """
         通过share_id获取最终的分享链接

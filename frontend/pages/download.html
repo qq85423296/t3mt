@@ -289,13 +289,22 @@
 
 <div class="toolbar">
     <div class="toolbar-title">定时下载任务</div>
-    <button class="btn btn-primary" onclick="showCreateTaskModal()">+ 新建任务</button>
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <!-- 云盘类型筛选 -->
+        <select id="downloadCloudTypeFilter" class="form-select" style="height: 32px; padding: 0 10px; font-size: 13px; min-width: 120px;">
+            <option value="">全部类型</option>
+            <option value="quark">夸克网盘</option>
+            <option value="cloud189">天翼189云盘</option>
+        </select>
+        <button class="btn btn-primary" onclick="showCreateTaskModal()">+ 新建任务</button>
+    </div>
 </div>
 
 <table class="data-table">
     <thead>
         <tr>
             <th>任务名称</th>
+            <th>云盘类型</th>
             <th>网盘目录</th>
             <th>本地目录</th>
             <th>执行表达式</th>
@@ -305,7 +314,7 @@
     </thead>
     <tbody id="taskList">
         <tr>
-            <td colspan="6" style="text-align: center; padding: 40px;">
+            <td colspan="7" style="text-align: center; padding: 40px;">
                 <div class="loading">加载中...</div>
             </td>
         </tr>
@@ -618,21 +627,23 @@
     let accountList = [];
 
     // 加载任务列表
-    async function loadTasks() {
+    async function loadTasks(cloudType = '') {
         const tbody = document.getElementById('taskList');
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
 
         try {
-            const result = await DownloadAPI.getList();
+            // 构建查询参数
+            const params = cloudType ? { cloud_type: cloudType } : {};
+            const result = await DownloadAPI.getList(params);
             
             if (result.code === 200 && result.data) {
                 displayTasks(result.data);
             } else {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
             }
         } catch (error) {
             console.error('加载任务列表失败:', error);
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
         }
     }
 
@@ -641,7 +652,7 @@
         const tbody = document.getElementById('taskList');
         
         if (!tasks || tasks.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
             return;
         }
 
@@ -650,9 +661,15 @@
             const statusText = task.status === 'running' ? '运行中' : 
                              task.status === 'paused' ? '已暂停' : '等待中';
             
+            // 云盘类型标签
+            const cloudTypeBadge = task.cloud_type === 'cloud189' 
+                ? '<span class="badge" style="background-color: #2196F3; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">天翼189</span>'
+                : '<span class="badge" style="background-color: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">夸克</span>';
+            
             return `
                 <tr>
                     <td>${task.name}</td>
+                    <td>${cloudTypeBadge}</td>
                     <td>${task.account_remark || '-'} - ${task.source_path}</td>
                     <td>${task.target_path}</td>
                     <td>${CronConfig.parseCronExpression(task.cron_expression)}</td>
@@ -2391,6 +2408,12 @@
     window.goBackCloudFolder = goBackCloudFolder;
     window.goToCloudRoot = goToCloudRoot;
     window.testCloudFolderFiles = testCloudFolderFiles;
+
+    // 云盘类型筛选事件监听
+    document.getElementById('downloadCloudTypeFilter').addEventListener('change', function() {
+        const cloudType = this.value;
+        loadTasks(cloudType);
+    });
 
     // 初始化
     loadAccounts();

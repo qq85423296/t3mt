@@ -1,20 +1,126 @@
 # -*- coding: utf-8 -*-
 """
-账号管理API
+账号管理API - 支持多云盘类型
 """
 from flask import Blueprint, request, jsonify
 from services.account_service import AccountService
+from services.cloud_service_factory import CloudServiceFactory
+from models.cloud_type import CloudType
 from utils.logger import logger
 from utils.feature_gate import check_account_limit
 
 accounts_bp = Blueprint('accounts', __name__, url_prefix='/api/accounts')
 
 
+@accounts_bp.route('/test', methods=['POST'])
+def test_account():
+    """测试账号Cookie有效性（不保存）"""
+    try:
+        data = request.get_json()
+        
+        cloud_type = data.get('cloud_type', CloudType.QUARK)
+        cookie = data.get('cookie', '').strip()
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        # 验证云盘类型
+        if not CloudType.is_valid(cloud_type):
+            return jsonify({
+                'code': 400,
+                'message': f'无效的云盘类型: {cloud_type}'
+            }), 400
+        
+        # 天翼云盘支持账号密码登录
+        if cloud_type == CloudType.CLOUD189:
+            if username and password:
+                # 使用账号密码登录
+                try:
+                    from services.cloud189_service import Cloud189Service
+                    login_result = Cloud189Service.login(username, password)
+                    
+                    if not login_result.get('success'):
+                        return jsonify({
+                            'code': 400,
+                            'message': login_result.get('message', '登录失败'),
+                            'need_captcha': login_result.get('code') == 'NEED_CAPTCHA',
+                            'captcha_url': login_result.get('captcha_url', '')
+                        }), 400
+                    
+                    # 登录成功，使用获取的cookie
+                    cookie = login_result.get('cookies', '')
+                    
+                except Exception as e:
+                    logger.error(f"天翼云盘登录失败: {e}")
+                    return jsonify({
+                        'code': 400,
+                        'message': f'登录失败: {str(e)}'
+                    }), 400
+            elif not cookie:
+                return jsonify({
+                    'code': 400,
+                    'message': '请提供Cookie或账号密码'
+                }), 400
+        else:
+            # 其他云盘类型必须提供cookie
+            if not cookie:
+                return jsonify({
+                    'code': 400,
+                    'message': 'Cookie不能为空'
+                }), 400
+        
+        # 使用工厂创建对应的云盘服务并测试
+        try:
+            service = CloudServiceFactory.create_service(cloud_type, cookie)
+            account_info = service.get_account_info()
+            
+            if not account_info:
+                return jsonify({
+                    'code': 400,
+                    'message': 'Cookie无效或已过期'
+                }), 400
+            
+            return jsonify({
+                'code': 200,
+                'message': '账号验证成功',
+                'data': {
+                    'nickname': account_info.get('nickname', ''),
+                    'is_vip': account_info.get('is_vip', 0),
+                    'total_capacity': account_info.get('total_capacity', 0),
+                    'use_capacity': account_info.get('use_capacity', 0),
+                    'member_type': account_info.get('member_type', ''),
+                    'cookie': cookie  # 返回cookie供前端保存
+                }
+            })
+        except Exception as e:
+            logger.error(f"测试账号失败: {e}")
+            return jsonify({
+                'code': 400,
+                'message': f'Cookie验证失败: {str(e)}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"测试账号接口异常: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'测试账号失败: {str(e)}'
+        }), 500
+
+
 @accounts_bp.route('', methods=['GET'])
 def get_accounts():
     """获取账号列表"""
     try:
-        accounts = AccountService.get_all_accounts()
+        # 支持按云盘类型过滤
+        cloud_type = request.args.get('cloud_type')
+        
+        # 验证云盘类型
+        if cloud_type and not CloudType.is_valid(cloud_type):
+            return jsonify({
+                'code': 400,
+                'message': f'无效的云盘类型: {cloud_type}'
+            }), 400
+        
+        accounts = AccountService.get_all_accounts(cloud_type)
         return jsonify({
             'code': 200,
             'message': 'success',
@@ -32,7 +138,7 @@ def get_accounts():
 def get_account(account_id):
     """获取账号详情"""
     try:
-        account = AccountService.get_account_by_id(account_id)
+        account = AccountService.get_account(account_id)
         
         if not account:
             return jsonify({
@@ -53,32 +159,28 @@ def get_account(account_id):
         }), 500
 
 
-@accounts_bp.route('/test', methods=['POST'])
-def test_account():
-    """测试账号有效性"""
+@accounts_bp.route('/verify/<int:account_id>', methods=['POST'])
+def verify_account(account_id):
+    """验证账号有效性"""
     try:
-        data = request.get_json()
-        cookie = data.get('cookie')
+        result = AccountService.verify_account(account_id)
         
-        if not cookie:
+        if result['is_valid']:
+            return jsonify({
+                'code': 200,
+                'message': result['message'],
+                'data': result.get('account_info')
+            })
+        else:
             return jsonify({
                 'code': 400,
-                'message': 'Cookie不能为空'
+                'message': result['message']
             }), 400
-        
-        # 测试账号
-        account_info = AccountService.test_account(cookie)
-        
-        return jsonify({
-            'code': 200,
-            'message': '账号验证成功',
-            'data': account_info
-        })
     except Exception as e:
-        logger.error(f"测试账号失败: {e}")
+        logger.error(f"验证账号失败: {e}")
         return jsonify({
             'code': 500,
-            'message': f'账号验证失败: {str(e)}'
+            'message': f'验证账号失败: {str(e)}'
         }), 500
 
 
@@ -89,32 +191,78 @@ def create_account():
     try:
         data = request.get_json()
         
+        # 获取云盘类型，默认为quark
+        cloud_type = data.get('cloud_type', CloudType.QUARK)
+        
+        # 验证云盘类型
+        if not CloudType.is_valid(cloud_type):
+            return jsonify({
+                'code': 400,
+                'message': f'无效的云盘类型: {cloud_type}'
+            }), 400
+        
         # 验证必填字段
-        if not data.get('remark') or not data.get('cookie'):
+        if not data.get('remark'):
             return jsonify({
                 'code': 400,
-                'message': '账号备注和Cookie不能为空'
+                'message': '账号备注不能为空'
             }), 400
         
-        # 添加账号
-        result = AccountService.add_account(
+        cookie = data.get('cookie', '').strip()
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        # 天翼云盘支持账号密码登录
+        if cloud_type == CloudType.CLOUD189:
+            if username and password:
+                # 使用账号密码登录获取cookie
+                try:
+                    from services.cloud189_service import Cloud189Service
+                    login_result = Cloud189Service.login(username, password)
+                    
+                    if not login_result.get('success'):
+                        return jsonify({
+                            'code': 400,
+                            'message': login_result.get('message', '登录失败'),
+                            'need_captcha': login_result.get('code') == 'NEED_CAPTCHA',
+                            'captcha_url': login_result.get('captcha_url', '')
+                        }), 400
+                    
+                    # 登录成功，使用获取的cookie
+                    cookie = login_result.get('cookies', '')
+                    logger.info(f"天翼云盘账号 {username} 登录成功")
+                    
+                except Exception as e:
+                    logger.error(f"天翼云盘登录失败: {e}")
+                    return jsonify({
+                        'code': 400,
+                        'message': f'登录失败: {str(e)}'
+                    }), 400
+            elif not cookie:
+                return jsonify({
+                    'code': 400,
+                    'message': '请提供Cookie或账号密码'
+                }), 400
+        else:
+            # 其他云盘类型必须提供cookie
+            if not cookie:
+                return jsonify({
+                    'code': 400,
+                    'message': 'Cookie不能为空'
+                }), 400
+        
+        # 创建账号
+        account_id = AccountService.create_account(
             remark=data['remark'],
-            cookie=data['cookie'],
-            is_main=data.get('is_main', 0)
+            cookie=cookie,
+            cloud_type=cloud_type
         )
-        
-        if not result['success']:
-            return jsonify({
-                'code': 400,
-                'message': result['message']
-            }), 400
         
         return jsonify({
             'code': 200,
             'message': '账号添加成功',
             'data': {
-                'id': result['account_id'],
-                'account_info': result['account_info']
+                'id': account_id
             }
         })
     except Exception as e:
@@ -131,26 +279,55 @@ def update_account(account_id):
     try:
         data = request.get_json()
         
-        # 如果更新了Cookie，需要重新测试
-        if data.get('cookie'):
-            test_result = AccountService.test_account(data['cookie'])
-            if not test_result['valid']:
-                return jsonify({
-                    'code': 400,
-                    'message': test_result['message']
-                }), 400
-            
-            data['account_name'] = test_result['account_name']
-            data['is_vip'] = test_result['is_vip']
-            data['total_size'] = test_result['total_size']
-            data['used_size'] = test_result['used_size']
-        
-        result = AccountService.update_account(account_id, **data)
-        
-        if not result['success']:
+        # 如果更新了云盘类型，需要验证
+        if 'cloud_type' in data and not CloudType.is_valid(data['cloud_type']):
             return jsonify({
                 'code': 400,
-                'message': result.get('message', '更新失败')
+                'message': f'无效的云盘类型: {data["cloud_type"]}'
+            }), 400
+        
+        # 如果更新了Cookie，需要重新验证账号
+        if data.get('cookie'):
+            # 获取账号的云盘类型
+            account = AccountService.get_account(account_id)
+            if not account:
+                return jsonify({
+                    'code': 404,
+                    'message': '账号不存在'
+                }), 404
+            
+            cloud_type = data.get('cloud_type', account.get('cloud_type', CloudType.QUARK))
+            
+            # 验证新Cookie
+            from services.cloud_service_factory import CloudServiceFactory
+            try:
+                service = CloudServiceFactory.create_service(cloud_type, data['cookie'])
+                account_info = service.get_account_info()
+                
+                if not account_info:
+                    return jsonify({
+                        'code': 400,
+                        'message': 'Cookie无效或已过期'
+                    }), 400
+                
+                # 更新账号信息
+                data['account_name'] = account_info.get('nickname', '')
+                data['is_vip'] = account_info.get('is_vip', 0)
+                data['total_size'] = account_info.get('total_capacity', 0)
+                data['used_size'] = account_info.get('use_capacity', 0)
+                data['member_type'] = account_info.get('member_type', '')
+            except Exception as e:
+                return jsonify({
+                    'code': 400,
+                    'message': f'Cookie验证失败: {str(e)}'
+                }), 400
+        
+        success = AccountService.update_account(account_id, **data)
+        
+        if not success:
+            return jsonify({
+                'code': 400,
+                'message': '更新失败'
             }), 400
         
         return jsonify({
@@ -169,12 +346,12 @@ def update_account(account_id):
 def delete_account(account_id):
     """删除账号"""
     try:
-        result = AccountService.delete_account(account_id)
+        success = AccountService.delete_account(account_id)
         
-        if not result['success']:
+        if not success:
             return jsonify({
                 'code': 400,
-                'message': result.get('message', '删除失败')
+                'message': '删除失败'
             }), 400
         
         return jsonify({
@@ -189,49 +366,103 @@ def delete_account(account_id):
         }), 500
 
 
+@accounts_bp.route('/<int:account_id>/refresh', methods=['POST'])
+def refresh_account(account_id):
+    """刷新账号信息"""
+    try:
+        # 获取账号
+        account = AccountService.get_account(account_id)
+        if not account:
+            return jsonify({
+                'code': 404,
+                'message': '账号不存在'
+            }), 404
+        
+        cloud_type = account.get('cloud_type', CloudType.QUARK)
+        cookie = account.get('cookie', '')
+        
+        if not cookie:
+            return jsonify({
+                'code': 400,
+                'message': '账号Cookie为空'
+            }), 400
+        
+        # 使用工厂创建对应的云盘服务
+        try:
+            service = CloudServiceFactory.create_service(cloud_type, cookie)
+            account_info = service.get_account_info()
+            
+            if not account_info:
+                # 更新账号状态为异常
+                AccountService.update_account(account_id, status='异常')
+                return jsonify({
+                    'code': 400,
+                    'message': 'Cookie已过期，请重新登录'
+                }), 400
+            
+            # 更新账号信息
+            update_data = {
+                'account_name': account_info.get('nickname', ''),
+                'is_vip': account_info.get('is_vip', 0),
+                'total_size': account_info.get('total_capacity', 0),
+                'used_size': account_info.get('use_capacity', 0),
+                'member_type': account_info.get('member_type', ''),
+                'status': '正常'
+            }
+            
+            AccountService.update_account(account_id, **update_data)
+            
+            return jsonify({
+                'code': 200,
+                'message': '刷新成功',
+                'data': update_data
+            })
+            
+        except Exception as e:
+            logger.error(f"刷新账号失败: {e}")
+            return jsonify({
+                'code': 400,
+                'message': f'刷新失败: {str(e)}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"刷新账号接口异常: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'刷新账号失败: {str(e)}'
+        }), 500
+
+
 @accounts_bp.route('/<int:account_id>/set-main', methods=['PUT'])
 def set_main_account(account_id):
     """设为主账号"""
     try:
-        result = AccountService.set_main_account(account_id)
+        # 获取账号
+        account = AccountService.get_account(account_id)
+        if not account:
+            return jsonify({
+                'code': 404,
+                'message': '账号不存在'
+            }), 404
         
-        if not result['success']:
+        cloud_type = account.get('cloud_type', CloudType.QUARK)
+        
+        # 设为主账号（同类型云盘中只能有一个主账号）
+        success = AccountService.set_main_account(account_id, cloud_type)
+        
+        if not success:
             return jsonify({
                 'code': 400,
-                'message': result.get('message', '设置失败')
+                'message': '设置失败'
             }), 400
         
         return jsonify({
             'code': 200,
-            'message': '设置主账号成功'
+            'message': '设置成功'
         })
     except Exception as e:
         logger.error(f"设置主账号失败: {e}")
         return jsonify({
             'code': 500,
             'message': f'设置主账号失败: {str(e)}'
-        }), 500
-
-
-@accounts_bp.route('/<int:account_id>/refresh', methods=['POST'])
-def refresh_account(account_id):
-    """刷新账号信息"""
-    try:
-        result = AccountService.refresh_account_info(account_id)
-        
-        if not result['success']:
-            return jsonify({
-                'code': 400,
-                'message': result.get('message', '刷新失败')
-            }), 400
-        
-        return jsonify({
-            'code': 200,
-            'message': '账号信息刷新成功'
-        })
-    except Exception as e:
-        logger.error(f"刷新账号信息失败: {e}")
-        return jsonify({
-            'code': 500,
-            'message': f'刷新账号信息失败: {str(e)}'
         }), 500

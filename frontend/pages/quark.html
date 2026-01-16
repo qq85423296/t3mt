@@ -1,4 +1,4 @@
-<!-- 夸克网盘页面 -->
+<!-- 我的云盘页面 -->
 <style>
     .breadcrumb {
         padding: 12px 0;
@@ -33,10 +33,28 @@
     .folder-name:hover {
         text-decoration: underline;
     }
+    .cloud-type-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 12px;
+        border-radius: 4px;
+        margin-left: 8px;
+    }
+    .cloud-type-badge.quark {
+        background: #e6f7ff;
+        color: #1890ff;
+    }
+    .cloud-type-badge.cloud189 {
+        background: #fff7e6;
+        color: #fa8c16;
+    }
 </style>
 
 <div class="toolbar">
-    <div class="toolbar-title">夸克网盘</div>
+    <div class="toolbar-title">
+        <span id="cloudTypeTitle">我的云盘</span>
+        <span id="cloudTypeBadge" class="cloud-type-badge" style="display: none;"></span>
+    </div>
     <div class="toolbar-actions">
         <select class="filter-select" id="accountSelect" onchange="switchAccount()">
             <option value="">选择账号</option>
@@ -160,6 +178,27 @@
     let folderPath = [{ id: '0', name: '根目录' }];
     let selectedFiles = [];
     let shareResult = null;
+    let accountsData = []; // 保存账号数据
+    let currentCloudType = 'quark'; // 当前云盘类型
+
+    // 更新云盘类型显示
+    function updateCloudTypeDisplay(cloudType) {
+        currentCloudType = cloudType || 'quark';
+        const titleEl = document.getElementById('cloudTypeTitle');
+        const badgeEl = document.getElementById('cloudTypeBadge');
+        
+        if (cloudType === 'cloud189') {
+            titleEl.textContent = '天翼云盘';
+            badgeEl.textContent = '天翼189';
+            badgeEl.className = 'cloud-type-badge cloud189';
+            badgeEl.style.display = 'inline-block';
+        } else {
+            titleEl.textContent = '夸克网盘';
+            badgeEl.textContent = '夸克';
+            badgeEl.className = 'cloud-type-badge quark';
+            badgeEl.style.display = 'inline-block';
+        }
+    }
 
     // 加载账号列表
     async function loadAccounts() {
@@ -167,22 +206,25 @@
             const result = await AccountAPI.getList();
             
             if (result.code === 200 && result.data && result.data.length > 0) {
+                accountsData = result.data; // 保存账号数据
                 const select = document.getElementById('accountSelect');
                 select.innerHTML = '<option value="">选择账号</option>' + 
-                    result.data.map(account => 
-                        `<option value="${account.id}" ${account.is_main ? 'selected' : ''}>
-                            ${account.remark} ${account.is_main ? '(主账号)' : ''}
-                        </option>`
-                    ).join('');
+                    result.data.map(account => {
+                        const cloudTypeLabel = account.cloud_type === 'cloud189' ? '[天翼]' : '[夸克]';
+                        return `<option value="${account.id}" data-cloud-type="${account.cloud_type || 'quark'}" ${account.is_main ? 'selected' : ''}>
+                            ${cloudTypeLabel} ${account.remark} ${account.is_main ? '(主账号)' : ''}
+                        </option>`;
+                    }).join('');
                 
                 // 自动选择主账号
                 const mainAccount = result.data.find(a => a.is_main);
                 if (mainAccount) {
                     currentAccountId = mainAccount.id;
+                    updateCloudTypeDisplay(mainAccount.cloud_type);
                     loadFiles();
                 }
             } else {
-                Message.warning('请先在系统配置中添加夸克账号');
+                Message.warning('请先在系统配置中添加云盘账号');
             }
         } catch (error) {
             console.error('加载账号列表失败:', error);
@@ -196,6 +238,11 @@
         currentAccountId = select.value;
         
         if (currentAccountId) {
+            // 获取选中账号的云盘类型
+            const selectedOption = select.options[select.selectedIndex];
+            const cloudType = selectedOption.getAttribute('data-cloud-type') || 'quark';
+            updateCloudTypeDisplay(cloudType);
+            
             currentFolderId = '0';
             folderPath = [{ id: '0', name: '根目录' }];
             updateBreadcrumb();
@@ -248,6 +295,13 @@
             const nameClass = file.isFolder ? 'folder-name' : '';
             const nameClick = file.isFolder ? `onclick="navigateToFolder('${file.id}', '${escapeHtml(file.name)}')"` : '';
             
+            // 判断是否可预览（支持字符串和数字类型的mimeType）
+            const mimeType = file.mimeType || '';
+            const isPreviewable = !file.isFolder && (
+                (typeof mimeType === 'string' && (mimeType.startsWith('video/') || mimeType.startsWith('image/'))) ||
+                (typeof mimeType === 'number' && (mimeType === 1 || mimeType === 3)) // 1=图片, 3=视频
+            );
+            
             return `
                 <tr>
                     <td><input type="checkbox" class="file-checkbox" value="${file.id}" onchange="updateSelection()" /></td>
@@ -261,11 +315,10 @@
                     <td>${formatDateTime(file.modifiedTime)}</td>
                     <td>
                         <div class="action-buttons">
-                            ${!file.isFolder && (file.mimeType?.startsWith('video/') || file.mimeType?.startsWith('image/')) ? 
-                                `<button class="btn btn-small" onclick="previewFile('${file.id}')">预览</button>` : ''}
+                            ${isPreviewable ? `<button class="btn btn-small" onclick="previewFile('${file.id}')">预览</button>` : ''}
                             ${!file.isFolder ? `<button class="btn btn-small" onclick="downloadFile('${file.id}')">下载</button>` : ''}
                             <button class="btn btn-small" onclick="shareFile('${file.id}')">分享</button>
-                            <button class="btn btn-small btn-danger" onclick="deleteFile('${file.id}', '${escapeHtml(file.name)}')">删除</button>
+                            <button class="btn btn-small btn-danger" onclick="deleteFile('${file.id}', '${escapeHtml(file.name)}', ${file.isFolder})">删除</button>
                         </div>
                     </td>
                 </tr>
@@ -278,8 +331,10 @@
         const breadcrumb = document.getElementById('breadcrumb');
         breadcrumb.innerHTML = folderPath.map((folder, index) => {
             const isLast = index === folderPath.length - 1;
+            // 确保ID是字符串
+            const folderId = String(folder.id);
             return `
-                <span class="breadcrumb-item" onclick="navigateToFolder('${folder.id}', '${escapeHtml(folder.name)}')">${escapeHtml(folder.name)}</span>
+                <span class="breadcrumb-item" onclick="navigateToFolder('${folderId}', '${escapeHtml(folder.name)}')">${escapeHtml(folder.name)}</span>
                 ${!isLast ? '<span class="breadcrumb-separator">/</span>' : ''}
             `;
         }).join('');
@@ -287,12 +342,15 @@
 
     // 导航到文件夹
     window.navigateToFolder = async function(folderId, folderName) {
+        // 统一转换为字符串进行比较
+        folderId = String(folderId);
+        
         // 如果点击的是路径中已存在的文件夹,截断路径
-        const index = folderPath.findIndex(f => f.id === folderId);
+        const index = folderPath.findIndex(f => String(f.id) === folderId);
         if (index !== -1) {
             folderPath = folderPath.slice(0, index + 1);
-        } else if (folderId !== '0') {
-            // 进入新文件夹,添加到路径
+        } else if (folderId !== '0' && folderId !== '-11') {
+            // 进入新文件夹,添加到路径（天翼云盘根目录是-11，夸克是0）
             folderPath.push({ id: folderId, name: folderName });
         } else {
             // 返回根目录
@@ -333,6 +391,15 @@
             return;
         }
 
+        // 获取按钮并禁用，显示加载状态
+        const createBtn = document.querySelector('#createFolderModal .btn-primary');
+        const cancelBtn = document.querySelector('#createFolderModal .btn:not(.btn-primary)');
+        const originalText = createBtn.textContent;
+        
+        createBtn.disabled = true;
+        cancelBtn.disabled = true;
+        createBtn.textContent = '创建中...';
+
         try {
             const result = await QuarkAPI.createFolder(currentAccountId, currentFolderId, name);
             
@@ -346,17 +413,27 @@
         } catch (error) {
             console.error('创建文件夹失败:', error);
             Message.error('创建失败');
+        } finally {
+            // 恢复按钮状态
+            createBtn.disabled = false;
+            cancelBtn.disabled = false;
+            createBtn.textContent = originalText;
         }
     }
 
     // 删除文件
-    window.deleteFile = async function(fileId, fileName) {
+    window.deleteFile = async function(fileId, fileName, isFolder = false) {
         if (!confirm(`确定要删除"${fileName}"吗？`)) {
             return;
         }
 
+        // 显示加载提示
+        Message.info('正在删除...');
+
         try {
-            const result = await QuarkAPI.deleteFiles(currentAccountId, [fileId]);
+            // 传递文件信息，用于天翼云盘删除
+            const fileInfos = [{ name: fileName, isFolder: isFolder }];
+            const result = await QuarkAPI.deleteFiles(currentAccountId, [fileId], fileInfos);
             
             if (result.code === 200) {
                 Message.success('删除成功');
@@ -398,6 +475,15 @@
         const needPassword = document.getElementById('shareNeedPassword').checked;
         const password = document.getElementById('sharePassword').value.trim();
 
+        // 获取按钮并禁用，显示加载状态
+        const shareBtn = document.querySelector('#shareModal .btn-primary');
+        const cancelBtn = document.querySelector('#shareModal .btn:not(.btn-primary)');
+        const originalText = shareBtn.textContent;
+        
+        shareBtn.disabled = true;
+        cancelBtn.disabled = true;
+        shareBtn.textContent = '生成中...';
+
         try {
             const result = await QuarkAPI.shareFiles(
                 currentAccountId,
@@ -417,6 +503,11 @@
         } catch (error) {
             console.error('分享失败:', error);
             Message.error('分享失败');
+        } finally {
+            // 恢复按钮状态
+            shareBtn.disabled = false;
+            cancelBtn.disabled = false;
+            shareBtn.textContent = originalText;
         }
     }
 

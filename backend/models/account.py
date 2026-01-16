@@ -11,16 +11,30 @@ class Account:
     """夸克账号模型"""
     
     @staticmethod
-    def get_all():
-        """获取所有账号"""
+    def get_all(cloud_type=None):
+        """
+        获取所有账号
+        
+        Args:
+            cloud_type: 云盘类型过滤，None表示获取所有
+        """
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, remark, account_name, is_vip, member_type, member_exp_at,
-                       total_size, used_size, is_main, status, created_at, updated_at
-                FROM quark_accounts
-                ORDER BY is_main DESC, created_at DESC
-            ''')
+            if cloud_type:
+                cursor.execute('''
+                    SELECT id, remark, account_name, is_vip, member_type, member_exp_at,
+                           total_size, used_size, is_main, status, cloud_type, created_at, updated_at
+                    FROM quark_accounts
+                    WHERE cloud_type = ?
+                    ORDER BY is_main DESC, created_at DESC
+                ''', (cloud_type,))
+            else:
+                cursor.execute('''
+                    SELECT id, remark, account_name, is_vip, member_type, member_exp_at,
+                           total_size, used_size, is_main, status, cloud_type, created_at, updated_at
+                    FROM quark_accounts
+                    ORDER BY cloud_type, is_main DESC, created_at DESC
+                ''')
             accounts = cursor.fetchall()
             return [dict(account) for account in accounts]
     
@@ -31,7 +45,7 @@ class Account:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT id, remark, cookie, account_name, is_vip, member_type, member_exp_at,
-                       total_size, used_size, is_main, status, created_at, updated_at
+                       total_size, used_size, is_main, status, cloud_type, created_at, updated_at
                 FROM quark_accounts WHERE id = ?
             ''', (account_id,))
             account = cursor.fetchone()
@@ -39,6 +53,9 @@ class Account:
                 account_dict = dict(account)
                 # 解密Cookie
                 account_dict['cookie'] = CryptoUtil.decrypt(account_dict['cookie'])
+                # 确保cloud_type字段存在
+                if 'cloud_type' not in account_dict or not account_dict['cloud_type']:
+                    account_dict['cloud_type'] = 'quark'
                 return account_dict
             return None
     
@@ -61,7 +78,7 @@ class Account:
     
     @staticmethod
     def create(remark, cookie, account_name=None, is_vip=0, member_type='', 
-               member_exp_at='', total_size=0, used_size=0, is_main=0):
+               member_exp_at='', total_size=0, used_size=0, is_main=0, cloud_type='quark'):
         """创建账号"""
         encrypted_cookie = CryptoUtil.encrypt(cookie)
         
@@ -75,10 +92,10 @@ class Account:
             cursor.execute('''
                 INSERT INTO quark_accounts 
                 (remark, cookie, account_name, is_vip, member_type, member_exp_at, 
-                 total_size, used_size, is_main)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 total_size, used_size, is_main, cloud_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (remark, encrypted_cookie, account_name, is_vip, member_type, 
-                  member_exp_at, total_size, used_size, is_main))
+                  member_exp_at, total_size, used_size, is_main, cloud_type))
             
             return cursor.lastrowid
     
@@ -131,6 +148,25 @@ class Account:
                 (account_id,)
             )
             return cursor.rowcount > 0
+    
+    @staticmethod
+    def clear_main_account(cloud_type=None):
+        """
+        清除主账号标记
+        
+        Args:
+            cloud_type: 云盘类型，None表示清除所有
+        """
+        with get_db() as conn:
+            cursor = conn.cursor()
+            if cloud_type:
+                cursor.execute(
+                    'UPDATE quark_accounts SET is_main = 0 WHERE cloud_type = ?',
+                    (cloud_type,)
+                )
+            else:
+                cursor.execute('UPDATE quark_accounts SET is_main = 0')
+            return cursor.rowcount >= 0
     
     @staticmethod
     def count():

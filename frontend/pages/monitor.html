@@ -532,6 +532,15 @@
 <!-- 筛选栏 -->
 <div class="filter-bar">
     <div class="filter-item">
+        <label class="filter-label">云盘类型</label>
+        <select class="filter-select" id="filterCloudType">
+            <option value="">全部</option>
+            <option value="quark">夸克网盘</option>
+            <option value="cloud189">天翼189云盘</option>
+        </select>
+    </div>
+    
+    <div class="filter-item">
         <label class="filter-label">任务类型</label>
         <select class="filter-select" id="filterTaskType">
             <option value="">全部</option>
@@ -604,6 +613,7 @@
                 <th class="checkbox-cell">
                     <input type="checkbox" class="task-checkbox" id="selectAll" onchange="window.toggleSelectAll()" title="全选/取消全选" />
                 </th>
+                <th style="width: 80px;">云盘类型</th>
                 <th style="width: 80px;">任务类型</th>
                 <th style="width: 280px; text-align: left; padding-left: 12px;">任务名称</th>
                 <th style="width: 120px;">账期</th>
@@ -616,7 +626,7 @@
         </thead>
         <tbody id="executionList">
             <tr>
-                <td colspan="9">
+                <td colspan="10">
                     <div class="loading">加载中...</div>
                 </td>
             </tr>
@@ -915,19 +925,21 @@
             loadExecutions();
         };
 
-        // 更新状态统计
+        // 更新统计数据
         window.updateStats = async function() {
             try {
                 // 获取所有任务的统计数据（不分页）
                 const params = new URLSearchParams();
                 
                 // 应用当前的筛选条件（除了状态）
+                const cloudType = document.getElementById('filterCloudType').value;
                 const taskType = document.getElementById('filterTaskType').value;
                 const taskName = document.getElementById('filterTaskName').value;
                 const scheduleDate = document.getElementById('filterScheduleDate').value;
                 const startDate = document.getElementById('filterStartDate').value;
                 const endDate = document.getElementById('filterEndDate').value;
                 
+                if (cloudType) params.append('cloud_type', cloudType);
                 if (taskType) params.append('task_type', taskType);
                 if (taskName) params.append('task_name', taskName);
                 if (scheduleDate) {
@@ -966,9 +978,10 @@
         // 加载执行历史列表
         window.loadExecutions = async function() {
         const tbody = document.getElementById('executionList');
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
 
         try {
+            const cloudType = document.getElementById('filterCloudType').value;
             const taskType = document.getElementById('filterTaskType').value;
             const taskName = document.getElementById('filterTaskName').value;
             const scheduleDate = document.getElementById('filterScheduleDate').value;
@@ -992,6 +1005,7 @@
                 show_duplicates: showDuplicates
             });
 
+            if (cloudType) params.append('cloud_type', cloudType);
             if (taskType) params.append('task_type', taskType);
             if (taskName) params.append('task_name', taskName);
             if (scheduleDate) {
@@ -1013,11 +1027,11 @@
                 // 更新统计数据
                 await updateStats();
             } else {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
             }
         } catch (error) {
             console.error('加载执行历史失败:', error);
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
         }
     }
 
@@ -1029,11 +1043,16 @@
         currentExecutions = executions || [];
 
         if (!executions || executions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">暂无执行记录</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">暂无执行记录</div></td></tr>';
             return;
         }
 
         tbody.innerHTML = executions.map(exec => {
+            // 云盘类型标签
+            const cloudTypeBadge = exec.cloud_type === 'cloud189' 
+                ? '<span class="badge" style="background-color: #2196F3; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">天翼189</span>'
+                : '<span class="badge" style="background-color: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">夸克</span>';
+            
             const taskTypeText = exec.task_type === 'transfer' ? '定时转存' : 
                                 exec.task_type === 'download' ? '定时下载' : 
                                 exec.task_type === 'video' ? '影视下载' : exec.task_type;
@@ -1104,6 +1123,7 @@
                         <input type="checkbox" class="task-checkbox" data-exec-id="${exec.id}" 
                                onchange="window.toggleExecutionSelection(${exec.id})" ${isChecked} />
                     </td>
+                    <td>${cloudTypeBadge}</td>
                     <td>${taskTypeText}</td>
                     <td class="task-name-cell" title="${exec.task_name || ''}">${exec.task_name || '-'}${platformBadge}</td>
                     <td>${schedulePeriodText}</td>
@@ -1188,6 +1208,7 @@
 
     // 重置筛选条件
     window.resetFilters = function() {
+        document.getElementById('filterCloudType').value = '';
         document.getElementById('filterTaskType').value = '';
         document.getElementById('filterTaskName').value = '';
         document.getElementById('filterScheduleDate').value = '';

@@ -1,154 +1,177 @@
 # -*- coding: utf-8 -*-
 """
-账号管理服务
+账号服务 - 支持多云盘类型
 """
 from models.account import Account
-from services.quark_service import QuarkService
+from models.cloud_type import CloudType
+from services.cloud_service_factory import CloudServiceFactory
 from utils.logger import logger
 from utils.file_helper import FileHelper
 
 
 class AccountService:
-    """账号管理服务类"""
+    """账号服务类"""
     
     @staticmethod
-    def get_all_accounts():
-        """获取所有账号"""
-        accounts = Account.get_all()
+    def get_all_accounts(cloud_type=None):
+        """
+        获取所有账号
         
-        # 格式化存储空间
+        Args:
+            cloud_type: 云盘类型过滤，None表示获取所有
+        
+        Returns:
+            list: 账号列表
+        """
+        accounts = Account.get_all(cloud_type)
+        
+        # 格式化存储大小
         for account in accounts:
-            if account.get('total_size'):
-                account['total_size_text'] = FileHelper.format_size(account['total_size'])
-            if account.get('used_size'):
-                account['used_size_text'] = FileHelper.format_size(account['used_size'])
+            account['total_size_text'] = FileHelper.format_size(account.get('total_size', 0))
+            account['used_size_text'] = FileHelper.format_size(account.get('used_size', 0))
         
         return accounts
     
     @staticmethod
-    def get_account_by_id(account_id):
-        """根据ID获取账号详情"""
-        return Account.get_by_id(account_id)
-    
-    @staticmethod
     def get_account(account_id):
-        """获取账号详情（别名方法）"""
+        """
+        根据ID获取账号
+        
+        Args:
+            account_id: 账号ID
+        
+        Returns:
+            dict: 账号信息
+        """
         return Account.get_by_id(account_id)
     
     @staticmethod
-    def get_main_account():
-        """获取主账号"""
-        return Account.get_main_account()
+    def create_account(remark, cookie, cloud_type=CloudType.QUARK):
+        """
+        创建账号
+        
+        Args:
+            remark: 账号备注
+            cookie: 登录凭证
+            cloud_type: 云盘类型
+        
+        Returns:
+            int: 账号ID
+        """
+        # 验证云盘类型
+        if not CloudType.is_valid(cloud_type):
+            raise ValueError(f"无效的云盘类型: {cloud_type}")
+        
+        # 获取账号信息
+        try:
+            service = CloudServiceFactory.create_service(cloud_type, cookie)
+            account_info = service.get_account_info()
+            
+            if not account_info:
+                raise ValueError("无法获取账号信息，请检查Cookie是否有效")
+            
+            # 保存到数据库
+            account_id = Account.create(
+                remark=remark,
+                cookie=cookie,
+                cloud_type=cloud_type,
+                account_name=account_info.get('nickname', ''),
+                total_size=account_info.get('total_capacity', 0),
+                used_size=account_info.get('use_capacity', 0),
+                is_vip=account_info.get('is_vip', 0),
+                member_type=account_info.get('member_type', '')
+            )
+            
+            logger.info(f"创建{CloudType.get_display_name(cloud_type)}账号成功: {remark} (ID: {account_id})")
+            return account_id
+            
+        except Exception as e:
+            logger.error(f"创建账号失败: {e}")
+            raise
     
     @staticmethod
-    def test_account(cookie):
-        """测试账号有效性"""
+    def verify_account(account_id):
+        """
+        验证账号有效性
+        
+        Args:
+            account_id: 账号ID
+        
+        Returns:
+            dict: {is_valid: bool, message: str, account_info: dict}
+        """
+        account = AccountService.get_account(account_id)
+        if not account:
+            return {'is_valid': False, 'message': '账号不存在'}
+        
+        cloud_type = account.get('cloud_type', CloudType.QUARK)
+        
         try:
-            quark = QuarkService(cookie)
-            account_info = quark.get_account_info()
+            service = CloudServiceFactory.create_service(cloud_type, account['cookie'])
+            account_info = service.get_account_info()
             
             if account_info:
                 return {
-                    'valid': True,
-                    'account_name': account_info.get('nickname', ''),
-                    'is_vip': account_info.get('is_vip', 0),
-                    'member_type': account_info.get('member_type_raw', ''),
-                    'member_type_text': account_info.get('member_type_text', '普通用户'),
-                    'member_exp_at': account_info.get('exp_at', ''),
-                    'total_size': account_info.get('total_capacity', 0),
-                    'used_size': account_info.get('use_capacity', 0),
+                    'is_valid': True,
+                    'message': '账号有效',
+                    'account_info': account_info
                 }
             else:
-                return {'valid': False, 'message': 'Cookie无效或已过期'}
-        
+                return {
+                    'is_valid': False,
+                    'message': 'Cookie已失效'
+                }
         except Exception as e:
-            logger.error(f"测试账号失败: {e}")
-            return {'valid': False, 'message': str(e)}
-    
-    @staticmethod
-    def add_account(remark, cookie, is_main=0):
-        """添加账号"""
-        # 先测试账号
-        test_result = AccountService.test_account(cookie)
-        
-        if not test_result['valid']:
-            return {'success': False, 'message': test_result['message']}
-        
-        # 创建账号
-        account_id = Account.create(
-            remark=remark,
-            cookie=cookie,
-            account_name=test_result.get('account_name', ''),
-            is_vip=test_result.get('is_vip', 0),
-            member_type=test_result.get('member_type', ''),
-            member_exp_at=test_result.get('member_exp_at', ''),
-            total_size=test_result.get('total_size', 0),
-            used_size=test_result.get('used_size', 0),
-            is_main=is_main
-        )
-        
-        return {
-            'success': True,
-            'account_id': account_id,
-            'account_info': test_result
-        }
+            return {
+                'is_valid': False,
+                'message': f'账号验证失败: {str(e)}'
+            }
     
     @staticmethod
     def update_account(account_id, **kwargs):
-        """更新账号"""
-        # 如果更新Cookie，先测试并获取最新信息
-        if 'cookie' in kwargs:
-            test_result = AccountService.test_account(kwargs['cookie'])
-            if not test_result['valid']:
-                return {'success': False, 'message': test_result['message']}
-            
-            # 更新账号信息（从API自动获取）
-            kwargs['account_name'] = test_result.get('account_name', '')
-            kwargs['is_vip'] = test_result.get('is_vip', 0)
-            kwargs['member_type'] = test_result.get('member_type', '')
-            kwargs['member_exp_at'] = test_result.get('member_exp_at', '')
-            kwargs['total_size'] = test_result.get('total_size', 0)
-            kwargs['used_size'] = test_result.get('used_size', 0)
+        """
+        更新账号信息
         
-        success = Account.update(account_id, **kwargs)
-        return {'success': success}
+        Args:
+            account_id: 账号ID
+            **kwargs: 更新的字段
+        
+        Returns:
+            bool: 是否成功
+        """
+        return Account.update(account_id, **kwargs)
     
     @staticmethod
     def delete_account(account_id):
-        """删除账号"""
-        # TODO: 检查是否有任务在使用此账号
-        success = Account.delete(account_id)
-        return {'success': success}
+        """
+        删除账号
+        
+        Args:
+            account_id: 账号ID
+        
+        Returns:
+            bool: 是否成功
+        """
+        return Account.delete(account_id)
     
     @staticmethod
-    def set_main_account(account_id):
-        """设置主账号"""
-        success = Account.set_main(account_id)
-        return {'success': success}
-    
-    @staticmethod
-    def refresh_account_info(account_id):
-        """刷新账号信息"""
-        account = Account.get_by_id(account_id)
-        if not account:
-            return {'success': False, 'message': '账号不存在'}
+    def set_main_account(account_id, cloud_type=None):
+        """
+        设置主账号（同类型云盘中只能有一个主账号）
         
-        test_result = AccountService.test_account(account['cookie'])
-        if not test_result['valid']:
-            # 标记账号为失效
-            Account.update(account_id, status=0)
-            return {'success': False, 'message': test_result['message']}
+        Args:
+            account_id: 账号ID
+            cloud_type: 云盘类型
         
-        # 更新账号信息
-        Account.update(
-            account_id,
-            account_name=test_result.get('account_name', ''),
-            is_vip=test_result.get('is_vip', 0),
-            member_type=test_result.get('member_type', ''),
-            member_exp_at=test_result.get('member_exp_at', ''),
-            total_size=test_result.get('total_size', 0),
-            used_size=test_result.get('used_size', 0),
-            status=1
-        )
-        
-        return {'success': True, 'account_info': test_result}
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            # 先取消同类型云盘的其他主账号
+            Account.clear_main_account(cloud_type)
+            
+            # 设置当前账号为主账号
+            return Account.update(account_id, is_main=1)
+        except Exception as e:
+            logger.error(f"设置主账号失败: {e}")
+            return False

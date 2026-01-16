@@ -1,0 +1,133 @@
+<!-- 云盘类型选择组件 -->
+<div class="cloud-type-selector">
+    <label for="cloudTypeSelect" class="form-label">云盘类型</label>
+    <select id="cloudTypeSelect" class="form-select cloud-type-select">
+        <option value="">全部</option>
+        <option value="quark">夸克网盘</option>
+        <option value="cloud189">天翼189云盘</option>
+    </select>
+</div>
+
+<style>
+.cloud-type-selector {
+    display: inline-block;
+    margin-right: 15px;
+}
+
+.cloud-type-select {
+    min-width: 150px;
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #fff;
+    cursor: pointer;
+    transition: border-color 0.3s;
+}
+
+.cloud-type-select:hover {
+    border-color: #999;
+}
+
+.cloud-type-select:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* 云盘类型图标样式 */
+.cloud-type-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    margin-right: 5px;
+    vertical-align: middle;
+}
+
+.cloud-type-icon.quark {
+    background-color: #4CAF50;
+    border-radius: 50%;
+}
+
+.cloud-type-icon.cloud189 {
+    background-color: #2196F3;
+    border-radius: 50%;
+}
+</style>
+
+<script>
+// 云盘类型选择器工具类
+class CloudTypeSelector {
+    constructor(selectId, onChange) {
+        this.selectElement = document.getElementById(selectId);
+        this.onChange = onChange;
+        
+        if (this.selectElement) {
+            this.selectElement.addEventListener('change', (e) => {
+                if (this.onChange) {
+                    this.onChange(e.target.value);
+                }
+            });
+        }
+    }
+    
+    // 获取当前选中的云盘类型
+    getValue() {
+        return this.selectElement ? this.selectElement.value : '';
+    }
+    
+    // 设置选中的云盘类型
+    setValue(value) {
+        if (this.selectElement) {
+            this.selectElement.value = value;
+        }
+    }
+    
+    // 禁用选择器
+    disable() {
+        if (this.selectElement) {
+            this.selectElement.disabled = true;
+        }
+    }
+    
+    // 启用选择器
+    enable() {
+        if (this.selectElement) {
+            this.selectElement.disabled = false;
+        }
+    }
+}
+
+// 云盘类型工具函数
+const CloudTypeUtils = {
+    // 获取云盘类型显示名称
+    getDisplayName(cloudType) {
+        const names = {
+            'quark': '夸克网盘',
+            'cloud189': '天翼189云盘'
+        };
+        return names[cloudType] || cloudType;
+    },
+    
+    // 获取云盘类型颜色
+    getColor(cloudType) {
+        const colors = {
+            'quark': '#4CAF50',
+            'cloud189': '#2196F3'
+        };
+        return colors[cloudType] || '#999';
+    },
+    
+    // 创建云盘类型图标HTML
+    createIcon(cloudType) {
+        const color = this.getColor(cloudType);
+        return `<span class="cloud-type-icon ${cloudType}" style="background-color: ${color};"></span>`;
+    },
+    
+    // 创建云盘类型标签HTML
+    createBadge(cloudType) {
+        const displayName = this.getDisplayName(cloudType);
+        const color = this.getColor(cloudType);
+        return `<span class="badge" style="background-color: ${color};">${displayName}</span>`;
+    }
+};
+</script>

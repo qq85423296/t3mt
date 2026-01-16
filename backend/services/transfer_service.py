@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-转存任务服务
+转存任务服务 - 支持多云盘类型
 """
 import json
 from datetime import datetime
 from database import get_db
+from services.account_service import AccountService
+from services.cloud_service_router import CloudServiceRouter
 from utils.logger import logger
 
 
@@ -12,17 +14,33 @@ class TransferService:
     """转存任务服务类"""
     
     @staticmethod
-    def get_all_tasks():
-        """获取所有转存任务"""
+    def get_all_tasks(cloud_type=None):
+        """
+        获取所有转存任务
+        
+        Args:
+            cloud_type: 云盘类型过滤，None表示获取所有
+        """
         try:
             with get_db() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT t.*, a.remark as account_remark, a.account_name
-                    FROM transfer_tasks t
-                    LEFT JOIN quark_accounts a ON t.target_account_id = a.id
-                    ORDER BY t.created_at DESC
-                """)
+                
+                if cloud_type:
+                    cursor.execute("""
+                        SELECT t.*, a.remark as account_remark, a.account_name, a.cloud_type
+                        FROM transfer_tasks t
+                        LEFT JOIN quark_accounts a ON t.target_account_id = a.id
+                        WHERE t.cloud_type = ?
+                        ORDER BY t.created_at DESC
+                    """, (cloud_type,))
+                else:
+                    cursor.execute("""
+                        SELECT t.*, a.remark as account_remark, a.account_name, a.cloud_type
+                        FROM transfer_tasks t
+                        LEFT JOIN quark_accounts a ON t.target_account_id = a.id
+                        ORDER BY t.created_at DESC
+                    """)
+                
                 tasks = cursor.fetchall()
                 
                 result = []
@@ -71,6 +89,13 @@ class TransferService:
     def create_task(task_data):
         """创建转存任务"""
         try:
+            # 获取账号的云盘类型
+            account = AccountService.get_account(task_data['target_account_id'])
+            if not account:
+                raise ValueError(f"账号不存在: ID {task_data['target_account_id']}")
+            
+            cloud_type = account.get('cloud_type', 'quark')
+            
             with get_db() as conn:
                 cursor = conn.cursor()
                 
@@ -85,8 +110,8 @@ class TransferService:
                         rules, filter_extensions, include_extensions,
                         update_dirs, file_start_date, overwrite_mode, end_date,
                         cron_expression, regex_pattern, replacement_pattern, check_mode,
-                        status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        cloud_type, status, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     share_urls_json,
@@ -105,6 +130,7 @@ class TransferService:
                     task_data.get('regex_pattern'),
                     task_data.get('replacement_pattern'),
                     task_data.get('check_mode', 'replaced'),
+                    cloud_type,
                     'running',
                     datetime.now(),
                     datetime.now()
@@ -113,7 +139,7 @@ class TransferService:
                 conn.commit()
                 task_id = cursor.lastrowid
                 
-                logger.info(f"创建转存任务成功: {task_data['name']} (ID: {task_id})")
+                logger.info(f"创建{cloud_type}转存任务成功: {task_data['name']} (ID: {task_id})")
                 return task_id
         except Exception as e:
             logger.error(f"创建转存任务失败: {e}")
@@ -228,3 +254,63 @@ class TransferService:
         except Exception as e:
             logger.error(f"更新任务状态失败: {e}")
             raise
+    
+    @staticmethod
+    def execute_task(task_id, share_url, password=''):
+        """
+        执行转存任务
+        
+        Args:
+            task_id: 任务ID
+            share_url: 分享链接
+            password: 分享密码
+        
+        Returns:
+            dict: 转存结果
+        """
+        try:
+            # 获取任务信息
+            task = TransferService.get_task_by_id(task_id)
+            if not task:
+                return {
+                    'success': False,
+                    'message': '任务不存在'
+                }
+            
+            # 获取账号信息
+            account = AccountService.get_account(task['target_account_id'])
+            if not account:
+                return {
+                    'success': False,
+                    'message': '账号不存在'
+                }
+            
+            cloud_type = account.get('cloud_type', 'quark')
+            cookie = account['cookie']
+            target_folder_id = task.get('target_path', '0')
+            
+            logger.info(f"开始执行{cloud_type}转存任务: task_id={task_id}, share_url={share_url}")
+            
+            # 路由到对应的云盘服务执行转存
+            result = CloudServiceRouter.route_request(
+                cloud_type=cloud_type,
+                cookie=cookie,
+                operation='save_share',
+                share_url=share_url,
+                target_folder_id=target_folder_id,
+                password=password
+            )
+            
+            if result.get('success'):
+                logger.info(f"{cloud_type}转存任务执行成功: task_id={task_id}")
+            else:
+                logger.error(f"{cloud_type}转存任务执行失败: task_id={task_id}, message={result.get('message')}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"执行转存任务失败: {e}", exc_info=True)
+            return {
+                'success': False,
+                'message': f'执行转存任务失败: {str(e)}'
+            }

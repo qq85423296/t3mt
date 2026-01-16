@@ -239,7 +239,8 @@
     
     /* 编辑账号弹窗紧凑优化 */
     #addAccountModal .modal-content {
-        max-width: 520px !important;
+        max-width: 700px !important;
+        width: 90%;
         background: #FFFFFF;
         border-radius: 6px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
@@ -282,7 +283,9 @@
     }
     
     #addAccountModal .modal-body {
-        padding: 16px 20px;
+        padding: 20px 24px;
+        max-width: 100%;
+        overflow-x: hidden;
     }
     
     #addAccountModal .form-group {
@@ -290,6 +293,7 @@
         display: flex;
         align-items: flex-start;
         gap: 10px;
+        width: 100%;
     }
     
     #addAccountModal .form-group:last-child {
@@ -313,11 +317,15 @@
     
     #addAccountModal .form-input-wrapper {
         flex: 1;
+        min-width: 0;
+        width: 100%;
     }
     
     #addAccountModal .form-input,
     #addAccountModal .form-textarea {
         width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
         padding: 6px 10px;
         font-size: 13px;
         color: #1F2937;
@@ -333,10 +341,14 @@
     }
     
     #addAccountModal .form-textarea {
-        height: 100px;
+        min-height: 150px;
+        height: 150px;
         resize: vertical;
         font-family: 'Consolas', 'Monaco', monospace;
         line-height: 1.4;
+        word-wrap: break-word;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
     }
     
     #addAccountModal .form-input:focus,
@@ -585,8 +597,16 @@
 
 <div class="config-section">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <h3 class="section-title" style="margin: 0;">夸克账号管理</h3>
-        <button class="btn btn-primary" onclick="showAddAccountModal()" style="height: 28px; padding: 0 12px; font-size: 13px;">+ 添加账号</button>
+        <h3 class="section-title" style="margin: 0;">云盘账号管理</h3>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <!-- 云盘类型筛选 -->
+            <select id="accountCloudTypeFilter" class="form-select" style="height: 28px; padding: 0 8px; font-size: 13px; min-width: 120px;">
+                <option value="">全部类型</option>
+                <option value="quark">夸克网盘</option>
+                <option value="cloud189">天翼189云盘</option>
+            </select>
+            <button class="btn btn-primary" onclick="showAddAccountModal()" style="height: 28px; padding: 0 12px; font-size: 13px;">+ 添加账号</button>
+        </div>
     </div>
     <div id="accountList" class="account-list">
         <div class="loading">加载中...</div>
@@ -851,20 +871,58 @@
 <div id="addAccountModal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
-            <div class="modal-title" id="accountModalTitle">添加夸克账号</div>
+            <div class="modal-title" id="accountModalTitle">添加云盘账号</div>
             <button class="modal-close" onclick="hideAddAccountModal()">×</button>
         </div>
         <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">云盘类型<span class="required">*</span></label>
+                <div class="form-input-wrapper">
+                    <select class="form-input" id="accountCloudType" onchange="onCloudTypeChange()">
+                        <option value="quark">夸克网盘</option>
+                        <option value="cloud189">天翼189云盘</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- 登录方式选择 (仅天翼云盘显示) -->
+            <div class="form-group" id="loginMethodGroup" style="display: none;">
+                <label class="form-label">登录方式<span class="required">*</span></label>
+                <div class="form-input-wrapper">
+                    <select class="form-input" id="loginMethod" onchange="onLoginMethodChange()">
+                        <option value="cookie">Cookie登录</option>
+                        <option value="password">账号密码登录</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- 账号密码输入 (仅天翼云盘+密码登录时显示) -->
+            <div class="form-group" id="usernameInputGroup" style="display: none;">
+                <label class="form-label">手机号<span class="required">*</span></label>
+                <div class="form-input-wrapper">
+                    <input type="text" class="form-input" id="accountUsername" placeholder="请输入手机号" />
+                </div>
+            </div>
+            <div class="form-group" id="passwordInputGroup" style="display: none;">
+                <label class="form-label">密码<span class="required">*</span></label>
+                <div class="form-input-wrapper">
+                    <input type="password" class="form-input" id="accountPassword" placeholder="请输入密码" />
+                </div>
+            </div>
+            
             <div class="form-group">
                 <label class="form-label">账号备注<span class="required">*</span></label>
                 <div class="form-input-wrapper">
                     <input type="text" class="form-input" id="accountRemark" placeholder="如：工作账号" />
                 </div>
             </div>
-            <div class="form-group">
+            <div class="form-group" id="cookieInputGroup">
                 <label class="form-label">Cookie<span class="required">*</span></label>
                 <div class="form-input-wrapper">
                     <textarea class="form-textarea" id="accountCookie" placeholder="从浏览器开发者工具中获取的Cookie"></textarea>
+                    <div class="form-hint" id="cookieHint" style="margin-top: 5px; font-size: 12px; color: #666;">
+                        <!-- 根据云盘类型显示不同的提示 -->
+                    </div>
                 </div>
             </div>
             <div class="form-checkbox-wrapper">
@@ -1044,12 +1102,14 @@
     }
 
     // 加载账号列表
-    async function loadAccounts() {
+    async function loadAccounts(cloudType = '') {
         const container = document.getElementById('accountList');
         Loading.show(container);
 
         try {
-            const result = await AccountAPI.getList();
+            // 构建查询参数
+            const params = cloudType ? `?cloud_type=${cloudType}` : '';
+            const result = await AccountAPI.getList(params);
             
             if (result.code === 200 && result.data) {
                 displayAccounts(result.data);
@@ -1071,11 +1131,18 @@
             return;
         }
 
-        container.innerHTML = accounts.map(account => `
+        container.innerHTML = accounts.map(account => {
+            // 云盘类型标签
+            const cloudTypeBadge = account.cloud_type === 'cloud189' 
+                ? '<span class="badge" style="background-color: #2196F3;">天翼189</span>'
+                : '<span class="badge" style="background-color: #4CAF50;">夸克</span>';
+            
+            return `
             <div class="account-item">
                 <div class="account-info">
                     <div class="account-name-section">
                         <div class="account-name">${account.remark}${account.account_name ? ` (${account.account_name})` : ''}</div>
+                        ${cloudTypeBadge}
                         ${account.is_main ? '<span class="badge badge-info">主账号</span>' : ''}
                         ${account.member_type ? `<span class="badge badge-warning">${account.member_type === 'SUPER_VIP' ? '超级会员' : account.member_type === 'VIP' ? '普通会员' : account.member_type === 'Z_VIP' ? '至尊会员' : '会员'}</span>` : ''}
                     </div>
@@ -1092,17 +1159,65 @@
                     <button class="btn-small btn-danger" onclick="deleteAccount(${account.id})">删除</button>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
     }
 
     // 显示添加账号模态框
     function showAddAccountModal() {
         currentEditAccountId = null;
-        document.getElementById('accountModalTitle').textContent = '添加夸克账号';
+        document.getElementById('accountModalTitle').textContent = '添加云盘账号';
+        document.getElementById('accountCloudType').value = 'quark';
         document.getElementById('accountRemark').value = '';
         document.getElementById('accountCookie').value = '';
+        document.getElementById('accountUsername').value = '';
+        document.getElementById('accountPassword').value = '';
         document.getElementById('accountIsMain').checked = false;
+        document.getElementById('loginMethod').value = 'cookie';
+        onCloudTypeChange(); // 更新Cookie提示和显示/隐藏相关字段
         document.getElementById('addAccountModal').classList.add('show');
+    }
+    
+    // 云盘类型变化时更新提示和显示/隐藏登录方式选择
+    function onCloudTypeChange() {
+        const cloudType = document.getElementById('accountCloudType').value;
+        const hintElement = document.getElementById('cookieHint');
+        const loginMethodGroup = document.getElementById('loginMethodGroup');
+        
+        if (cloudType === 'cloud189') {
+            // 天翼云盘显示登录方式选择
+            loginMethodGroup.style.display = 'flex';
+            hintElement.textContent = '天翼189云盘Cookie获取方法：登录cloud.189.cn后，在浏览器开发者工具的Network标签中查找请求头中的Cookie';
+        } else {
+            // 夸克网盘隐藏登录方式选择，只支持Cookie
+            loginMethodGroup.style.display = 'none';
+            hintElement.textContent = '夸克网盘Cookie获取方法：登录pan.quark.cn后，在浏览器开发者工具的Application标签中查找Cookie';
+        }
+        
+        // 触发登录方式变化
+        onLoginMethodChange();
+    }
+    
+    // 登录方式变化时显示/隐藏相关字段
+    function onLoginMethodChange() {
+        const cloudType = document.getElementById('accountCloudType').value;
+        const loginMethod = document.getElementById('loginMethod').value;
+        
+        const usernameGroup = document.getElementById('usernameInputGroup');
+        const passwordGroup = document.getElementById('passwordInputGroup');
+        const cookieGroup = document.getElementById('cookieInputGroup');
+        
+        if (cloudType === 'cloud189' && loginMethod === 'password') {
+            // 账号密码登录：显示用户名密码，隐藏Cookie
+            usernameGroup.style.display = 'flex';
+            passwordGroup.style.display = 'flex';
+            cookieGroup.style.display = 'none';
+        } else {
+            // Cookie登录：隐藏用户名密码，显示Cookie
+            usernameGroup.style.display = 'none';
+            passwordGroup.style.display = 'none';
+            cookieGroup.style.display = 'flex';
+        }
     }
 
     // 隐藏添加账号模态框
@@ -1118,10 +1233,12 @@
             
             if (result.code === 200 && result.data) {
                 currentEditAccountId = id;
-                document.getElementById('accountModalTitle').textContent = '编辑夸克账号';
+                document.getElementById('accountModalTitle').textContent = '编辑云盘账号';
+                document.getElementById('accountCloudType').value = result.data.cloud_type || 'quark';
                 document.getElementById('accountRemark').value = result.data.remark;
                 document.getElementById('accountCookie').value = result.data.cookie;
                 document.getElementById('accountIsMain').checked = result.data.is_main === 1;
+                onCloudTypeChange(); // 更新Cookie提示
                 document.getElementById('addAccountModal').classList.add('show');
             } else {
                 Message.error(result.message || '获取账号信息失败');
@@ -1134,23 +1251,58 @@
 
     // 测试并保存账号
     async function testAndSaveAccount() {
+        const cloudType = document.getElementById('accountCloudType').value;
         const remark = document.getElementById('accountRemark').value.trim();
-        const cookie = document.getElementById('accountCookie').value.trim();
         const isMain = document.getElementById('accountIsMain').checked;
-
-        if (!remark || !cookie) {
-            Message.warning('请填写账号备注和Cookie');
-            return;
+        
+        // 获取登录方式和凭证
+        let cookie = '';
+        let username = '';
+        let password = '';
+        
+        if (cloudType === 'cloud189') {
+            const loginMethod = document.getElementById('loginMethod').value;
+            if (loginMethod === 'password') {
+                // 账号密码登录
+                username = document.getElementById('accountUsername').value.trim();
+                password = document.getElementById('accountPassword').value.trim();
+                
+                if (!remark || !username || !password) {
+                    Message.warning('请填写账号备注、手机号和密码');
+                    return;
+                }
+            } else {
+                // Cookie登录
+                cookie = document.getElementById('accountCookie').value.trim();
+                
+                if (!remark || !cookie) {
+                    Message.warning('请填写账号备注和Cookie');
+                    return;
+                }
+            }
+        } else {
+            // 夸克网盘只支持Cookie
+            cookie = document.getElementById('accountCookie').value.trim();
+            
+            if (!remark || !cookie) {
+                Message.warning('请填写账号备注和Cookie');
+                return;
+            }
         }
 
         try {
             // 先测试账号
             Message.info('正在测试账号...');
-            const testResult = await AccountAPI.test(cookie);
+            const testResult = await AccountAPI.test(cookie, cloudType, username, password);
             
             if (testResult.code !== 200) {
                 Message.error(testResult.message || '账号验证失败');
                 return;
+            }
+            
+            // 如果是账号密码登录，从测试结果中获取Cookie
+            if (cloudType === 'cloud189' && username && password && testResult.data && testResult.data.cookie) {
+                cookie = testResult.data.cookie;
             }
 
             // 保存或更新账号
@@ -1158,15 +1310,17 @@
             if (currentEditAccountId) {
                 // 更新账号
                 result = await AccountAPI.update(currentEditAccountId, {
-                    remark,
-                    cookie,
+                    cloud_type: cloudType,
+                    remark: remark,
+                    cookie: cookie,
                     is_main: isMain ? 1 : 0
                 });
             } else {
-                // 创建账号
+                // 新增账号
                 result = await AccountAPI.create({
-                    remark,
-                    cookie,
+                    cloud_type: cloudType,
+                    remark: remark,
+                    cookie: cookie,
                     is_main: isMain ? 1 : 0
                 });
             }
@@ -1738,6 +1892,22 @@
     window.testEmailConfig = testEmailConfig;
     window.testVideoParseConfig = testVideoParseConfig;
     window.saveAllConfig = saveAllConfig;
+    window.onCloudTypeChange = onCloudTypeChange;
+    window.onLoginMethodChange = onLoginMethodChange;
+
+    // 云盘类型筛选事件监听
+    const accountCloudTypeFilter = document.getElementById('accountCloudTypeFilter');
+    if (accountCloudTypeFilter) {
+        accountCloudTypeFilter.addEventListener('change', function() {
+            loadAccounts(this.value);
+        });
+    }
+    
+    // 云盘类型选择事件监听（添加账号弹窗）
+    const accountCloudType = document.getElementById('accountCloudType');
+    if (accountCloudType) {
+        accountCloudType.addEventListener('change', onCloudTypeChange);
+    }
 
     // 初始化
     loadConfig();

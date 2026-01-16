@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-下载任务服务
+下载任务服务 - 支持多云盘类型
 """
 from datetime import datetime
 from database import get_db
+from services.account_service import AccountService
+from services.cloud_service_router import CloudServiceRouter
 from utils.logger import logger
 
 
@@ -11,17 +13,33 @@ class DownloadService:
     """下载任务服务类"""
     
     @staticmethod
-    def get_all_tasks():
-        """获取所有下载任务"""
+    def get_all_tasks(cloud_type=None):
+        """
+        获取所有下载任务
+        
+        Args:
+            cloud_type: 云盘类型过滤，None表示获取所有
+        """
         try:
             with get_db() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT d.*, a.remark as account_remark
-                    FROM download_tasks d
-                    LEFT JOIN quark_accounts a ON d.source_account_id = a.id
-                    ORDER BY d.created_at DESC
-                """)
+                
+                if cloud_type:
+                    cursor.execute("""
+                        SELECT d.*, a.remark as account_remark, a.cloud_type
+                        FROM download_tasks d
+                        LEFT JOIN quark_accounts a ON d.source_account_id = a.id
+                        WHERE d.cloud_type = ?
+                        ORDER BY d.created_at DESC
+                    """, (cloud_type,))
+                else:
+                    cursor.execute("""
+                        SELECT d.*, a.remark as account_remark, a.cloud_type
+                        FROM download_tasks d
+                        LEFT JOIN quark_accounts a ON d.source_account_id = a.id
+                        ORDER BY d.created_at DESC
+                    """)
+                
                 tasks = cursor.fetchall()
                 return [dict(task) for task in tasks]
         except Exception as e:
@@ -50,6 +68,13 @@ class DownloadService:
     def create_task(task_data):
         """创建下载任务"""
         try:
+            # 获取账号的云盘类型
+            account = AccountService.get_account(task_data['source_account_id'])
+            if not account:
+                raise ValueError(f"账号不存在: ID {task_data['source_account_id']}")
+            
+            cloud_type = account.get('cloud_type', 'quark')
+            
             with get_db() as conn:
                 cursor = conn.cursor()
                 
@@ -59,8 +84,8 @@ class DownloadService:
                         cron_expression, filter_extensions, include_extensions,
                         only_new_files, keep_structure, delete_after_download,
                         regex_pattern, replacement_pattern,
-                        status, progress, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        cloud_type, status, progress, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     task_data['source_account_id'],
@@ -74,6 +99,7 @@ class DownloadService:
                     task_data.get('delete_after_download', 0),
                     task_data.get('regex_pattern'),
                     task_data.get('replacement_pattern'),
+                    cloud_type,
                     'running',
                     0,
                     datetime.now(),
@@ -83,7 +109,7 @@ class DownloadService:
                 conn.commit()
                 task_id = cursor.lastrowid
                 
-                logger.info(f"创建下载任务成功: {task_data['name']} (ID: {task_id})")
+                logger.info(f"创建{cloud_type}下载任务成功: {task_data['name']} (ID: {task_id})")
                 return task_id
         except Exception as e:
             logger.error(f"创建下载任务失败: {e}")
@@ -219,3 +245,59 @@ class DownloadService:
         except Exception as e:
             logger.error(f"更新任务执行时间失败: {e}")
             raise
+    
+    @staticmethod
+    def execute_task(task_id, file_ids):
+        """
+        执行下载任务
+        
+        Args:
+            task_id: 任务ID
+            file_ids: 文件ID列表
+        
+        Returns:
+            tuple: (result_dict, cookie_str)
+        """
+        try:
+            # 获取任务信息
+            task = DownloadService.get_task_by_id(task_id)
+            if not task:
+                return {
+                    'code': -1,
+                    'message': '任务不存在'
+                }, ''
+            
+            # 获取账号信息
+            account = AccountService.get_account(task['source_account_id'])
+            if not account:
+                return {
+                    'code': -1,
+                    'message': '账号不存在'
+                }, ''
+            
+            cloud_type = account.get('cloud_type', 'quark')
+            cookie = account['cookie']
+            
+            logger.info(f"开始执行{cloud_type}下载任务: task_id={task_id}, file_ids={file_ids}")
+            
+            # 路由到对应的云盘服务获取下载链接
+            result, new_cookie = CloudServiceRouter.route_request(
+                cloud_type=cloud_type,
+                cookie=cookie,
+                operation='get_download_url',
+                file_ids=file_ids
+            )
+            
+            if result.get('code') == 0:
+                logger.info(f"{cloud_type}下载任务执行成功: task_id={task_id}")
+            else:
+                logger.error(f"{cloud_type}下载任务执行失败: task_id={task_id}, message={result.get('message')}")
+            
+            return result, new_cookie
+            
+        except Exception as e:
+            logger.error(f"执行下载任务失败: {e}", exc_info=True)
+            return {
+                'code': -1,
+                'message': f'执行下载任务失败: {str(e)}'
+            }, ''

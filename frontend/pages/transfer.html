@@ -455,13 +455,22 @@
 
 <div class="toolbar">
     <div class="toolbar-title">定时转存任务</div>
-    <button class="btn btn-primary" onclick="showCreateTaskModal()">+ 新建任务</button>
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <!-- 云盘类型筛选 -->
+        <select id="transferCloudTypeFilter" class="form-select" style="height: 32px; padding: 0 10px; font-size: 13px; min-width: 120px;">
+            <option value="">全部类型</option>
+            <option value="quark">夸克网盘</option>
+            <option value="cloud189">天翼189云盘</option>
+        </select>
+        <button class="btn btn-primary" onclick="showCreateTaskModal()">+ 新建任务</button>
+    </div>
 </div>
 
 <table class="data-table">
     <thead>
         <tr>
             <th>任务名称</th>
+            <th>云盘类型</th>
             <th>来源地址</th>
             <th>转存目录</th>
             <th>执行表达式</th>
@@ -471,7 +480,7 @@
     </thead>
     <tbody id="taskList">
         <tr>
-            <td colspan="6" style="text-align: center; padding: 40px;">
+            <td colspan="7" style="text-align: center; padding: 40px;">
                 <div class="loading">加载中...</div>
             </td>
         </tr>
@@ -806,21 +815,23 @@
     let accountList = [];
 
     // 加载任务列表
-    async function loadTasks() {
+    async function loadTasks(cloudType = '') {
         const tbody = document.getElementById('taskList');
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
 
         try {
-            const result = await TransferAPI.getList();
+            // 构建查询参数
+            const params = cloudType ? `?cloud_type=${cloudType}` : '';
+            const result = await TransferAPI.getList(params);
             
             if (result.code === 200 && result.data) {
                 displayTasks(result.data);
             } else {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
             }
         } catch (error) {
             console.error('加载任务列表失败:', error);
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
         }
     }
 
@@ -829,12 +840,17 @@
         const tbody = document.getElementById('taskList');
         
         if (!tasks || tasks.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
             return;
         }
 
         tbody.innerHTML = tasks.map(task => {
             const urls = Array.isArray(task.share_urls) ? task.share_urls : [];
+            
+            // 云盘类型标签
+            const cloudTypeBadge = task.cloud_type === 'cloud189' 
+                ? '<span class="badge" style="background-color: #2196F3;">天翼189</span>'
+                : '<span class="badge" style="background-color: #4CAF50;">夸克</span>';
             
             // 构建分享链接显示（包含状态和截断）
             const urlsHtml = urls.slice(0, 2).map(u => {
@@ -879,6 +895,7 @@
             return `
                 <tr>
                     <td>${task.name}</td>
+                    <td>${cloudTypeBadge}</td>
                     <td class="source-url-cell">${urlsHtml}${moreUrls}</td>
                     <td>${accountDisplay} - ${fullTargetPath}</td>
                     <td>${CronConfig.parseCronExpression(task.cron_expression)}</td>
@@ -1092,6 +1109,14 @@
             if (result.code === 200) {
                 currentShareData = result.data;
                 renderShareFileList(result.data.files, pdirFid);
+                
+                // 如果是根目录且任务名称为空，自动填充分享标题
+                if (pdirFid === '0' && result.data.share_name) {
+                    const taskNameInput = document.getElementById('taskName');
+                    if (taskNameInput && !taskNameInput.value.trim()) {
+                        taskNameInput.value = result.data.share_name;
+                    }
+                }
             } else {
                 listContainer.innerHTML = `<div style="text-align: center; padding: 40px; color: #f56c6c;">${result.message}</div>`;
             }
@@ -1184,20 +1209,26 @@
             // 保存路径
             pathInput.value = pathStr || '/';
             
-            // 如果选择了子目录，更新分享链接，添加文件夹ID
-            if (currentDir.fid !== '0') {
-                const originalUrl = urlInput.value.trim();
-                // 移除可能已存在的hash部分
-                const baseUrl = originalUrl.split('#')[0].split('?')[0];
-                // 添加新的hash格式：#/list/share/文件夹ID
-                urlInput.value = `${baseUrl}#/list/share/${currentDir.fid}`;
-                Message.success(`已选择路径: ${pathStr}，链接已更新`);
+            // 检查是否是天翼云盘链接
+            const originalUrl = urlInput.value.trim();
+            const isCloud189 = originalUrl.includes('cloud.189.cn');
+            
+            if (isCloud189) {
+                // 天翼云盘：不修改URL，只保存路径信息
+                Message.success(`已选择路径: ${pathStr || '/'}`);
             } else {
-                // 如果是根目录，移除hash部分
-                const originalUrl = urlInput.value.trim();
-                const baseUrl = originalUrl.split('#')[0].split('?')[0];
-                urlInput.value = baseUrl;
-                Message.success(`已选择根目录`);
+                // 夸克网盘
+                if (currentDir.fid !== '0' && currentDir.fid !== '') {
+                    // 选择了子目录：修改URL添加文件夹ID
+                    const baseUrl = originalUrl.split('#')[0].split('?')[0];
+                    urlInput.value = `${baseUrl}#/list/share/${currentDir.fid}`;
+                    Message.success(`已选择路径: ${pathStr}，链接已更新`);
+                } else {
+                    // 根目录：移除hash部分
+                    const baseUrl = originalUrl.split('#')[0].split('?')[0];
+                    urlInput.value = baseUrl;
+                    Message.success(`已选择根目录`);
+                }
             }
         }
         
@@ -2450,6 +2481,14 @@
     window.loadFolderList = loadFolderList;
     window.hideFolderSelector = hideFolderSelector;
     window.confirmFolderSelection = confirmFolderSelection;
+
+    // 云盘类型筛选事件监听
+    const transferCloudTypeFilter = document.getElementById('transferCloudTypeFilter');
+    if (transferCloudTypeFilter) {
+        transferCloudTypeFilter.addEventListener('change', function() {
+            loadTasks(this.value);
+        });
+    }
 
     // 初始化
     loadAccounts();

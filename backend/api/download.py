@@ -14,7 +14,12 @@ download_bp = Blueprint('download', __name__, url_prefix='/api/download')
 def get_tasks():
     """获取下载任务列表"""
     try:
-        tasks = DownloadService.get_all_tasks()
+        # 获取cloud_type筛选参数
+        cloud_type = request.args.get('cloud_type')
+        
+        # 获取任务列表，支持按cloud_type筛选
+        tasks = DownloadService.get_all_tasks(cloud_type=cloud_type)
+        
         return jsonify({
             'code': 200,
             'message': 'success',
@@ -225,6 +230,40 @@ def execute_task(task_id):
         return jsonify({
             'code': 500,
             'message': f'启动任务失败: {str(e)}'
+        }), 500
+
+
+@download_bp.route('/task/<int:task_id>/force-clear', methods=['POST'])
+def force_clear_task(task_id):
+    """强制清除任务状态（用于处理异常状态）"""
+    try:
+        from services.task_executor import TaskExecutor
+        
+        # 验证任务是否存在
+        task = DownloadService.get_task_by_id(task_id)
+        if not task:
+            return jsonify({
+                'code': 404,
+                'message': '任务不存在'
+            }), 404
+        
+        # 强制清除任务状态
+        if TaskExecutor.force_clear_task(task_id):
+            return jsonify({
+                'code': 200,
+                'message': '任务状态已清除，可以重新执行'
+            })
+        else:
+            return jsonify({
+                'code': 500,
+                'message': '清除任务状态失败'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"强制清除任务状态失败: {e}")
+        return jsonify({
+            'code': 500,
+            'message': f'清除失败: {str(e)}'
         }), 500
 
 
