@@ -532,9 +532,9 @@ class TaskExecutor:
                 with get_db() as conn:
                     cursor = conn.cursor()
                     
-                    # 如果没有账期，生成当前时间的账期
+                    # 如果没有账期，说明是手动执行，使用精确到秒的时间戳避免唯一约束冲突
                     if not schedule_period:
-                        schedule_period = datetime.now().strftime('%Y%m%d%H')
+                        schedule_period = datetime.now().strftime('%Y%m%d%H%M%S')
                     
                     cursor.execute("""
                         INSERT INTO task_execution_history (
@@ -925,6 +925,48 @@ class TaskExecutor:
                         WHERE id = ?
                     """, (final_status, datetime.now(), logs_json, success_count, fail_count, execution_id))
                     conn.commit()
+            
+            # 执行关联的插件
+            if execution_id:
+                try:
+                    from services.plugin_executor import PluginExecutor
+                    
+                    # 构建任务上下文
+                    task_context = {
+                        'task_id': task_id,
+                        'task_name': task.get('name', ''),
+                        'task_type': 'download',
+                        'status': final_status,
+                        'start_time': cls._running_tasks[task_id].get('start_time'),
+                        'end_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'total_count': len(filtered_files),
+                        'success_count': success_count,
+                        'failed_count': fail_count,
+                        'source_path': task.get('source_path', ''),
+                        'target_path': task.get('target_path', ''),
+                    }
+                    
+                    cls._add_log(task_id, '开始执行关联插件...', 'info')
+                    plugin_result = PluginExecutor.execute_plugins(
+                        task_id=task_id,
+                        task_type='download',
+                        execution_id=execution_id,
+                        task_context=task_context
+                    )
+                    
+                    if plugin_result['total'] > 0:
+                        cls._add_log(task_id, 
+                            f"插件执行完成: 总计 {plugin_result['total']} 个，"
+                            f"成功 {plugin_result['success']} 个，"
+                            f"失败 {plugin_result['failed']} 个，"
+                            f"跳过 {plugin_result['skipped']} 个", 
+                            'info')
+                    else:
+                        cls._add_log(task_id, '没有关联的插件需要执行', 'info')
+                        
+                except Exception as plugin_error:
+                    cls._add_log(task_id, f"插件执行异常: {str(plugin_error)}", 'warning')
+                    logger.error(f"执行插件异常: {plugin_error}", exc_info=True)
             
             # 更新最终状态
             cls._update_progress(

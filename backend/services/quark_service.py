@@ -223,6 +223,29 @@ class QuarkService:
         response = self._send_request("GET", url, params=params).json()
         return response
     
+    def list_files(self, folder_id="0", page=1, size=200):
+        """
+        获取文件列表（统一接口）
+        
+        Args:
+            folder_id: 文件夹ID，默认为根目录
+            page: 页码
+            size: 每页数量
+        
+        Returns:
+            list: 文件列表，失败返回 None
+        """
+        try:
+            response = self.get_file_list(pdir_fid=folder_id, page=page, size=size)
+            if response.get('code') == 0:
+                return response.get('data', {}).get('list', [])
+            else:
+                logger.error(f"获取文件列表失败: {response.get('message', '未知错误')}")
+                return None
+        except Exception as e:
+            logger.error(f"获取文件列表异常: {e}")
+            return None
+    
     def get_fids_by_paths(self, file_paths):
         """根据路径获取文件ID"""
         fids = []

@@ -286,6 +286,12 @@ def get_progress(task_id):
         
         if task_status:
             # 任务正在执行，返回实时状态
+            # 限制日志数量，只返回最新的100条，避免前端处理大量数据卡死
+            logs = task_status.get('logs', [])
+            max_logs = 100
+            if len(logs) > max_logs:
+                logs = logs[-max_logs:]
+            
             return jsonify({
                 'code': 200,
                 'message': 'success',
@@ -298,7 +304,8 @@ def get_progress(task_id):
                     'total_files': task_status['total_files'],
                     'success_count': task_status['success_count'],
                     'fail_count': task_status['fail_count'],
-                    'logs': task_status['logs'],  # 返回所有日志
+                    'logs': logs,
+                    'logs_total': len(task_status.get('logs', [])),
                     'start_time': task_status['start_time']
                 }
             })
@@ -317,6 +324,7 @@ def get_progress(task_id):
                     'success_count': 0,
                     'fail_count': 0,
                     'logs': [],
+                    'logs_total': 0,
                     'start_time': ''
                 }
             })

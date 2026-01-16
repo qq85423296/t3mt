@@ -689,6 +689,29 @@ class Cloud189Service(ICloudService):
                 'code': -1,
                 'message': f'获取文件列表失败: {str(e)}'
             }
+    
+    def list_files(self, folder_id='-11', page=1, size=200):
+        """
+        获取文件列表（统一接口）
+        
+        Args:
+            folder_id: 文件夹ID，默认为根目录（-11）
+            page: 页码
+            size: 每页数量
+        
+        Returns:
+            list: 文件列表，失败返回 None
+        """
+        try:
+            response = self.get_file_list(folder_id=folder_id, page=page, size=size)
+            if response.get('code') == 0:
+                return response.get('data', {}).get('list', [])
+            else:
+                logger.error(f"获取文件列表失败: {response.get('message', '未知错误')}")
+                return None
+        except Exception as e:
+            logger.error(f"获取文件列表异常: {e}")
+            return None
 
     
     def get_or_create_folder_by_path(self, path):
