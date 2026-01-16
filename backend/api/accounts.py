@@ -18,10 +18,17 @@ def test_account():
     try:
         data = request.get_json()
         
-        cloud_type = data.get('cloud_type', CloudType.QUARK)
-        cookie = data.get('cookie', '').strip()
-        username = data.get('username', '').strip()
-        password = data.get('password', '').strip()
+        # 安全获取参数，处理None和空字符串情况
+        cloud_type = data.get('cloud_type') if data else None
+        if not cloud_type:
+            cloud_type = CloudType.QUARK
+        
+        cookie = (data.get('cookie') or '').strip() if data else ''
+        username = (data.get('username') or '').strip() if data else ''
+        password = (data.get('password') or '').strip() if data else ''
+        
+        # 记录请求参数（脱敏）
+        logger.info(f"测试账号请求: cloud_type={cloud_type}, has_cookie={bool(cookie)}, has_username={bool(username)}, has_password={bool(password)}")
         
         # 验证云盘类型
         if not CloudType.is_valid(cloud_type):
@@ -191,8 +198,10 @@ def create_account():
     try:
         data = request.get_json()
         
-        # 获取云盘类型，默认为quark
-        cloud_type = data.get('cloud_type', CloudType.QUARK)
+        # 安全获取云盘类型，处理None和空字符串情况
+        cloud_type = data.get('cloud_type') if data else None
+        if not cloud_type:
+            cloud_type = CloudType.QUARK
         
         # 验证云盘类型
         if not CloudType.is_valid(cloud_type):
@@ -208,9 +217,12 @@ def create_account():
                 'message': '账号备注不能为空'
             }), 400
         
-        cookie = data.get('cookie', '').strip()
-        username = data.get('username', '').strip()
-        password = data.get('password', '').strip()
+        cookie = (data.get('cookie') or '').strip() if data else ''
+        username = (data.get('username') or '').strip() if data else ''
+        password = (data.get('password') or '').strip() if data else ''
+        
+        # 记录请求参数（脱敏）
+        logger.info(f"添加账号请求: cloud_type={cloud_type}, has_cookie={bool(cookie)}, has_username={bool(username)}, has_password={bool(password)}")
         
         # 天翼云盘支持账号密码登录
         if cloud_type == CloudType.CLOUD189:
