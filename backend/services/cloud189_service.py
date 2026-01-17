@@ -1397,9 +1397,15 @@ class Cloud189Service(ICloudService):
             
             # 4. 获取分享文件列表
             # 关键修复：使用root_file_id作为fileId参数
+            # 注意：file_id和root_file_id都传入root_file_id的值
             file_list_result = self.list_share_dir(
-                share_id, root_file_id, share_mode, access_code, 
-                is_folder=True, share_code=share_code, root_file_id=root_file_id
+                share_id=share_id,
+                file_id=root_file_id,  # 当前目录ID
+                share_mode=share_mode,
+                access_code=access_code,
+                is_folder=True,
+                share_code=share_code,
+                root_file_id=root_file_id  # 分享根目录ID
             )
             
             if file_list_result.get('res_code') != 0:
@@ -1473,7 +1479,11 @@ class Cloud189Service(ICloudService):
                 'shareMode': str(share_mode)
             }
             
-            logger.info(f"189转存任务参数: type={batch_task_dto['type']}, shareId={batch_task_dto['shareId']}, targetFolderId={batch_task_dto['targetFolderId']}, shareMode={batch_task_dto['shareMode']}")
+            # 关键修复：如果有访问码，必须添加到请求参数中
+            if access_code:
+                batch_task_dto['accessCode'] = access_code
+            
+            logger.info(f"189转存任务参数: type={batch_task_dto['type']}, shareId={batch_task_dto['shareId']}, targetFolderId={batch_task_dto['targetFolderId']}, shareMode={batch_task_dto['shareMode']}, accessCode={'***' if access_code else 'None'}")
             logger.info(f"189转存文件列表: {task_infos_json}")
             
             # 6. 创建转存任务
