@@ -1,0 +1,85 @@
+{
+    "plugin_id": "wecom_notify",
+    "plugin_name": "企业微信提醒",
+    "plugin_version": "1.0.0",
+    "plugin_author": "T3MT",
+    "plugin_desc": "任务执行完成后通过企业微信群机器人发送通知，支持文本、Markdown等多种消息格式",
+    "config_schema": [
+        {
+            "param_key": "webhook_url",
+            "param_name": "Webhook地址",
+            "param_type": "string",
+            "param_desc": "企业微信群机器人的Webhook地址。获取方式：打开企业微信群 → 点击群设置 → 群机器人 → 添加机器人 → 确认创建后，复制系统生成的 webhook 地址。格式：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxx",
+            "required": true,
+            "default_value": ""
+        },
+        {
+            "param_key": "send_on_success",
+            "param_name": "成功时发送",
+            "param_type": "boolean",
+            "param_desc": "任务成功完成时是否发送通知",
+            "required": false,
+            "default_value": true
+        },
+        {
+            "param_key": "send_on_failure",
+            "param_name": "失败时发送",
+            "param_type": "boolean",
+            "param_desc": "任务失败时是否发送通知",
+            "required": false,
+            "default_value": true
+        },
+        {
+            "param_key": "send_on_partial",
+            "param_name": "部分成功时发送",
+            "param_type": "boolean",
+            "param_desc": "任务部分成功时是否发送通知",
+            "required": false,
+            "default_value": true
+        },
+        {
+            "param_key": "message_type",
+            "param_name": "消息类型",
+            "param_type": "select",
+            "param_desc": "发送的消息格式类型",
+            "required": false,
+            "default_value": "markdown",
+            "options": [
+                {"label": "Markdown格式", "value": "markdown"},
+                {"label": "纯文本", "value": "text"}
+            ]
+        },
+        {
+            "param_key": "mentioned_list",
+            "param_name": "@成员列表",
+            "param_type": "string",
+            "param_desc": "需要@的成员userid列表，多个用逗号分隔。@all表示提醒所有人（仅文本消息支持）",
+            "required": false,
+            "default_value": ""
+        },
+        {
+            "param_key": "mentioned_mobile_list",
+            "param_name": "@手机号列表",
+            "param_type": "string",
+            "param_desc": "需要@的成员手机号列表，多个用逗号分隔（仅文本消息支持）",
+            "required": false,
+            "default_value": ""
+        },
+        {
+            "param_key": "message_template",
+            "param_name": "消息模板",
+            "param_type": "textarea",
+            "param_desc": "自定义消息模板，支持变量：{task_name}, {task_type}, {status}, {source_path}, {target_path}, {total_count}, {success_count}, {failed_count}, {duration}, {total_size}, {start_time}, {end_time}, {error_message}。留空则使用默认模板",
+            "required": false,
+            "default_value": ""
+        },
+        {
+            "param_key": "timeout",
+            "param_name": "超时时间(秒)",
+            "param_type": "number",
+            "param_desc": "HTTP请求超时时间",
+            "required": false,
+            "default_value": 10
+        }
+    ]
+}
