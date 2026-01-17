@@ -239,12 +239,19 @@ class MigrationRunner:
                 print("\n检测到需要执行迁移: add_plugin_tables")
                 print("正在执行迁移...")
                 
-                from migrations.add_plugin_tables import upgrade
-                upgrade()
-                
-                self._record_migration('add_plugin_tables')
-                print("✅ 迁移 add_plugin_tables 执行成功")
-                migrations_executed = True
+                try:
+                    from migrations.add_plugin_tables import upgrade
+                    upgrade()
+                    
+                    self._record_migration('add_plugin_tables')
+                    print("✅ 迁移 add_plugin_tables 执行成功")
+                    migrations_executed = True
+                except Exception as e:
+                    print(f"❌ 迁移 add_plugin_tables 执行失败: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    # 插件表迁移失败，返回False
+                    return False
             
             # 迁移5：插件参数选择字段
             if self._check_selected_params_migration_needed():

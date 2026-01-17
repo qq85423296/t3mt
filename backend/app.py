@@ -148,17 +148,20 @@ def main():
             _get_db_instance().init_database()
         logger.info("数据库检查完成")
         
-        # 执行数据库迁移
+        # 执行数据库迁移（必须成功）
         logger.info("检查数据库迁移...")
+        migration_success = False
         try:
             from migrations.run_migrations import run_migrations
-            if run_migrations():
+            migration_success = run_migrations()
+            if migration_success:
                 logger.info("数据库迁移检查完成")
             else:
-                logger.warning("数据库迁移执行失败，但应用将继续启动")
+                logger.error("数据库迁移执行失败")
         except Exception as e:
             logger.error(f"数据库迁移检查失败: {e}")
-            logger.warning("将继续启动应用，但新功能可能不可用")
+            import traceback
+            traceback.print_exc()
         
         # 清理异常中断的任务状态
         logger.info("清理异常中断的任务状态...")
@@ -194,39 +197,43 @@ def main():
         # 创建应用
         app = create_app()
         
-        # 扫描并注册本地插件
-        logger.info("扫描本地插件目录...")
-        try:
-            from services.plugin_manager import PluginManager
-            scan_result = PluginManager.scan_local_plugins()
-            if scan_result['total'] > 0:
-                logger.info(f"插件扫描完成: 发现 {scan_result['total']} 个，"
-                           f"新安装 {scan_result['installed']} 个，"
-                           f"已存在 {scan_result['skipped']} 个")
-                if scan_result['errors']:
-                    for error in scan_result['errors']:
-                        logger.warning(f"插件扫描警告: {error}")
-            else:
-                logger.info("没有发现本地插件")
-        except Exception as e:
-            logger.error(f"插件扫描失败: {e}")
-        
-        # 恢复已启动的插件
-        logger.info("恢复已启动的插件...")
-        try:
-            restore_result = PluginManager.restore_started_plugins()
-            if restore_result['total'] > 0:
-                logger.info(f"插件恢复完成: 总计 {restore_result['total']} 个，"
-                           f"成功 {restore_result['success']} 个，"
-                           f"失败 {restore_result['failed']} 个")
-                if restore_result['errors']:
-                    for error in restore_result['errors']:
-                        logger.warning(f"插件恢复警告: {error}")
-            else:
-                logger.info("没有需要恢复的插件")
-        except Exception as e:
-            logger.error(f"插件恢复失败: {e}")
-            logger.warning("将继续启动应用，但插件功能可能不可用")
+        # 仅在迁移成功后才初始化插件系统
+        if migration_success:
+            # 扫描并注册本地插件
+            logger.info("扫描本地插件目录...")
+            try:
+                from services.plugin_manager import PluginManager
+                scan_result = PluginManager.scan_local_plugins()
+                if scan_result['total'] > 0:
+                    logger.info(f"插件扫描完成: 发现 {scan_result['total']} 个，"
+                               f"新安装 {scan_result['installed']} 个，"
+                               f"已存在 {scan_result['skipped']} 个")
+                    if scan_result['errors']:
+                        for error in scan_result['errors']:
+                            logger.warning(f"插件扫描警告: {error}")
+                else:
+                    logger.info("没有发现本地插件")
+            except Exception as e:
+                logger.error(f"插件扫描失败: {e}")
+            
+            # 恢复已启动的插件
+            logger.info("恢复已启动的插件...")
+            try:
+                restore_result = PluginManager.restore_started_plugins()
+                if restore_result['total'] > 0:
+                    logger.info(f"插件恢复完成: 总计 {restore_result['total']} 个，"
+                               f"成功 {restore_result['success']} 个，"
+                               f"失败 {restore_result['failed']} 个")
+                    if restore_result['errors']:
+                        for error in restore_result['errors']:
+                            logger.warning(f"插件恢复警告: {error}")
+                else:
+                    logger.info("没有需要恢复的插件")
+            except Exception as e:
+                logger.error(f"插件恢复失败: {e}")
+                logger.warning("将继续启动应用，但插件功能可能不可用")
+        else:
+            logger.warning("数据库迁移未成功，跳过插件系统初始化")
         
         # 启动任务调度服务
         logger.info("启动任务调度服务...")

@@ -6,12 +6,12 @@
 """
 import os
 import sys
-import sqlite3
 
 # 添加父目录到路径以便导入config
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config
+from database import get_db
 
 
 def get_table_exists(cursor, table_name):
@@ -27,14 +27,15 @@ def upgrade():
     """执行迁移：创建插件系统相关表"""
     db_path = Config.DATABASE_PATH
     
+    print(f"  数据库路径: {db_path}")
+    
     if not os.path.exists(db_path):
-        print("数据库文件不存在，跳过迁移")
+        print("  数据库文件不存在，跳过迁移")
         return
     
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
     try:
+        with get_db() as conn:
+            cursor = conn.cursor()
         # 1. 创建 plugin_info 表（插件基本信息和配置）
         if not get_table_exists(cursor, 'plugin_info'):
             cursor.execute('''
@@ -124,16 +125,15 @@ def upgrade():
             print("  ✅ 已创建 plugin_exec_log 表索引")
         else:
             print("  ⏭️ plugin_exec_log 表已存在，跳过创建")
-        
-        conn.commit()
-        print("✅ 插件系统表迁移完成")
-        
+            
+            conn.commit()
+            print("✅ 插件系统表迁移完成")
+            
     except Exception as e:
-        conn.rollback()
         print(f"❌ 迁移失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise
-    finally:
-        conn.close()
 
 
 def downgrade():
@@ -144,29 +144,28 @@ def downgrade():
         print("数据库文件不存在，跳过回滚")
         return
     
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
     try:
-        # 按依赖顺序删除表
-        cursor.execute("DROP TABLE IF EXISTS plugin_exec_log")
-        print("  ✅ 已删除 plugin_exec_log 表")
-        
-        cursor.execute("DROP TABLE IF EXISTS task_plugin_relation")
-        print("  ✅ 已删除 task_plugin_relation 表")
-        
-        cursor.execute("DROP TABLE IF EXISTS plugin_info")
-        print("  ✅ 已删除 plugin_info 表")
-        
-        conn.commit()
-        print("✅ 插件系统表回滚完成")
-        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # 按依赖顺序删除表
+            cursor.execute("DROP TABLE IF EXISTS plugin_exec_log")
+            print("  ✅ 已删除 plugin_exec_log 表")
+            
+            cursor.execute("DROP TABLE IF EXISTS task_plugin_relation")
+            print("  ✅ 已删除 task_plugin_relation 表")
+            
+            cursor.execute("DROP TABLE IF EXISTS plugin_info")
+            print("  ✅ 已删除 plugin_info 表")
+            
+            conn.commit()
+            print("✅ 插件系统表回滚完成")
+            
     except Exception as e:
-        conn.rollback()
         print(f"❌ 回滚失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise
-    finally:
-        conn.close()
 
 
 if __name__ == '__main__':
