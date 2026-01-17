@@ -242,7 +242,7 @@ def create_account():
                     
                     # 登录成功，使用获取的cookie
                     cookie = login_result.get('cookies', '')
-                    logger.info(f"天翼云盘账号 {username} 登录成功")
+                    logger.info(f"天翼云盘账号 {username} 登录成功，将保存账号密码用于自动重新登录")
                     
                 except Exception as e:
                     logger.error(f"天翼云盘登录失败: {e}")
@@ -263,11 +263,13 @@ def create_account():
                     'message': 'Cookie不能为空'
                 }), 400
         
-        # 创建账号
+        # 创建账号（保存账号密码用于自动重新登录）
         account_id = AccountService.create_account(
             remark=data['remark'],
             cookie=cookie,
-            cloud_type=cloud_type
+            cloud_type=cloud_type,
+            username=username if username else None,
+            password=password if password else None
         )
         
         return jsonify({

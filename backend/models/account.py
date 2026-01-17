@@ -78,7 +78,8 @@ class Account:
     
     @staticmethod
     def create(remark, cookie, account_name=None, is_vip=0, member_type='', 
-               member_exp_at='', total_size=0, used_size=0, is_main=0, cloud_type='quark'):
+               member_exp_at='', total_size=0, used_size=0, is_main=0, cloud_type='quark',
+               username=None, password=None):
         """创建账号"""
         encrypted_cookie = CryptoUtil.encrypt(cookie)
         
@@ -92,10 +93,10 @@ class Account:
             cursor.execute('''
                 INSERT INTO quark_accounts 
                 (remark, cookie, account_name, is_vip, member_type, member_exp_at, 
-                 total_size, used_size, is_main, cloud_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 total_size, used_size, is_main, cloud_type, username, password)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (remark, encrypted_cookie, account_name, is_vip, member_type, 
-                  member_exp_at, total_size, used_size, is_main, cloud_type))
+                  member_exp_at, total_size, used_size, is_main, cloud_type, username, password))
             
             return cursor.lastrowid
     

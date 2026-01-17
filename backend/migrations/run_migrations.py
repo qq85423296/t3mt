@@ -187,6 +187,25 @@ class MigrationRunner:
         
         return True
     
+    def _check_account_credentials_migration_needed(self):
+        """检查是否需要执行账号凭证字段的迁移"""
+        migration_name = 'add_account_credentials'
+        applied_migrations = self._get_applied_migrations()
+        
+        if migration_name in applied_migrations:
+            return False
+        
+        # 检查字段是否已存在
+        columns = self._get_table_columns('quark_accounts')
+        
+        if 'username' in columns and 'password' in columns:
+            # 字段已存在，记录迁移但不执行
+            print(f"  迁移 {migration_name} 的字段已存在，跳过执行")
+            self._record_migration(migration_name)
+            return False
+        
+        return True
+    
     def run_migrations(self):
         """执行所有待执行的迁移"""
         from utils.logger import logger
@@ -273,6 +292,18 @@ class MigrationRunner:
                 
                 self._record_migration('add_selected_params_field')
                 logger.info("✅ 迁移 add_selected_params_field 执行成功")
+                migrations_executed = True
+            
+            # 迁移6：账号凭证字段
+            if self._check_account_credentials_migration_needed():
+                logger.info("检测到需要执行迁移: add_account_credentials")
+                logger.info("正在执行迁移...")
+                
+                from migrations.add_account_credentials import upgrade
+                upgrade()
+                
+                self._record_migration('add_account_credentials')
+                logger.info("✅ 迁移 add_account_credentials 执行成功")
                 migrations_executed = True
             
             if not migrations_executed:

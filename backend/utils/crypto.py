@@ -67,3 +67,13 @@ class CryptoUtil:
             return bcrypt.checkpw(password.encode(), hashed.encode())
         except Exception:
             return False
+    
+    @staticmethod
+    def encrypt_password(password):
+        """加密密码（用于存储账号密码）"""
+        return CryptoUtil.encrypt(password)
+    
+    @staticmethod
+    def decrypt_password(encrypted_password):
+        """解密密码"""
+        return CryptoUtil.decrypt(encrypted_password)
