@@ -5,7 +5,7 @@
 from flask import Blueprint, request, jsonify
 from services.search_service import SearchService
 from services.quark_service import QuarkService
-from services.account_service import AccountService
+from models.account import Account
 from models.config import ConfigModel
 from utils.logger import logger
 
@@ -72,7 +72,7 @@ def check_validity():
             }), 400
         
         # 获取主账号
-        main_account = AccountService.get_main_account()
+        main_account = Account.get_main_account()
         if not main_account:
             return jsonify({
                 'code': 400,
