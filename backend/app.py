@@ -158,36 +158,25 @@ def main():
                 logger.info("数据库迁移检查完成")
             else:
                 logger.error("数据库迁移执行失败")
-                # 尝试强制创建插件表
-                logger.info("尝试强制创建插件表...")
-                try:
-                    from migrations.add_plugin_tables import upgrade
-                    from migrations.run_migrations import MigrationRunner
-                    upgrade()
-                    # 记录迁移
-                    runner = MigrationRunner()
-                    runner._record_migration('add_plugin_tables')
-                    migration_success = True
-                    logger.info("插件表创建成功")
-                except Exception as force_e:
-                    logger.error(f"强制创建插件表失败: {force_e}")
         except Exception as e:
             logger.error(f"数据库迁移检查失败: {e}")
             import traceback
             traceback.print_exc()
-            # 尝试强制创建插件表
-            logger.info("尝试强制创建插件表...")
+        
+        # 强制检查并创建插件表（兼容旧数据库）
+        if not migration_success:
+            logger.info("执行强制插件表创建...")
             try:
-                from migrations.add_plugin_tables import upgrade
-                from migrations.run_migrations import MigrationRunner
-                upgrade()
-                # 记录迁移
-                runner = MigrationRunner()
-                runner._record_migration('add_plugin_tables')
-                migration_success = True
-                logger.info("插件表创建成功")
+                from migrations.force_create_plugin_tables import check_and_create_plugin_tables
+                if check_and_create_plugin_tables():
+                    migration_success = True
+                    logger.info("强制插件表创建成功")
+                else:
+                    logger.error("强制插件表创建失败")
             except Exception as force_e:
-                logger.error(f"强制创建插件表失败: {force_e}")
+                logger.error(f"强制插件表创建异常: {force_e}")
+                import traceback
+                traceback.print_exc()
         
         # 清理异常中断的任务状态
         logger.info("清理异常中断的任务状态...")
