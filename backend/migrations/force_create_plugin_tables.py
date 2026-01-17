@@ -164,6 +164,26 @@ def check_and_create_plugin_tables():
             logger.info("=" * 80)
             logger.info("✅ 插件表创建完成！")
             logger.info("=" * 80)
+            
+            # 立即扫描并注册本地插件
+            logger.info("开始扫描本地插件...")
+            try:
+                from services.plugin_manager import PluginManager
+                scan_result = PluginManager.scan_local_plugins()
+                if scan_result['total'] > 0:
+                    logger.info(f"✅ 插件扫描完成: 发现 {scan_result['total']} 个，"
+                               f"新安装 {scan_result['installed']} 个，"
+                               f"已存在 {scan_result['skipped']} 个")
+                    if scan_result['errors']:
+                        for error in scan_result['errors']:
+                            logger.warning(f"插件扫描警告: {error}")
+                else:
+                    logger.info("没有发现本地插件")
+            except Exception as scan_e:
+                logger.error(f"插件扫描失败: {scan_e}")
+                import traceback
+                traceback.print_exc()
+            
             return True
             
     except Exception as e:
