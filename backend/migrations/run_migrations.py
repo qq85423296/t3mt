@@ -257,8 +257,11 @@ class MigrationRunner:
                     logger.error(f"❌ 迁移 add_plugin_tables 执行失败: {str(e)}")
                     import traceback
                     traceback.print_exc()
-                    # 插件表迁移失败，返回False
-                    return False
+                    # 插件表迁移失败，但不阻止应用启动
+                    # 将在 app.py 中进行二次尝试
+                    logger.warning("插件表迁移失败，将在应用启动时重试")
+            else:
+                logger.info("插件表迁移已完成或不需要执行")
             
             # 迁移5：插件参数选择字段
             if self._check_selected_params_migration_needed():
