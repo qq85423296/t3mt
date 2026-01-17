@@ -440,8 +440,24 @@ def execute_task(task_id):
                                         safe_name = safe_name.replace(char, '_')
                                     safe_name = safe_name.strip()
                                     
+                                    # 应用正则替换（如果配置了）
+                                    final_safe_name = safe_name
+                                    if task.regex_pattern:
+                                        try:
+                                            from utils.filename_replacer import FilenameReplacer
+                                            success, new_name, msg = FilenameReplacer.apply_regex_replacement(
+                                                safe_name, task.regex_pattern, task.replacement_pattern or ''
+                                            )
+                                            if success and new_name != safe_name:
+                                                # 再次清理替换后的文件名
+                                                for char in illegal_chars:
+                                                    new_name = new_name.replace(char, '_')
+                                                final_safe_name = new_name.strip()
+                                        except Exception as e:
+                                            logger.warning(f"正则替换失败: {str(e)}, 使用原文件名")
+                                    
                                     # 只添加未下载的剧集
-                                    if safe_name not in downloaded_episode_names:
+                                    if final_safe_name not in downloaded_episode_names:
                                         episodes_to_download.append(ep)
                             
                             task_logger.info(f"根据用户选择，需要下载 {len(episodes_to_download)} 集（已跳过 {len(selected_indices) - len(episodes_to_download)} 集）")
@@ -480,7 +496,23 @@ def execute_task(task_id):
                                     safe_name = safe_name.replace(char, '_')
                                 safe_name = safe_name.strip()
                                 
-                                if safe_name not in downloaded_episode_names:
+                                # 应用正则替换（如果配置了）
+                                final_safe_name = safe_name
+                                if task.regex_pattern:
+                                    try:
+                                        from utils.filename_replacer import FilenameReplacer
+                                        success, new_name, msg = FilenameReplacer.apply_regex_replacement(
+                                            safe_name, task.regex_pattern, task.replacement_pattern or ''
+                                        )
+                                        if success and new_name != safe_name:
+                                            # 再次清理替换后的文件名
+                                            for char in illegal_chars:
+                                                new_name = new_name.replace(char, '_')
+                                            final_safe_name = new_name.strip()
+                                    except Exception as e:
+                                        logger.warning(f"正则替换失败: {str(e)}, 使用原文件名")
+                                
+                                if final_safe_name not in downloaded_episode_names:
                                     episodes_to_download.append(ep)
                         
                         if len(episodes_to_download) == 0:
@@ -558,7 +590,23 @@ def execute_task(task_id):
                             safe_name = safe_name.replace(char, '_')
                         safe_name = safe_name.strip()
                         
-                        if safe_name not in downloaded_episode_names:
+                        # 应用正则替换（如果配置了）
+                        final_safe_name = safe_name
+                        if task.regex_pattern:
+                            try:
+                                from utils.filename_replacer import FilenameReplacer
+                                success, new_name, msg = FilenameReplacer.apply_regex_replacement(
+                                    safe_name, task.regex_pattern, task.replacement_pattern or ''
+                                )
+                                if success and new_name != safe_name:
+                                    # 再次清理替换后的文件名
+                                    for char in illegal_chars:
+                                        new_name = new_name.replace(char, '_')
+                                    final_safe_name = new_name.strip()
+                            except Exception as e:
+                                logger.warning(f"正则替换失败: {str(e)}, 使用原文件名")
+                        
+                        if final_safe_name not in downloaded_episode_names:
                             episodes_to_download.append(ep)
                     
                     # 如果所有剧集都已下载，直接返回成功
@@ -680,6 +728,58 @@ def execute_task(task_id):
                             WHERE id = ?
                         ''', (end_time, duration, 'success', result['success_count'] + result.get('skipped_count', 0), 
                               result['failed_count'], json.dumps(task_logger.get_logs(), ensure_ascii=False), history_id))
+                    
+                    # 执行关联的插件
+                    try:
+                        from services.plugin_executor import PluginExecutor
+                        
+                        task_logger.info('开始执行关联插件...')
+                        
+                        # 构建任务上下文
+                        task_context = {
+                            'task_id': task_id,
+                            'task_name': task.name,
+                            'task_type': 'video',
+                            'status': 'success',
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'duration': duration,
+                            'total_count': result['total'],
+                            'success_count': result['success_count'] + result.get('skipped_count', 0),
+                            'failed_count': result['failed_count'],
+                            'total_size': 0,  # 影视下载不统计总大小
+                            'source_path': task.website_url,
+                            'target_path': actual_save_directory,
+                            'error_message': '',
+                            # 影视下载特有字段
+                            'video_name': task.name,
+                            'platform': task.platform if hasattr(task, 'platform') else 'mango',
+                            'video_type': task.video_type if hasattr(task, 'video_type') else '电视剧',
+                        }
+                        
+                        plugin_result = PluginExecutor.execute_plugins(
+                            task_id=task_id,
+                            task_type='video',
+                            execution_id=history_id,
+                            task_context=task_context
+                        )
+                        
+                        if plugin_result['total'] > 0:
+                            msg = (f"插件执行完成: 总计 {plugin_result['total']} 个，"
+                                   f"成功 {plugin_result['success']} 个，"
+                                   f"失败 {plugin_result['failed']} 个，"
+                                   f"跳过 {plugin_result['skipped']} 个")
+                            task_logger.info(msg)
+                            
+                            # 更新日志到数据库
+                            update_logs_to_db()
+                    except Exception as e:
+                        error_msg = f"插件执行异常: {str(e)}"
+                        task_logger.warning(error_msg)
+                        logger.error(error_msg, exc_info=True)
+                        
+                        # 更新日志到数据库
+                        update_logs_to_db()
                 else:
                     VideoTask.update(
                         task_id,
@@ -701,6 +801,58 @@ def execute_task(task_id):
                         ''', (end_time, duration, 'failed', result['success_count'], 
                               result['failed_count'], json.dumps(task_logger.get_logs(), ensure_ascii=False), error_message, history_id))
                     
+                    # 执行关联的插件（即使任务失败也执行）
+                    try:
+                        from services.plugin_executor import PluginExecutor
+                        
+                        task_logger.info('开始执行关联插件...')
+                        
+                        # 构建任务上下文
+                        task_context = {
+                            'task_id': task_id,
+                            'task_name': task.name,
+                            'task_type': 'video',
+                            'status': 'failed',
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'duration': duration,
+                            'total_count': result['total'],
+                            'success_count': result['success_count'],
+                            'failed_count': result['failed_count'],
+                            'total_size': 0,  # 影视下载不统计总大小
+                            'source_path': task.website_url,
+                            'target_path': actual_save_directory,
+                            'error_message': error_message,
+                            # 影视下载特有字段
+                            'video_name': task.name,
+                            'platform': task.platform if hasattr(task, 'platform') else 'mango',
+                            'video_type': task.video_type if hasattr(task, 'video_type') else '电视剧',
+                        }
+                        
+                        plugin_result = PluginExecutor.execute_plugins(
+                            task_id=task_id,
+                            task_type='video',
+                            execution_id=history_id,
+                            task_context=task_context
+                        )
+                        
+                        if plugin_result['total'] > 0:
+                            msg = (f"插件执行完成: 总计 {plugin_result['total']} 个，"
+                                   f"成功 {plugin_result['success']} 个，"
+                                   f"失败 {plugin_result['failed']} 个，"
+                                   f"跳过 {plugin_result['skipped']} 个")
+                            task_logger.info(msg)
+                            
+                            # 更新日志到数据库
+                            update_logs_to_db()
+                    except Exception as e:
+                        error_msg = f"插件执行异常: {str(e)}"
+                        task_logger.warning(error_msg)
+                        logger.error(error_msg, exc_info=True)
+                        
+                        # 更新日志到数据库
+                        update_logs_to_db()
+                    
             except Exception as e:
                 logger.error(f"下载任务 {task_id} 失败: {str(e)}", exc_info=True)
                 VideoTask.update(task_id, status='failed')
@@ -721,6 +873,58 @@ def execute_task(task_id):
                         SET end_time = ?, duration = ?, status = ?, logs = ?, error_message = ?
                         WHERE id = ?
                     ''', (end_time, duration, 'failed', json.dumps(task_logger.get_logs(), ensure_ascii=False), error_message, history_id))
+                
+                # 执行关联的插件（即使任务异常也执行）
+                try:
+                    from services.plugin_executor import PluginExecutor
+                    
+                    task_logger.info('开始执行关联插件...')
+                    
+                    # 构建任务上下文
+                    task_context = {
+                        'task_id': task_id,
+                        'task_name': task.name,
+                        'task_type': 'video',
+                        'status': 'failed',
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'duration': duration,
+                        'total_count': 0,
+                        'success_count': 0,
+                        'failed_count': 0,
+                        'total_size': 0,
+                        'source_path': task.website_url,
+                        'target_path': actual_save_directory,
+                        'error_message': error_message,
+                        # 影视下载特有字段
+                        'video_name': task.name,
+                        'platform': task.platform if hasattr(task, 'platform') else 'mango',
+                        'video_type': task.video_type if hasattr(task, 'video_type') else '电视剧',
+                    }
+                    
+                    plugin_result = PluginExecutor.execute_plugins(
+                        task_id=task_id,
+                        task_type='video',
+                        execution_id=history_id,
+                        task_context=task_context
+                    )
+                    
+                    if plugin_result['total'] > 0:
+                        msg = (f"插件执行完成: 总计 {plugin_result['total']} 个，"
+                               f"成功 {plugin_result['success']} 个，"
+                               f"失败 {plugin_result['failed']} 个，"
+                               f"跳过 {plugin_result['skipped']} 个")
+                        task_logger.info(msg)
+                        
+                        # 更新日志到数据库
+                        update_logs_to_db()
+                except Exception as plugin_error:
+                    error_msg = f"插件执行异常: {str(plugin_error)}"
+                    task_logger.warning(error_msg)
+                    logger.error(error_msg, exc_info=True)
+                    
+                    # 更新日志到数据库
+                    update_logs_to_db()
         
         # 启动下载线程
         thread = threading.Thread(target=download_thread, daemon=True)

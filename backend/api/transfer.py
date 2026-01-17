@@ -418,6 +418,108 @@ def execute_task(task_id):
                           success_count, fail_count, total_files, execution_id))
                     conn.commit()
                 
+                # 执行关联的插件
+                try:
+                    from services.plugin_executor import PluginExecutor
+                    
+                    # 从执行历史中获取真实的开始时间和结束时间
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT start_time, end_time, duration
+                            FROM task_execution_history
+                            WHERE id = ?
+                        """, (execution_id,))
+                        history_row = cursor.fetchone()
+                    
+                    if history_row:
+                        start_time_str = history_row[0]
+                        end_time_str = history_row[1]
+                        duration = history_row[2] or 0
+                    else:
+                        start_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        duration = 0
+                    
+                    # 构建来源路径（分享链接列表）
+                    share_urls_list = task.get('share_urls', [])
+                    if share_urls_list:
+                        # 提取所有分享链接
+                        source_urls = []
+                        for url_obj in share_urls_list:
+                            if isinstance(url_obj, dict):
+                                source_urls.append(url_obj.get('url', ''))
+                            else:
+                                source_urls.append(url_obj)
+                        source_path = '\n'.join(source_urls[:3])  # 最多显示3个链接
+                        if len(source_urls) > 3:
+                            source_path += f'\n... 等共 {len(source_urls)} 个链接'
+                    else:
+                        source_path = '无'
+                    
+                    # 构建目标路径（包含子目录）
+                    target_path = task.get('target_path', '')
+                    if task.get('save_mode') == 'subfolder' and task.get('target_folder_name'):
+                        target_path = f"{target_path.rstrip('/')}/{task.get('target_folder_name')}"
+                    
+                    # 构建任务上下文
+                    task_context = {
+                        'task_id': task_id,
+                        'task_name': task.get('name', ''),
+                        'task_type': 'transfer',
+                        'status': 'success' if fail_count == 0 else 'partial',
+                        'start_time': start_time_str,
+                        'end_time': end_time_str,
+                        'duration': duration,
+                        'total_count': total_files,
+                        'success_count': success_count,
+                        'failed_count': fail_count,
+                        'source_path': source_path,
+                        'target_path': target_path,
+                    }
+                    
+                    add_log('开始执行关联插件...', 'info')
+                    plugin_result = PluginExecutor.execute_plugins(
+                        task_id=task_id,
+                        task_type='transfer',
+                        execution_id=execution_id,
+                        task_context=task_context
+                    )
+                    
+                    if plugin_result['total'] > 0:
+                        add_log(
+                            f"插件执行完成: 总计 {plugin_result['total']} 个，"
+                            f"成功 {plugin_result['success']} 个，"
+                            f"失败 {plugin_result['failed']} 个，"
+                            f"跳过 {plugin_result['skipped']} 个", 
+                            'info')
+                        
+                        # 更新日志到数据库
+                        with get_db() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE task_execution_history 
+                                SET logs = ?
+                                WHERE id = ?
+                            """, (json.dumps(logs, ensure_ascii=False), execution_id))
+                            conn.commit()
+                    else:
+                        add_log('没有关联的插件需要执行', 'info')
+                        
+                except Exception as plugin_error:
+                    add_log(f"插件执行异常: {str(plugin_error)}", 'warning')
+                    logger.error(f"执行插件异常: {plugin_error}", exc_info=True)
+                    
+                    # 更新日志到数据库
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE task_execution_history 
+                            SET logs = ?
+                            WHERE id = ?
+                        """, (json.dumps(logs, ensure_ascii=False), execution_id))
+                        conn.commit()
+                
                 return jsonify({
                     'code': 200,
                     'message': '执行完成',
@@ -966,6 +1068,108 @@ def execute_task(task_id):
                         WHERE id = ?
                     """, ('success', datetime.now(), logs_json, success_count, fail_count, execution_id))
                     conn.commit()
+                
+                # 执行关联的插件
+                try:
+                    from services.plugin_executor import PluginExecutor
+                    
+                    # 从执行历史中获取真实的开始时间和结束时间
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT start_time, end_time, duration
+                            FROM task_execution_history
+                            WHERE id = ?
+                        """, (execution_id,))
+                        history_row = cursor.fetchone()
+                    
+                    if history_row:
+                        start_time_str = history_row[0]
+                        end_time_str = history_row[1]
+                        duration = history_row[2] or 0
+                    else:
+                        start_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        duration = 0
+                    
+                    # 构建来源路径（分享链接列表）
+                    share_urls_list = task.get('share_urls', [])
+                    if share_urls_list:
+                        # 提取所有分享链接
+                        source_urls = []
+                        for url_obj in share_urls_list:
+                            if isinstance(url_obj, dict):
+                                source_urls.append(url_obj.get('url', ''))
+                            else:
+                                source_urls.append(url_obj)
+                        source_path = '\n'.join(source_urls[:3])  # 最多显示3个链接
+                        if len(source_urls) > 3:
+                            source_path += f'\n... 等共 {len(source_urls)} 个链接'
+                    else:
+                        source_path = '无'
+                    
+                    # 构建目标路径（包含子目录）
+                    target_path = task.get('target_path', '')
+                    if task.get('save_mode') == 'subfolder' and task.get('target_folder_name'):
+                        target_path = f"{target_path.rstrip('/')}/{task.get('target_folder_name')}"
+                    
+                    # 构建任务上下文
+                    task_context = {
+                        'task_id': task_id,
+                        'task_name': task.get('name', ''),
+                        'task_type': 'transfer',
+                        'status': 'success' if fail_count == 0 else 'partial',
+                        'start_time': start_time_str,
+                        'end_time': end_time_str,
+                        'duration': duration,
+                        'total_count': total_files,
+                        'success_count': success_count,
+                        'failed_count': fail_count,
+                        'source_path': source_path,
+                        'target_path': target_path,
+                    }
+                    
+                    add_log('开始执行关联插件...', 'info')
+                    plugin_result = PluginExecutor.execute_plugins(
+                        task_id=task_id,
+                        task_type='transfer',
+                        execution_id=execution_id,
+                        task_context=task_context
+                    )
+                    
+                    if plugin_result['total'] > 0:
+                        add_log(
+                            f"插件执行完成: 总计 {plugin_result['total']} 个，"
+                            f"成功 {plugin_result['success']} 个，"
+                            f"失败 {plugin_result['failed']} 个，"
+                            f"跳过 {plugin_result['skipped']} 个", 
+                            'info')
+                        
+                        # 更新日志到数据库
+                        with get_db() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE task_execution_history 
+                                SET logs = ?
+                                WHERE id = ?
+                            """, (json.dumps(logs, ensure_ascii=False), execution_id))
+                            conn.commit()
+                    else:
+                        add_log('没有关联的插件需要执行', 'info')
+                        
+                except Exception as plugin_error:
+                    add_log(f"插件执行异常: {str(plugin_error)}", 'warning')
+                    logger.error(f"执行插件异常: {plugin_error}", exc_info=True)
+                    
+                    # 更新日志到数据库
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE task_execution_history 
+                            SET logs = ?
+                            WHERE id = ?
+                        """, (json.dumps(logs, ensure_ascii=False), execution_id))
+                        conn.commit()
             
             add_log(f"任务执行完成！成功: {success_count}, 失败: {fail_count}, 文件数: {total_files}", 'success')
             

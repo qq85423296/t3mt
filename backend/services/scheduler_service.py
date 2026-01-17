@@ -1000,14 +1000,24 @@ class SchedulerService:
                             elif status == 'failed':
                                 task_logger.error(f"下载失败: {episode_name}")
                         
+                        # 获取任务配置
+                        task_config = {
+                            'enable_file_size_check': task.enable_file_size_check if hasattr(task, 'enable_file_size_check') else False,
+                            'min_file_size': task.min_file_size if hasattr(task, 'min_file_size') else 10,
+                            'enable_retry': task.enable_retry if hasattr(task, 'enable_retry') else False,
+                            'max_retry_count': task.max_retry_count if hasattr(task, 'max_retry_count') else 3,
+                            'retry_interval': task.retry_interval if hasattr(task, 'retry_interval') else 30
+                        }
+                        
                         # 执行下载
                         result = video_download_service.download_task_episodes(
-                            task_id,
-                            task.episodes,
-                            actual_save_directory,
-                            task.name,  # 传入任务名称
-                            progress_callback,
-                            lambda msg: task_logger.info(msg)
+                            task_id=task_id,
+                            episodes=task.episodes,
+                            save_directory=actual_save_directory,
+                            task_name=task.name,
+                            task_config=task_config,
+                            progress_callback=progress_callback,
+                            log_callback=lambda msg: task_logger.info(msg)
                         )
                         
                         # 更新最终状态
@@ -1037,6 +1047,22 @@ class SchedulerService:
                                 """, (end_time, duration, 'success', result['success_count'] + result.get('skipped_count', 0), 
                                       result['failed_count'], json.dumps(task_logger.get_logs(), ensure_ascii=False), execution_id))
                                 conn.commit()
+                            
+                            # 执行关联的插件
+                            cls._execute_task_plugins(
+                                task_id=task_id,
+                                task_type='video',
+                                execution_id=execution_id,
+                                task_name=task.name,
+                                final_status='success',
+                                start_time=start_time,
+                                end_time=end_time,
+                                success_count=result['success_count'] + result.get('skipped_count', 0),
+                                failed_count=result['failed_count'],
+                                total_count=result['total'],
+                                target_path=actual_save_directory,
+                                task_logger=task_logger
+                            )
                         else:
                             VideoTask.update(
                                 task_id,
@@ -1057,6 +1083,23 @@ class SchedulerService:
                                 """, (end_time, duration, 'failed', result['success_count'], 
                                       result['failed_count'], json.dumps(task_logger.get_logs(), ensure_ascii=False), error_message, execution_id))
                                 conn.commit()
+                            
+                            # 执行关联的插件（即使任务失败也执行）
+                            cls._execute_task_plugins(
+                                task_id=task_id,
+                                task_type='video',
+                                execution_id=execution_id,
+                                task_name=task.name,
+                                final_status='failed',
+                                start_time=start_time,
+                                end_time=end_time,
+                                success_count=result['success_count'],
+                                failed_count=result['failed_count'],
+                                total_count=result['total'],
+                                target_path=actual_save_directory,
+                                task_logger=task_logger,
+                                error_message=error_message
+                            )
                         
                     except Exception as e:
                         logger.error(f"下载任务 {task_id} 失败: {str(e)}", exc_info=True)
@@ -1131,6 +1174,77 @@ class SchedulerService:
                 logger.error(f"记录错误日志失败: {log_error}")
             
             raise
+    
+    @classmethod
+    def _execute_task_plugins(cls, task_id, task_type, execution_id, task_name,
+                              final_status, start_time, end_time, success_count,
+                              failed_count, total_count, target_path,
+                              task_logger=None, source_path='', error_message=''):
+        """
+        执行任务关联的插件
+        
+        Args:
+            task_id: 任务ID
+            task_type: 任务类型（transfer/download/video）
+            execution_id: 执行记录ID
+            task_name: 任务名称
+            final_status: 最终状态（success/failed/partial）
+            start_time: 开始时间
+            end_time: 结束时间
+            success_count: 成功数
+            failed_count: 失败数
+            total_count: 总数
+            target_path: 目标路径
+            task_logger: 任务日志记录器（可选）
+            source_path: 源路径（可选）
+            error_message: 错误信息（可选）
+        """
+        try:
+            from services.plugin_executor import PluginExecutor
+            
+            # 构建任务上下文
+            task_context = {
+                'task_id': task_id,
+                'task_name': task_name,
+                'task_type': task_type,
+                'status': final_status,
+                'start_time': start_time,
+                'end_time': end_time,
+                'total_count': total_count,
+                'success_count': success_count,
+                'failed_count': failed_count,
+                'source_path': source_path,
+                'target_path': target_path,
+                'error_message': error_message,
+            }
+            
+            if task_logger:
+                task_logger.info('开始执行关联插件...')
+            
+            plugin_result = PluginExecutor.execute_plugins(
+                task_id=task_id,
+                task_type=task_type,
+                execution_id=execution_id,
+                task_context=task_context
+            )
+            
+            if plugin_result['total'] > 0:
+                msg = (f"插件执行完成: 总计 {plugin_result['total']} 个，"
+                       f"成功 {plugin_result['success']} 个，"
+                       f"失败 {plugin_result['failed']} 个，"
+                       f"跳过 {plugin_result['skipped']} 个")
+                if task_logger:
+                    task_logger.info(msg)
+                logger.info(f"任务 {task_id} ({task_type}) {msg}")
+            else:
+                if task_logger:
+                    task_logger.info('没有关联的插件需要执行')
+                    
+        except Exception as e:
+            error_msg = f"插件执行异常: {str(e)}"
+            if task_logger:
+                task_logger.warning(error_msg)
+            logger.error(f"任务 {task_id} ({task_type}) {error_msg}", exc_info=True)
     
     @classmethod
     def generate_schedules_manually(cls, date_str=None):

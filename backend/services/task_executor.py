@@ -604,6 +604,19 @@ class TaskExecutor:
                         cls._update_progress(task_id, status='failed')
                         return
                     
+                    # 调试：记录当前目录下的所有文件夹
+                    folder_names = []
+                    for f in files:
+                        is_folder = f.get('dir') or f.get('isFolder')
+                        if is_folder:
+                            file_name = f.get('file_name') or f.get('name')
+                            folder_names.append(file_name)
+                    
+                    if folder_names:
+                        cls._add_log(task_id, f"当前目录下的文件夹: {', '.join(folder_names[:10])}", 'info')
+                        if len(folder_names) > 10:
+                            cls._add_log(task_id, f"... 等共 {len(folder_names)} 个文件夹", 'info')
+                    
                     found = False
                     for f in files:
                         # 统一处理不同云盘的字段名
@@ -611,14 +624,38 @@ class TaskExecutor:
                         file_name = f.get('file_name') or f.get('name')
                         file_id = f.get('fid') or f.get('id')
                         
-                        if is_folder and file_name == part:
+                        # 去除首尾空格后进行匹配
+                        if is_folder and file_name and file_name.strip() == part.strip():
                             current_fid = str(file_id)
                             found = True
+                            cls._add_log(task_id, f"找到目录: {part} (ID: {current_fid})", 'info')
                             break
                     
                     if not found:
                         cls._add_log(task_id, f"未找到目录: {part}", 'error')
+                        cls._add_log(task_id, f"期望目录名: '{part}' (长度: {len(part)})", 'error')
                         cls._update_progress(task_id, status='failed')
+                        
+                        # 更新执行历史记录
+                        if execution_id:
+                            import json
+                            from database import get_db
+                            with get_db() as conn:
+                                cursor = conn.cursor()
+                                logs_json = json.dumps(cls._running_tasks[task_id]['logs'], ensure_ascii=False)
+                                cursor.execute("""
+                                    UPDATE task_execution_history 
+                                    SET status = ?, end_time = ?, logs = ?,
+                                        success_count = ?, failed_count = ?, error_message = ?
+                                    WHERE id = ?
+                                """, ('failed', datetime.now(), logs_json, 0, 0, f'未找到目录: {part}', execution_id))
+                                conn.commit()
+                        
+                        # 清理任务状态
+                        with cls._lock:
+                            if task_id in cls._running_tasks:
+                                del cls._running_tasks[task_id]
+                        
                         return
                 
                 folder_id = current_fid
@@ -671,6 +708,27 @@ class TaskExecutor:
             if not all_files:
                 cls._add_log(task_id, '未找到任何文件', 'warning')
                 cls._update_progress(task_id, status='completed', total_files=0)
+                
+                # 更新执行历史记录
+                if execution_id:
+                    import json
+                    from database import get_db
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        logs_json = json.dumps(cls._running_tasks[task_id]['logs'], ensure_ascii=False)
+                        cursor.execute("""
+                            UPDATE task_execution_history 
+                            SET status = ?, end_time = ?, logs = ?,
+                                success_count = ?, failed_count = ?, error_message = ?
+                            WHERE id = ?
+                        """, ('failed', datetime.now(), logs_json, 0, 0, '未找到任何文件', execution_id))
+                        conn.commit()
+                
+                # 清理任务状态
+                with cls._lock:
+                    if task_id in cls._running_tasks:
+                        del cls._running_tasks[task_id]
+                
                 return
             
             cls._add_log(task_id, f"递归扫描完成，共找到 {len(all_files)} 个文件", 'info')
