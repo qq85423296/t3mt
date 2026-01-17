@@ -136,10 +136,13 @@ class MigrationRunner:
     
     def _check_plugin_tables_migration_needed(self):
         """检查是否需要执行插件系统表的迁移"""
+        from utils.logger import logger
+        
         migration_name = 'add_plugin_tables'
         applied_migrations = self._get_applied_migrations()
         
         if migration_name in applied_migrations:
+            logger.info(f"  迁移 {migration_name} 已在迁移记录中")
             return False
         
         # 检查三张表是否都已存在
@@ -147,17 +150,17 @@ class MigrationRunner:
         task_plugin_relation_exists = self._check_table_exists('task_plugin_relation')
         plugin_exec_log_exists = self._check_table_exists('plugin_exec_log')
         
-        print(f"  插件表检查: plugin_info={plugin_info_exists}, task_plugin_relation={task_plugin_relation_exists}, plugin_exec_log={plugin_exec_log_exists}")
+        logger.info(f"  插件表检查: plugin_info={plugin_info_exists}, task_plugin_relation={task_plugin_relation_exists}, plugin_exec_log={plugin_exec_log_exists}")
         
         if plugin_info_exists and task_plugin_relation_exists and plugin_exec_log_exists:
             # 表已存在，记录迁移但不执行
-            print(f"  迁移 {migration_name} 的表已存在，跳过执行")
+            logger.info(f"  迁移 {migration_name} 的表已存在，跳过执行")
             self._record_migration(migration_name)
             return False
         
         # 如果部分表存在，说明之前迁移失败，需要重新执行
         if plugin_info_exists or task_plugin_relation_exists or plugin_exec_log_exists:
-            print(f"  警告: 插件表部分存在，将重新执行完整迁移")
+            logger.warning(f"  警告: 插件表部分存在，将重新执行完整迁移")
         
         return True
     
@@ -186,68 +189,72 @@ class MigrationRunner:
     
     def run_migrations(self):
         """执行所有待执行的迁移"""
-        print("=" * 80)
-        print("开始检查数据库迁移...")
-        print("=" * 80)
+        from utils.logger import logger
+        
+        logger.info("=" * 80)
+        logger.info("开始检查数据库迁移...")
+        logger.info("=" * 80)
         
         # 检查数据库是否存在
         if not os.path.exists(self.db_path):
-            print("数据库文件不存在，将在应用启动时自动创建")
+            logger.info("数据库文件不存在，将在应用启动时自动创建")
             return True
+        
+        logger.info(f"数据库路径: {self.db_path}")
         
         try:
             migrations_executed = False
             
             # 迁移1：文件大小和重试功能
             if self._check_file_size_retry_migration_needed():
-                print("\n检测到需要执行迁移: add_file_size_and_retry_config")
-                print("正在执行迁移...")
+                logger.info("检测到需要执行迁移: add_file_size_and_retry_config")
+                logger.info("正在执行迁移...")
                 
                 from migrations.add_file_size_and_retry_config import upgrade
                 upgrade()
                 
                 self._record_migration('add_file_size_and_retry_config')
-                print("✅ 迁移 add_file_size_and_retry_config 执行成功")
+                logger.info("✅ 迁移 add_file_size_and_retry_config 执行成功")
                 migrations_executed = True
             
             # 迁移2：正则替换字段
             if self._check_regex_pattern_migration_needed():
-                print("\n检测到需要执行迁移: add_regex_pattern_fields")
-                print("正在执行迁移...")
+                logger.info("检测到需要执行迁移: add_regex_pattern_fields")
+                logger.info("正在执行迁移...")
                 
                 from migrations.add_regex_pattern_fields import upgrade
                 upgrade()
                 
                 self._record_migration('add_regex_pattern_fields')
-                print("✅ 迁移 add_regex_pattern_fields 执行成功")
+                logger.info("✅ 迁移 add_regex_pattern_fields 执行成功")
                 migrations_executed = True
             
             # 迁移3：cloud_type字段（多云盘支持）
             if self._check_cloud_type_migration_needed():
-                print("\n检测到需要执行迁移: add_cloud_type_field")
-                print("正在执行迁移...")
+                logger.info("检测到需要执行迁移: add_cloud_type_field")
+                logger.info("正在执行迁移...")
                 
                 from migrations.add_cloud_type_field import migrate_add_cloud_type
                 migrate_add_cloud_type()
                 
                 self._record_migration('add_cloud_type_field')
-                print("✅ 迁移 add_cloud_type_field 执行成功")
+                logger.info("✅ 迁移 add_cloud_type_field 执行成功")
                 migrations_executed = True
             
             # 迁移4：插件系统表
             if self._check_plugin_tables_migration_needed():
-                print("\n检测到需要执行迁移: add_plugin_tables")
-                print("正在执行迁移...")
+                logger.info("检测到需要执行迁移: add_plugin_tables")
+                logger.info("正在执行迁移...")
                 
                 try:
                     from migrations.add_plugin_tables import upgrade
                     upgrade()
                     
                     self._record_migration('add_plugin_tables')
-                    print("✅ 迁移 add_plugin_tables 执行成功")
+                    logger.info("✅ 迁移 add_plugin_tables 执行成功")
                     migrations_executed = True
                 except Exception as e:
-                    print(f"❌ 迁移 add_plugin_tables 执行失败: {str(e)}")
+                    logger.error(f"❌ 迁移 add_plugin_tables 执行失败: {str(e)}")
                     import traceback
                     traceback.print_exc()
                     # 插件表迁移失败，返回False
@@ -255,25 +262,25 @@ class MigrationRunner:
             
             # 迁移5：插件参数选择字段
             if self._check_selected_params_migration_needed():
-                print("\n检测到需要执行迁移: add_selected_params_field")
-                print("正在执行迁移...")
+                logger.info("检测到需要执行迁移: add_selected_params_field")
+                logger.info("正在执行迁移...")
                 
                 from migrations.add_selected_params_field import upgrade
                 upgrade()
                 
                 self._record_migration('add_selected_params_field')
-                print("✅ 迁移 add_selected_params_field 执行成功")
+                logger.info("✅ 迁移 add_selected_params_field 执行成功")
                 migrations_executed = True
             
             if not migrations_executed:
-                print("✅ 所有迁移已是最新状态")
+                logger.info("✅ 所有迁移已是最新状态")
             
-            print("=" * 80)
+            logger.info("=" * 80)
             return True
             
         except Exception as e:
-            print(f"❌ 迁移执行失败: {str(e)}")
-            print("=" * 80)
+            logger.error(f"❌ 迁移执行失败: {str(e)}")
+            logger.info("=" * 80)
             import traceback
             traceback.print_exc()
             return False
