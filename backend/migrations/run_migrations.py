@@ -124,6 +124,66 @@ class MigrationRunner:
         
         return True
     
+    def _check_table_exists(self, table_name):
+        """检查表是否存在"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name=?
+            """, (table_name,))
+            return cursor.fetchone() is not None
+    
+    def _check_plugin_tables_migration_needed(self):
+        """检查是否需要执行插件系统表的迁移"""
+        migration_name = 'add_plugin_tables'
+        applied_migrations = self._get_applied_migrations()
+        
+        if migration_name in applied_migrations:
+            return False
+        
+        # 检查三张表是否都已存在
+        plugin_info_exists = self._check_table_exists('plugin_info')
+        task_plugin_relation_exists = self._check_table_exists('task_plugin_relation')
+        plugin_exec_log_exists = self._check_table_exists('plugin_exec_log')
+        
+        print(f"  插件表检查: plugin_info={plugin_info_exists}, task_plugin_relation={task_plugin_relation_exists}, plugin_exec_log={plugin_exec_log_exists}")
+        
+        if plugin_info_exists and task_plugin_relation_exists and plugin_exec_log_exists:
+            # 表已存在，记录迁移但不执行
+            print(f"  迁移 {migration_name} 的表已存在，跳过执行")
+            self._record_migration(migration_name)
+            return False
+        
+        # 如果部分表存在，说明之前迁移失败，需要重新执行
+        if plugin_info_exists or task_plugin_relation_exists or plugin_exec_log_exists:
+            print(f"  警告: 插件表部分存在，将重新执行完整迁移")
+        
+        return True
+    
+    def _check_selected_params_migration_needed(self):
+        """检查是否需要执行 selected_params 字段的迁移"""
+        migration_name = 'add_selected_params_field'
+        applied_migrations = self._get_applied_migrations()
+        
+        if migration_name in applied_migrations:
+            return False
+        
+        # 检查 task_plugin_relation 表是否存在
+        if not self._check_table_exists('task_plugin_relation'):
+            return False
+        
+        # 检查字段是否已存在
+        columns = self._get_table_columns('task_plugin_relation')
+        
+        if 'selected_params' in columns:
+            # 字段已存在，记录迁移但不执行
+            print(f"  迁移 {migration_name} 的字段已存在，跳过执行")
+            self._record_migration(migration_name)
+            return False
+        
+        return True
+    
     def run_migrations(self):
         """执行所有待执行的迁移"""
         print("=" * 80)
@@ -172,6 +232,30 @@ class MigrationRunner:
                 
                 self._record_migration('add_cloud_type_field')
                 print("✅ 迁移 add_cloud_type_field 执行成功")
+                migrations_executed = True
+            
+            # 迁移4：插件系统表
+            if self._check_plugin_tables_migration_needed():
+                print("\n检测到需要执行迁移: add_plugin_tables")
+                print("正在执行迁移...")
+                
+                from migrations.add_plugin_tables import upgrade
+                upgrade()
+                
+                self._record_migration('add_plugin_tables')
+                print("✅ 迁移 add_plugin_tables 执行成功")
+                migrations_executed = True
+            
+            # 迁移5：插件参数选择字段
+            if self._check_selected_params_migration_needed():
+                print("\n检测到需要执行迁移: add_selected_params_field")
+                print("正在执行迁移...")
+                
+                from migrations.add_selected_params_field import upgrade
+                upgrade()
+                
+                self._record_migration('add_selected_params_field')
+                print("✅ 迁移 add_selected_params_field 执行成功")
                 migrations_executed = True
             
             if not migrations_executed:
