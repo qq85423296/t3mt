@@ -613,7 +613,6 @@
                 <th class="checkbox-cell">
                     <input type="checkbox" class="task-checkbox" id="selectAll" onchange="window.toggleSelectAll()" title="全选/取消全选" />
                 </th>
-                <th style="width: 80px;">云盘类型</th>
                 <th style="width: 80px;">任务类型</th>
                 <th style="width: 280px; text-align: left; padding-left: 12px;">任务名称</th>
                 <th style="width: 120px;">账期</th>
@@ -626,7 +625,7 @@
         </thead>
         <tbody id="executionList">
             <tr>
-                <td colspan="10">
+                <td colspan="9">
                     <div class="loading">加载中...</div>
                 </td>
             </tr>
@@ -978,7 +977,7 @@
         // 加载执行历史列表
         window.loadExecutions = async function() {
         const tbody = document.getElementById('executionList');
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
 
         try {
             const cloudType = document.getElementById('filterCloudType').value;
@@ -1027,11 +1026,11 @@
                 // 更新统计数据
                 await updateStats();
             } else {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
             }
         } catch (error) {
             console.error('加载执行历史失败:', error);
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
         }
     }
 
@@ -1043,19 +1042,46 @@
         currentExecutions = executions || [];
 
         if (!executions || executions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">暂无执行记录</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">暂无执行记录</div></td></tr>';
             return;
         }
 
         tbody.innerHTML = executions.map(exec => {
-            // 云盘类型标签
-            const cloudTypeBadge = exec.cloud_type === 'cloud189' 
-                ? '<span class="badge" style="background-color: #2196F3; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">天翼189</span>'
-                : '<span class="badge" style="background-color: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">夸克</span>';
+            // 任务类型文本和标签
+            let taskTypeText = '';
+            let taskTypeBadge = '';
             
-            const taskTypeText = exec.task_type === 'transfer' ? '定时转存' : 
-                                exec.task_type === 'download' ? '定时下载' : 
-                                exec.task_type === 'video' ? '影视下载' : exec.task_type;
+            if (exec.task_type === 'video') {
+                // 影视下载：显示平台标签
+                taskTypeText = '影视下载';
+                if (exec.platform) {
+                    const platformMap = {
+                        'mango': { text: '芒果TV', color: '#FF6A00' },
+                        'tencent': { text: '腾讯视频', color: '#00A4FF' },
+                        'iqiyi': { text: '爱奇艺', color: '#00BE06' },
+                        'youku': { text: '优酷', color: '#00A0E9' }
+                    };
+                    const platform = platformMap[exec.platform] || { text: exec.platform, color: '#999999' };
+                    taskTypeBadge = `<span style="font-size: 11px; color: ${platform.color}; background: ${platform.color}15; padding: 2px 6px; border-radius: 3px; margin-left: 6px; font-weight: 500;">${platform.text}</span>`;
+                }
+            } else {
+                // 转存/下载：显示云盘类型标签
+                if (exec.task_type === 'transfer') {
+                    taskTypeText = '定时转存';
+                } else if (exec.task_type === 'download') {
+                    taskTypeText = '定时下载';
+                } else {
+                    taskTypeText = exec.task_type;
+                }
+                
+                // 云盘类型标签
+                if (exec.cloud_type === 'cloud189') {
+                    taskTypeBadge = '<span style="font-size: 11px; color: #2196F3; background: #2196F315; padding: 2px 6px; border-radius: 3px; margin-left: 6px; font-weight: 500;">天翼189</span>';
+                } else if (exec.cloud_type === 'quark') {
+                    taskTypeBadge = '<span style="font-size: 11px; color: #4CAF50; background: #4CAF5015; padding: 2px 6px; border-radius: 3px; margin-left: 6px; font-weight: 500;">夸克</span>';
+                }
+            }
+            
             const statusClass = exec.status === 'pending' ? 'status-pending' :
                               exec.status === 'running' ? 'status-running' : 
                               exec.status === 'success' ? 'status-success' : 
@@ -1103,19 +1129,6 @@
             
             // 判断复选框是否选中
             const isChecked = selectedExecutions.has(exec.id) ? 'checked' : '';
-            
-            // 构建平台标签（仅影视下载任务显示）
-            let platformBadge = '';
-            if (exec.task_type === 'video' && exec.platform) {
-                const platformMap = {
-                    'mango': { text: '芒果TV', color: '#FF6A00' },
-                    'tencent': { text: '腾讯视频', color: '#00A4FF' },
-                    'iqiyi': { text: '爱奇艺', color: '#00BE06' },
-                    'youku': { text: '优酷', color: '#00A0E9' }
-                };
-                const platform = platformMap[exec.platform] || { text: exec.platform, color: '#999999' };
-                platformBadge = `<span style="font-size: 11px; color: ${platform.color}; background: ${platform.color}15; padding: 2px 6px; border-radius: 3px; margin-left: 8px; font-weight: 500;">${platform.text}</span>`;
-            }
 
             return `
                 <tr>
@@ -1123,9 +1136,8 @@
                         <input type="checkbox" class="task-checkbox" data-exec-id="${exec.id}" 
                                onchange="window.toggleExecutionSelection(${exec.id})" ${isChecked} />
                     </td>
-                    <td>${cloudTypeBadge}</td>
-                    <td>${taskTypeText}</td>
-                    <td class="task-name-cell" title="${exec.task_name || ''}">${exec.task_name || '-'}${platformBadge}</td>
+                    <td>${taskTypeText}${taskTypeBadge}</td>
+                    <td class="task-name-cell" title="${exec.task_name || ''}">${exec.task_name || '-'}</td>
                     <td>${schedulePeriodText}</td>
                     <td>${formatTime(exec.start_time)}</td>
                     <td>${formatTime(exec.end_time)}</td>
