@@ -1,0 +1,105 @@
+{
+    "plugin_id": "email_notify",
+    "plugin_name": "邮件提醒",
+    "plugin_version": "1.0.1",
+    "plugin_author": "T3MT",
+    "plugin_desc": "任务执行完成后发送邮件通知，支持自定义发送条件和邮件模板",
+    "config_schema": [
+        {
+            "param_key": "smtp_server",
+            "param_name": "SMTP服务器",
+            "param_type": "string",
+            "param_desc": "SMTP服务器地址，如 smtp.qq.com",
+            "required": true,
+            "default_value": ""
+        },
+        {
+            "param_key": "smtp_port",
+            "param_name": "SMTP端口",
+            "param_type": "number",
+            "param_desc": "SMTP服务器端口，SSL通常为465，TLS通常为587",
+            "required": true,
+            "default_value": 465
+        },
+        {
+            "param_key": "smtp_ssl",
+            "param_name": "使用SSL",
+            "param_type": "boolean",
+            "param_desc": "是否使用SSL加密连接",
+            "required": false,
+            "default_value": true
+        },
+        {
+            "param_key": "sender_email",
+            "param_name": "发件人邮箱",
+            "param_type": "string",
+            "param_desc": "发送邮件的邮箱地址",
+            "required": true,
+            "default_value": ""
+        },
+        {
+            "param_key": "sender_password",
+            "param_name": "邮箱密码/授权码",
+            "param_type": "string",
+            "param_desc": "邮箱密码或SMTP授权码",
+            "required": true,
+            "default_value": ""
+        },
+        {
+            "param_key": "receiver_emails",
+            "param_name": "收件人邮箱",
+            "param_type": "string",
+            "param_desc": "接收通知的邮箱地址，多个用逗号分隔",
+            "required": true,
+            "default_value": ""
+        },
+        {
+            "param_key": "send_on_success",
+            "param_name": "成功时发送",
+            "param_type": "boolean",
+            "param_desc": "任务成功完成时是否发送邮件",
+            "required": false,
+            "default_value": true
+        },
+        {
+            "param_key": "send_on_failure",
+            "param_name": "失败时发送",
+            "param_type": "boolean",
+            "param_desc": "任务失败时是否发送邮件",
+            "required": false,
+            "default_value": true
+        },
+        {
+            "param_key": "send_on_partial",
+            "param_name": "部分成功时发送",
+            "param_type": "boolean",
+            "param_desc": "任务部分成功时是否发送邮件",
+            "required": false,
+            "default_value": true
+        },
+        {
+            "param_key": "email_body_template",
+            "param_name": "邮件正文模板",
+            "param_type": "textarea",
+            "param_desc": "邮件正文模板，支持变量：{task_name}, {task_type}, {status}, {source_path}, {target_path}, {total_count}, {success_count}, {failed_count}, {duration}, {total_size}, {start_time}, {end_time}, {error_message}。留空则使用默认HTML模板",
+            "required": false,
+            "default_value": "{task_type}-{task_name}任务: {status}\n来源目录: {source_path}\n目标目录: {target_path}\n的作业执行结束。\n\n共 {total_count} 个需要同步的文件，成功 {success_count} 个，失败 {failed_count} 个。\n本次同步共耗时：{duration}，成功同步 {total_size} 文件。"
+        },
+        {
+            "param_key": "use_html_template",
+            "param_name": "使用HTML模板",
+            "param_type": "boolean",
+            "param_desc": "是否使用内置的HTML美化模板，关闭则使用纯文本正文模板",
+            "required": false,
+            "default_value": true
+        },
+        {
+            "param_key": "timeout",
+            "param_name": "超时时间(秒)",
+            "param_type": "number",
+            "param_desc": "SMTP连接和发送超时时间",
+            "required": false,
+            "default_value": 30
+        }
+    ]
+}

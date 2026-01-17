@@ -435,6 +435,9 @@
                     <input type="hidden" id="cronExpression" />
                 </div>
             </div>
+            
+            <!-- 模块5：插件选择 -->
+            <div id="taskPluginsContainer"></div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-cancel" onclick="hideTaskModal()">取消</button>
@@ -619,6 +622,27 @@
     const script = document.createElement('script');
     script.src = '../js/cron-config.js';
     document.head.appendChild(script);
+    
+    // 加载任务插件选择组件
+    const pluginsResponse = await fetch('../components/task-plugins.html');
+    const pluginsHtml = await pluginsResponse.text();
+    const pluginsContainer = document.getElementById('taskPluginsContainer');
+    if (pluginsContainer) {
+        pluginsContainer.innerHTML = pluginsHtml;
+        // 手动执行组件中的脚本
+        const scripts = pluginsContainer.querySelectorAll('script');
+        scripts.forEach(s => {
+            const newScript = document.createElement('script');
+            newScript.textContent = s.textContent;
+            document.head.appendChild(newScript);
+        });
+        // 初始化插件管理器
+        setTimeout(() => {
+            if (window.TaskPluginsManager) {
+                TaskPluginsManager.init('download');
+            }
+        }, 100);
+    }
 })();
 
 (function() {
@@ -718,6 +742,12 @@
         document.getElementById('modalTitle').textContent = '新建下载任务';
         document.querySelector('.download-task-modal .btn-primary').textContent = '确认创建';
         resetTaskForm();
+        
+        // 重置插件选择
+        if (window.TaskPluginsManager) {
+            TaskPluginsManager.reset();
+        }
+        
         document.getElementById('taskModal').classList.add('show');
     }
 
@@ -1048,13 +1078,23 @@
 
         try {
             let result;
+            let savedTaskId = currentTaskId;
+            
             if (currentTaskId) {
                 result = await DownloadAPI.update(currentTaskId, taskData);
             } else {
                 result = await DownloadAPI.create(taskData);
+                if (result.code === 200 && result.data && result.data.id) {
+                    savedTaskId = result.data.id;
+                }
             }
             
             if (result.code === 200) {
+                // 保存插件关联
+                if (savedTaskId && window.TaskPluginsManager) {
+                    await TaskPluginsManager.saveTaskPlugins(savedTaskId, 'download');
+                }
+                
                 Message.success(currentTaskId ? '任务更新成功' : '任务创建成功');
                 hideTaskModal();
                 loadTasks();
@@ -1078,6 +1118,11 @@
                 document.getElementById('modalTitle').textContent = '编辑下载任务';
                 document.querySelector('.download-task-modal .btn-primary').textContent = '确认更新';
                 document.getElementById('taskModal').classList.add('show');
+                
+                // 加载任务关联的插件
+                if (window.TaskPluginsManager) {
+                    await TaskPluginsManager.loadTaskPlugins(taskId, 'download');
+                }
             }
         } catch (error) {
             console.error('加载任务详情失败:', error);

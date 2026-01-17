@@ -600,6 +600,9 @@
                     <div class="form-hint">设置任务的定时执行规则</div>
                 </div>
             </div>
+            
+            <!-- 插件选择 -->
+            <div id="taskPluginsContainer"></div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-cancel" onclick="hideTaskModal()">取消</button>
@@ -643,6 +646,30 @@
             }
         })
         .catch(error => console.error('加载Cron模态框失败:', error));
+    
+    // 动态加载任务插件选择组件
+    fetch('../components/task-plugins.html')
+        .then(response => response.text())
+        .then(html => {
+            const container = document.getElementById('taskPluginsContainer');
+            if (container) {
+                container.innerHTML = html;
+                // 手动执行组件中的脚本
+                const scripts = container.querySelectorAll('script');
+                scripts.forEach(script => {
+                    const newScript = document.createElement('script');
+                    newScript.textContent = script.textContent;
+                    document.head.appendChild(newScript);
+                });
+                // 初始化插件管理器
+                setTimeout(() => {
+                    if (window.TaskPluginsManager) {
+                        TaskPluginsManager.init('video');
+                    }
+                }, 100);
+            }
+        })
+        .catch(error => console.error('加载任务插件组件失败:', error));
 </script>
 
 <script>
@@ -913,6 +940,11 @@
                 }
                 
                 document.getElementById('taskModal').classList.add('show');
+                
+                // 加载任务关联的插件
+                if (window.TaskPluginsManager) {
+                    await TaskPluginsManager.loadTaskPlugins(taskId, 'video');
+                }
             } else {
                 Message.error(result.message || '获取任务详情失败');
             }
@@ -1340,6 +1372,11 @@
         currentTaskId = null;
         document.getElementById('modalTitle').textContent = '新建影视下载任务';
         document.querySelector('.video-task-modal .btn-primary').textContent = '确认创建';
+        
+        // 重置插件选择
+        if (window.TaskPluginsManager) {
+            TaskPluginsManager.reset();
+        }
         
         // 获取默认下载目录
         try {
@@ -1850,13 +1887,23 @@
             };
             
             let result;
+            let savedTaskId = currentTaskId;
+            
             if (currentTaskId) {
                 result = await VideoAPI.update(currentTaskId, data);
             } else {
                 result = await VideoAPI.create(data);
+                if (result.code === 200 && result.data && result.data.id) {
+                    savedTaskId = result.data.id;
+                }
             }
             
             if (result.code === 200) {
+                // 保存插件关联
+                if (savedTaskId && window.TaskPluginsManager) {
+                    await TaskPluginsManager.saveTaskPlugins(savedTaskId, 'video');
+                }
+                
                 Message.success(currentTaskId ? '任务更新成功' : '任务创建成功');
                 hideTaskModal();
                 loadTasks();

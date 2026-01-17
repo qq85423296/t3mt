@@ -631,6 +631,9 @@
                     <div class="form-hint">留空表示永久有效</div>
                 </div>
             </div>
+            
+            <!-- 模块4：插件选择 -->
+            <div id="taskPluginsContainer"></div>
         </div>
         <div class="modal-footer">
             <button class="btn" onclick="hideTaskModal()">取消</button>
@@ -655,6 +658,30 @@
             }
         })
         .catch(error => console.error('加载Cron模态框失败:', error));
+    
+    // 动态加载任务插件选择组件
+    fetch('../components/task-plugins.html')
+        .then(response => response.text())
+        .then(html => {
+            const container = document.getElementById('taskPluginsContainer');
+            if (container) {
+                container.innerHTML = html;
+                // 手动执行组件中的脚本
+                const scripts = container.querySelectorAll('script');
+                scripts.forEach(script => {
+                    const newScript = document.createElement('script');
+                    newScript.textContent = script.textContent;
+                    document.head.appendChild(newScript);
+                });
+                // 初始化插件管理器
+                setTimeout(() => {
+                    if (window.TaskPluginsManager) {
+                        TaskPluginsManager.init('transfer');
+                    }
+                }, 100);
+            }
+        })
+        .catch(error => console.error('加载任务插件组件失败:', error));
 </script>
 
 <!-- 执行日志模态框 -->
@@ -966,6 +993,11 @@
         currentTaskId = null;
         document.getElementById('modalTitle').textContent = '新建转存任务';
         resetTaskForm();
+        
+        // 重置插件选择
+        if (window.TaskPluginsManager) {
+            TaskPluginsManager.reset();
+        }
         
         // 如果提供了分享链接，自动填充
         if (shareUrl) {
@@ -2097,13 +2129,24 @@
 
         try {
             let result;
+            let savedTaskId = currentTaskId;
+            
             if (currentTaskId) {
                 result = await TransferAPI.update(currentTaskId, taskData);
             } else {
                 result = await TransferAPI.create(taskData);
+                // 新建任务时获取返回的任务ID
+                if (result.code === 200 && result.data && result.data.id) {
+                    savedTaskId = result.data.id;
+                }
             }
             
             if (result.code === 200) {
+                // 保存插件关联
+                if (savedTaskId && window.TaskPluginsManager) {
+                    await TaskPluginsManager.saveTaskPlugins(savedTaskId, 'transfer');
+                }
+                
                 Message.success(currentTaskId ? '任务更新成功' : '任务创建成功');
                 hideTaskModal();
                 loadTasks();
@@ -2126,6 +2169,11 @@
                 fillTaskForm(result.data);
                 document.getElementById('modalTitle').textContent = '编辑转存任务';
                 document.getElementById('taskModal').classList.add('show');
+                
+                // 加载任务关联的插件
+                if (window.TaskPluginsManager) {
+                    await TaskPluginsManager.loadTaskPlugins(taskId, 'transfer');
+                }
             }
         } catch (error) {
             console.error('加载任务详情失败:', error);
