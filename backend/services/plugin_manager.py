@@ -878,7 +878,7 @@ class PluginManager:
                     result["skipped"] += 1
                     continue
                 
-                # 创建数据库记录
+                # 创建数据库记录（默认状态为已启动，便于新用户直接使用）
                 PluginInfo.create(
                     plugin_id=plugin_id,
                     plugin_name=meta.get('plugin_name', plugin_id),
@@ -886,7 +886,8 @@ class PluginManager:
                     plugin_author=meta.get('plugin_author'),
                     plugin_desc=meta.get('plugin_desc'),
                     meta_json=meta,
-                    install_path=plugin_dir
+                    install_path=plugin_dir,
+                    status=PluginInfo.STATUS_STARTED  # 自动启动插件
                 )
                 
                 result["installed"] += 1
