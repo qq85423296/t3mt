@@ -1236,9 +1236,25 @@
                 document.getElementById('accountModalTitle').textContent = '编辑云盘账号';
                 document.getElementById('accountCloudType').value = result.data.cloud_type || 'quark';
                 document.getElementById('accountRemark').value = result.data.remark;
-                document.getElementById('accountCookie').value = result.data.cookie;
                 document.getElementById('accountIsMain').checked = result.data.is_main === 1;
-                onCloudTypeChange(); // 更新Cookie提示
+                
+                // 根据是否有username判断登录方式
+                if (result.data.cloud_type === 'cloud189' && result.data.username) {
+                    // 账号密码登录方式
+                    document.getElementById('loginMethod').value = 'password';
+                    document.getElementById('accountUsername').value = result.data.username || '';
+                    document.getElementById('accountPassword').value = result.data.password || '';
+                    document.getElementById('accountCookie').value = '';
+                } else {
+                    // Cookie登录方式
+                    document.getElementById('loginMethod').value = 'cookie';
+                    document.getElementById('accountCookie').value = result.data.cookie || '';
+                    document.getElementById('accountUsername').value = '';
+                    document.getElementById('accountPassword').value = '';
+                }
+                
+                onCloudTypeChange(); // 更新云盘类型相关的界面
+                onLoginMethodChange(); // 更新登录方式相关的界面显示
                 document.getElementById('addAccountModal').classList.add('show');
             } else {
                 Message.error(result.message || '获取账号信息失败');
@@ -1309,20 +1325,36 @@
             let result;
             if (currentEditAccountId) {
                 // 更新账号
-                result = await AccountAPI.update(currentEditAccountId, {
+                const updateData = {
                     cloud_type: cloudType,
                     remark: remark,
                     cookie: cookie,
                     is_main: isMain ? 1 : 0
-                });
+                };
+                
+                // 如果是账号密码登录，也保存username和password
+                if (cloudType === 'cloud189' && username && password) {
+                    updateData.username = username;
+                    updateData.password = password;
+                }
+                
+                result = await AccountAPI.update(currentEditAccountId, updateData);
             } else {
                 // 新增账号
-                result = await AccountAPI.create({
+                const createData = {
                     cloud_type: cloudType,
                     remark: remark,
                     cookie: cookie,
                     is_main: isMain ? 1 : 0
-                });
+                };
+                
+                // 如果是账号密码登录，也保存username和password
+                if (cloudType === 'cloud189' && username && password) {
+                    createData.username = username;
+                    createData.password = password;
+                }
+                
+                result = await AccountAPI.create(createData);
             }
 
             if (result.code === 200) {

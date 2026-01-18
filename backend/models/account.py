@@ -23,7 +23,8 @@ class Account:
             if cloud_type:
                 cursor.execute('''
                     SELECT id, remark, account_name, is_vip, member_type, member_exp_at,
-                           total_size, used_size, is_main, status, cloud_type, created_at, updated_at
+                           total_size, used_size, is_main, status, cloud_type, created_at, updated_at,
+                           username, password
                     FROM quark_accounts
                     WHERE cloud_type = ?
                     ORDER BY is_main DESC, created_at DESC
@@ -31,12 +32,20 @@ class Account:
             else:
                 cursor.execute('''
                     SELECT id, remark, account_name, is_vip, member_type, member_exp_at,
-                           total_size, used_size, is_main, status, cloud_type, created_at, updated_at
+                           total_size, used_size, is_main, status, cloud_type, created_at, updated_at,
+                           username, password
                     FROM quark_accounts
                     ORDER BY cloud_type, is_main DESC, created_at DESC
                 ''')
             accounts = cursor.fetchall()
-            return [dict(account) for account in accounts]
+            result = []
+            for account in accounts:
+                account_dict = dict(account)
+                # 解密密码（如果存在）
+                if account_dict.get('password'):
+                    account_dict['password'] = CryptoUtil.decrypt_password(account_dict['password'])
+                result.append(account_dict)
+            return result
     
     @staticmethod
     def get_by_id(account_id):
@@ -45,7 +54,8 @@ class Account:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT id, remark, cookie, account_name, is_vip, member_type, member_exp_at,
-                       total_size, used_size, is_main, status, cloud_type, created_at, updated_at
+                       total_size, used_size, is_main, status, cloud_type, created_at, updated_at,
+                       username, password
                 FROM quark_accounts WHERE id = ?
             ''', (account_id,))
             account = cursor.fetchone()
@@ -53,6 +63,9 @@ class Account:
                 account_dict = dict(account)
                 # 解密Cookie
                 account_dict['cookie'] = CryptoUtil.decrypt(account_dict['cookie'])
+                # 解密密码（如果存在）
+                if account_dict.get('password'):
+                    account_dict['password'] = CryptoUtil.decrypt_password(account_dict['password'])
                 # 确保cloud_type字段存在
                 if 'cloud_type' not in account_dict or not account_dict['cloud_type']:
                     account_dict['cloud_type'] = 'quark'
@@ -106,6 +119,10 @@ class Account:
         # 加密Cookie
         if 'cookie' in kwargs:
             kwargs['cookie'] = CryptoUtil.encrypt(kwargs['cookie'])
+        
+        # 加密密码
+        if 'password' in kwargs and kwargs['password']:
+            kwargs['password'] = CryptoUtil.encrypt_password(kwargs['password'])
         
         # 更新时间
         kwargs['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

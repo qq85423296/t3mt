@@ -194,14 +194,65 @@ class TaskExecutor:
         return f"{size:.2f} PB"
     
     @classmethod
-    def _download_chunk(cls, task_id: int, download_url: str, headers: dict, start: int, end: int, 
+    def _check_range_support(cls, download_url: str, headers: dict) -> bool:
+        """
+        检测下载链接是否支持Range请求（分段下载）
+        
+        Args:
+            download_url: 下载链接
+            headers: 请求头
+        
+        Returns:
+            bool: 是否支持Range请求
+        """
+        try:
+            # 发送HEAD请求检查Accept-Ranges头
+            test_headers = headers.copy()
+            response = requests.head(download_url, headers=test_headers, timeout=10, verify=False, allow_redirects=True)
+            
+            # 检查Accept-Ranges头
+            accept_ranges = response.headers.get('Accept-Ranges', '').lower()
+            if accept_ranges == 'bytes':
+                logger.info(f"检测到Accept-Ranges: bytes，支持分段下载")
+                return True
+            
+            # 如果HEAD请求没有Accept-Ranges，尝试发送Range请求测试
+            test_headers['Range'] = 'bytes=0-1023'  # 请求前1KB
+            response = requests.get(download_url, headers=test_headers, timeout=10, verify=False, stream=True)
+            
+            # 206状态码表示支持Range请求
+            if response.status_code == 206:
+                logger.info(f"Range请求返回206状态码，支持分段下载")
+                response.close()
+                return True
+            
+            # 200状态码但返回了部分内容也算支持
+            if response.status_code == 200:
+                content_range = response.headers.get('Content-Range', '')
+                if content_range:
+                    logger.info(f"检测到Content-Range头，支持分段下载")
+                    response.close()
+                    return True
+            
+            logger.warning(f"不支持Range请求，状态码: {response.status_code}")
+            response.close()
+            return False
+            
+        except Exception as e:
+            logger.error(f"检测Range支持失败: {e}")
+            # 检测失败时保守处理，返回False使用单线程
+            return False
+    
+    @classmethod
+    def _download_chunk(cls, task_id: int, cloud_service, file_fid: str, headers: dict, start: int, end: int, 
                        chunk_file: Path, chunk_index: int, total_chunks: int, retry: int = 0) -> Dict:
         """
-        下载文件的一个分块
+        下载文件的一个分块（每个线程独立获取下载链接）
         
         Args:
             task_id: 任务ID
-            download_url: 下载链接
+            cloud_service: 云盘服务实例（用于获取下载链接）
+            file_fid: 文件ID
             headers: 请求头
             start: 起始字节
             end: 结束字节
@@ -211,10 +262,30 @@ class TaskExecutor:
             retry: 当前重试次数
         """
         try:
+            # 每个线程独立获取下载链接
+            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 获取下载链接...", 'info')
+            download_result, download_cookie = cloud_service.get_download_url([file_fid])
+            
+            if download_result.get('code') != 0:
+                raise Exception(f"获取下载链接失败: {download_result.get('message', '')}")
+            
+            download_data = download_result.get('data', [])
+            if not download_data:
+                raise Exception("下载链接为空")
+            
+            download_url = download_data[0].get('download_url') or download_data[0].get('downloadUrl')
+            if not download_url:
+                raise Exception("下载链接无效")
+            
+            # 设置Range请求头
             chunk_headers = headers.copy()
             chunk_headers['Range'] = f'bytes={start}-{end}'
             
-            timeout = cls._get_config('download_timeout', 30)
+            # 更新Cookie（使用最新的）
+            if download_cookie:
+                chunk_headers['Cookie'] = download_cookie
+            
+            timeout = cls._get_config('download_timeout', 60)
             
             cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 开始下载 ({cls._format_size(start)}-{cls._format_size(end)})", 'info')
             
@@ -234,6 +305,15 @@ class TaskExecutor:
             chunk_size_bytes = end - start + 1
             with open(chunk_file, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
+                    # 检查任务是否被停止
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 已停止", 'warning')
+                            response.close()
+                            if chunk_file.exists():
+                                chunk_file.unlink()
+                            return {'success': False, 'message': '任务已停止'}
+                    
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
@@ -249,7 +329,7 @@ class TaskExecutor:
             if retry < retry_times:
                 cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 失败，重试 {retry + 1}/{retry_times}", 'warning')
                 time.sleep(retry_delay)
-                return cls._download_chunk(task_id, download_url, headers, start, end, chunk_file, chunk_index, total_chunks, retry + 1)
+                return cls._download_chunk(task_id, cloud_service, file_fid, headers, start, end, chunk_file, chunk_index, total_chunks, retry + 1)
             else:
                 cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 失败: {str(e)}", 'error')
                 return {'success': False, 'message': str(e)}
@@ -274,15 +354,16 @@ class TaskExecutor:
             return False
     
     @classmethod
-    def _download_file_multithread(cls, task_id: int, file_info: dict, download_url: str, 
+    def _download_file_multithread(cls, task_id: int, file_info: dict, cloud_service, file_fid: str,
                                    headers: dict, local_file_path: str) -> bool:
         """
-        多线程分块下载单个文件
+        多线程分块下载单个文件（每个线程独立获取下载链接）
         
         Args:
             task_id: 任务ID
             file_info: 文件信息
-            download_url: 下载链接
+            cloud_service: 云盘服务实例
+            file_fid: 文件ID
             headers: 请求头
             local_file_path: 本地文件路径
         """
@@ -325,7 +406,8 @@ class TaskExecutor:
                     executor.submit(
                         cls._download_chunk,
                         task_id,
-                        download_url,
+                        cloud_service,  # 传递云盘服务实例
+                        file_fid,       # 传递文件ID
                         headers,
                         chunk['start'],
                         chunk['end'],
@@ -427,6 +509,20 @@ class TaskExecutor:
             
             with open(temp_file_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=chunk_size):
+                    # 检查任务是否被停止
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"   下载已停止，清理临时文件", 'warning')
+                            response.close()
+                            f.close()
+                            # 删除临时文件
+                            if os.path.exists(temp_file_path):
+                                try:
+                                    os.remove(temp_file_path)
+                                except:
+                                    pass
+                            return False
+                    
                     if chunk:
                         f.write(chunk)
                         downloaded_size += len(chunk)
@@ -841,31 +937,16 @@ class TaskExecutor:
                         else:
                             cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 文件大小不匹配，重新下载", 'warning')
                     
-                    # 获取下载链接(使用统一的云盘服务接口)
-                    download_result, download_cookie = cloud_service.get_download_url([file_fid])
+                    # 判断是否使用多线程下载
+                    file_info = {'file_name': file_name, 'size': file_size}
                     
-                    if download_result.get('code') != 0:
-                        cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 获取下载链接失败: {download_result.get('message', '')}", 'error')
-                        fail_count += 1
-                        continue
-                    
-                    download_data = download_result.get('data', [])
-                    if not download_data:
-                        cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 下载链接为空", 'error')
-                        fail_count += 1
-                        continue
-                    
-                    # 统一获取下载URL(兼容不同云盘的字段名)
-                    download_url = download_data[0].get('download_url') or download_data[0].get('downloadUrl')
-                    if not download_url:
-                        cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 下载链接无效", 'error')
-                        fail_count += 1
-                        continue
+                    enable_multithread = cls._get_config('download_enable_multithread', True)
+                    multithread_threshold = cls._get_config('download_multithread_threshold', 50) * 1024 * 1024
                     
                     # 准备请求头(根据云盘类型设置)
                     download_headers = {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'Cookie': download_cookie if download_cookie else account['cookie']
+                        'Cookie': account['cookie']
                     }
                     
                     # 根据云盘类型设置Referer
@@ -878,29 +959,42 @@ class TaskExecutor:
                         download_headers['Referer'] = 'https://cloud.189.cn'
                     
                     # 判断是否使用多线程下载
-                    file_info = {'file_name': file_name, 'size': file_size}
-                    
-                    enable_multithread = cls._get_config('download_enable_multithread', True)
-                    multithread_threshold = cls._get_config('download_multithread_threshold', 50) * 1024 * 1024
-                    
-                    # 天翼云盘强制使用单线程(防止403错误)
-                    if cloud_type == CloudType.CLOUD189:
-                        cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 天翼云盘使用单线程下载(防止403限制)", 'info')
-                        download_success = cls._download_file_single(
-                            task_id, file_info, download_url, download_headers, local_file_path
-                        )
-                    elif enable_multithread and file_size >= multithread_threshold:
+                    if enable_multithread and file_size >= multithread_threshold:
                         cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 文件大小 {size_mb:.2f}MB >= {multithread_threshold/(1024*1024):.0f}MB，使用多线程下载", 'info')
-                        # 大文件使用多线程下载
+                        # 大文件使用多线程下载（每个线程独立获取下载链接）
                         download_success = cls._download_file_multithread(
-                            task_id, file_info, download_url, download_headers, local_file_path
+                            task_id, file_info, cloud_service, file_fid, download_headers, local_file_path
                         )
                     else:
                         if not enable_multithread:
                             cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 多线程下载已禁用，使用单线程下载", 'info')
                         else:
                             cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 文件大小 {size_mb:.2f}MB < {multithread_threshold/(1024*1024):.0f}MB，使用单线程下载", 'info')
+                        
                         # 小文件使用单线程下载
+                        download_result, download_cookie = cloud_service.get_download_url([file_fid])
+                        
+                        if download_result.get('code') != 0:
+                            cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 获取下载链接失败: {download_result.get('message', '')}", 'error')
+                            fail_count += 1
+                            continue
+                        
+                        download_data = download_result.get('data', [])
+                        if not download_data:
+                            cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 下载链接为空", 'error')
+                            fail_count += 1
+                            continue
+                        
+                        download_url = download_data[0].get('download_url') or download_data[0].get('downloadUrl')
+                        if not download_url:
+                            cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 下载链接无效", 'error')
+                            fail_count += 1
+                            continue
+                        
+                        # 更新Cookie
+                        if download_cookie:
+                            download_headers['Cookie'] = download_cookie
+                        
                         download_success = cls._download_file_single(
                             task_id, file_info, download_url, download_headers, local_file_path
                         )

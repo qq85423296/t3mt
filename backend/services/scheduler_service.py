@@ -1009,10 +1009,44 @@ class SchedulerService:
                             'retry_interval': task.retry_interval if hasattr(task, 'retry_interval') else 30
                         }
                         
+                        # 重新获取最新的剧集列表
+                        task_logger.info("正在获取最新的剧集列表...")
+                        try:
+                            from services.video_download_service import VideoDownloadService
+                            
+                            # 根据平台获取剧集列表
+                            if task.platform == 'mango':
+                                episodes_result = video_download_service.get_mango_episodes(task.website_url)
+                            elif task.platform == 'tencent':
+                                episodes_result = video_download_service.get_tencent_episodes(task.website_url)
+                            else:
+                                task_logger.warning(f"不支持的平台: {task.platform}，使用任务中保存的剧集列表")
+                                episodes_result = {'success': False}
+                            
+                            if episodes_result.get('success'):
+                                latest_episodes = episodes_result.get('episodes', [])
+                                task_logger.info(f"获取到最新剧集列表，共 {len(latest_episodes)} 集")
+                                
+                                # 如果任务有选中的剧集索引，只下载选中的剧集
+                                if hasattr(task, 'selected_episodes') and task.selected_episodes:
+                                    selected_indices = task.selected_episodes
+                                    episodes_to_download = [latest_episodes[i] for i in selected_indices if i < len(latest_episodes)]
+                                    task_logger.info(f"根据选集配置，将下载 {len(episodes_to_download)} 集")
+                                else:
+                                    # 没有选集配置，下载所有剧集
+                                    episodes_to_download = latest_episodes
+                                    task_logger.info(f"将下载所有剧集")
+                            else:
+                                task_logger.warning(f"获取最新剧集失败: {episodes_result.get('message', '未知错误')}，使用任务中保存的剧集列表")
+                                episodes_to_download = task.episodes
+                        except Exception as e:
+                            task_logger.error(f"获取最新剧集异常: {e}，使用任务中保存的剧集列表")
+                            episodes_to_download = task.episodes
+                        
                         # 执行下载
                         result = video_download_service.download_task_episodes(
                             task_id=task_id,
-                            episodes=task.episodes,
+                            episodes=episodes_to_download,
                             save_directory=actual_save_directory,
                             task_name=task.name,
                             task_config=task_config,

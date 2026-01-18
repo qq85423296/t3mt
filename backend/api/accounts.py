@@ -293,6 +293,14 @@ def update_account(account_id):
     try:
         data = request.get_json()
         
+        # 获取账号信息
+        account = AccountService.get_account(account_id)
+        if not account:
+            return jsonify({
+                'code': 404,
+                'message': '账号不存在'
+            }), 404
+        
         # 如果更新了云盘类型，需要验证
         if 'cloud_type' in data and not CloudType.is_valid(data['cloud_type']):
             return jsonify({
@@ -300,18 +308,35 @@ def update_account(account_id):
                 'message': f'无效的云盘类型: {data["cloud_type"]}'
             }), 400
         
+        cloud_type = data.get('cloud_type', account.get('cloud_type', CloudType.QUARK))
+        
+        # 如果是天翼云盘且提供了username和password，重新登录获取Cookie
+        if cloud_type == CloudType.CLOUD189 and data.get('username') and data.get('password'):
+            try:
+                from services.cloud189_service import Cloud189Service
+                login_result = Cloud189Service.login(data['username'], data['password'])
+                
+                if not login_result.get('success'):
+                    return jsonify({
+                        'code': 400,
+                        'message': login_result.get('message', '登录失败'),
+                        'need_captcha': login_result.get('code') == 'NEED_CAPTCHA',
+                        'captcha_url': login_result.get('captcha_url', '')
+                    }), 400
+                
+                # 登录成功，更新Cookie
+                data['cookie'] = login_result.get('cookies', '')
+                logger.info(f"天翼云盘账号 {data['username']} 重新登录成功，已更新Cookie")
+                
+            except Exception as e:
+                logger.error(f"天翼云盘登录失败: {e}")
+                return jsonify({
+                    'code': 400,
+                    'message': f'登录失败: {str(e)}'
+                }), 400
+        
         # 如果更新了Cookie，需要重新验证账号
         if data.get('cookie'):
-            # 获取账号的云盘类型
-            account = AccountService.get_account(account_id)
-            if not account:
-                return jsonify({
-                    'code': 404,
-                    'message': '账号不存在'
-                }), 404
-            
-            cloud_type = data.get('cloud_type', account.get('cloud_type', CloudType.QUARK))
-            
             # 验证新Cookie
             from services.cloud_service_factory import CloudServiceFactory
             try:
