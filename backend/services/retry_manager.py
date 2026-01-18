@@ -191,6 +191,67 @@ class RetryManager:
         except Exception as e:
             logger.error(f"获取失败剧集列表失败: {str(e)}", exc_info=True)
             return []
+    
+    def check_and_reset_url_changed_episodes(self, task_id: int, current_episodes: List[Dict]) -> int:
+        """
+        检查并重置URL已变化的失败剧集记录
+        
+        当剧集的URL发生变化时（通常是重新从官网解析获取了新的下载地址），
+        清除旧的失败记录，允许使用新地址重新下载
+        
+        Args:
+            task_id: 任务ID
+            current_episodes: 当前从官网解析的剧集列表，格式: [{'name': '第1集', 'url': 'http://...', ...}, ...]
+            
+        Returns:
+            清除的失败记录数量
+        """
+        try:
+            # 构建当前剧集的映射：剧集名称 -> URL
+            current_episode_map = {}
+            for episode in current_episodes:
+                episode_name = episode.get('name', '')
+                episode_title = episode.get('title', '')
+                episode_url = episode.get('url', '')
+                
+                # 构建完整名称（与下载时保持一致）
+                if episode_title:
+                    full_name = f"{episode_name} - {episode_title}"
+                else:
+                    full_name = episode_name
+                
+                if full_name and episode_url:
+                    current_episode_map[full_name] = episode_url
+            
+            # 获取所有失败记录（包括已达最大重试次数的）
+            all_failed_records = EpisodeFailureRecord.get_all_by_task(task_id)
+            
+            reset_count = 0
+            for record in all_failed_records:
+                episode_name = record.episode_name
+                old_url = record.episode_url
+                
+                # 检查当前剧集列表中是否有同名剧集
+                if episode_name in current_episode_map:
+                    new_url = current_episode_map[episode_name]
+                    
+                    # 如果URL发生了变化，清除旧的失败记录
+                    if new_url != old_url:
+                        logger.info(f"检测到剧集 '{episode_name}' 的URL已变化，清除旧的失败记录")
+                        logger.info(f"  旧URL: {old_url}")
+                        logger.info(f"  新URL: {new_url}")
+                        
+                        EpisodeFailureRecord.delete(task_id, old_url)
+                        reset_count += 1
+            
+            if reset_count > 0:
+                logger.info(f"任务 {task_id} 共清除 {reset_count} 个URL已变化的失败记录")
+            
+            return reset_count
+            
+        except Exception as e:
+            logger.error(f"检查并重置URL变化的失败记录失败: {str(e)}", exc_info=True)
+            return 0
 
 
 # 创建全局实例

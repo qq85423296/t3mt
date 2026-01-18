@@ -851,6 +851,20 @@ class SchedulerService:
                                 latest_episodes = result['episodes']
                                 task_logger.info(f"官网最新剧集数: {len(latest_episodes)}")
                                 
+                                # ========== 新增：检查并重置URL已变化的失败记录 ==========
+                                if task_config.get('enable_retry'):
+                                    try:
+                                        from services.retry_manager import retry_manager
+                                        reset_count = retry_manager.check_and_reset_url_changed_episodes(
+                                            task_id, 
+                                            latest_episodes
+                                        )
+                                        if reset_count > 0:
+                                            task_logger.info(f"检测到 {reset_count} 个剧集的下载地址已更新，已清除旧的失败记录，将使用新地址重新下载")
+                                    except Exception as e:
+                                        logger.error(f"检查URL变化失败: {str(e)}")
+                                # ========== URL变化检查结束 ==========
+                                
                                 # 获取用户选择的剧集索引
                                 selected_indices = []
                                 if hasattr(task, 'selected_episodes') and task.selected_episodes:
