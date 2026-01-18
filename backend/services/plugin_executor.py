@@ -176,24 +176,55 @@ class PluginExecutor:
             else:
                 context_to_pass = {}
             
-            # 创建插件实例
-            plugin_instance = PluginRegistry.create_instance(
-                plugin_id=plugin_id,
-                plugin_config=plugin_config,
-                task_context=context_to_pass
-            )
+            # 使用线程执行插件，设置超时时间为5分钟
+            import threading
+            plugin_result = {'success': False, 'log_content': '', 'error': None}
             
-            if plugin_instance is None:
-                raise RuntimeError(f"无法创建插件实例: {plugin_id}")
+            def execute_plugin_thread():
+                try:
+                    # 创建插件实例
+                    plugin_instance = PluginRegistry.create_instance(
+                        plugin_id=plugin_id,
+                        plugin_config=plugin_config,
+                        task_context=context_to_pass
+                    )
+                    
+                    if plugin_instance is None:
+                        plugin_result['error'] = f"无法创建插件实例: {plugin_id}"
+                        return
+                    
+                    # 执行插件
+                    success = plugin_instance.execute()
+                    
+                    # 获取日志
+                    log_content = plugin_instance.get_logs()
+                    
+                    plugin_result['success'] = success
+                    plugin_result['log_content'] = log_content
+                    
+                except Exception as e:
+                    plugin_result['error'] = str(e)
+                    plugin_result['log_content'] = f"插件执行异常: {str(e)}\n{traceback.format_exc()}"
             
-            # 执行插件
-            success = plugin_instance.execute()
+            # 启动插件执行线程
+            plugin_thread = threading.Thread(target=execute_plugin_thread, daemon=True)
+            plugin_thread.start()
             
-            # 获取日志
-            log_content = plugin_instance.get_logs()
+            # 等待插件执行完成，最多等待5分钟
+            timeout_seconds = 300  # 5分钟
+            plugin_thread.join(timeout=timeout_seconds)
             
-            result["success"] = success
-            result["log_content"] = log_content
+            # 检查线程是否超时
+            if plugin_thread.is_alive():
+                # 插件执行超时
+                result["success"] = False
+                result["error"] = f"插件执行超时（超过{timeout_seconds}秒）"
+                result["log_content"] = f"插件执行超时，已强制终止（超时时间: {timeout_seconds}秒）"
+            else:
+                # 插件正常执行完成
+                result["success"] = plugin_result['success']
+                result["log_content"] = plugin_result['log_content']
+                result["error"] = plugin_result['error']
             
         except Exception as e:
             result["success"] = False
