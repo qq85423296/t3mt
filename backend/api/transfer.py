@@ -406,6 +406,9 @@ def execute_task(task_id):
                 
                 add_log(f"任务执行完成！成功: {success_count}, 失败: {fail_count}, 文件数: {total_files}", 'success')
                 
+                # 根据失败数量判断最终状态
+                final_status = 'success' if fail_count == 0 else ('partial' if success_count > 0 else 'failed')
+                
                 # 更新执行历史
                 with get_db() as conn:
                     cursor = conn.cursor()
@@ -414,7 +417,7 @@ def execute_task(task_id):
                         SET status = ?, end_time = ?, logs = ?,
                             success_count = ?, failed_count = ?, total_count = ?
                         WHERE id = ?
-                    """, ('completed', datetime.now(), json.dumps(logs, ensure_ascii=False),
+                    """, (final_status, datetime.now(), json.dumps(logs, ensure_ascii=False),
                           success_count, fail_count, total_files, execution_id))
                     conn.commit()
                 

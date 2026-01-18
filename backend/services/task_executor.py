@@ -803,7 +803,7 @@ class TaskExecutor:
             
             if not all_files:
                 cls._add_log(task_id, '未找到任何文件', 'warning')
-                cls._update_progress(task_id, status='completed', total_files=0)
+                cls._update_progress(task_id, status='success', total_files=0)
                 
                 # 更新执行历史记录
                 if execution_id:
@@ -817,7 +817,7 @@ class TaskExecutor:
                             SET status = ?, end_time = ?, logs = ?,
                                 success_count = ?, failed_count = ?, error_message = ?
                             WHERE id = ?
-                        """, ('failed', datetime.now(), logs_json, 0, 0, '未找到任何文件', execution_id))
+                        """, ('success', datetime.now(), logs_json, 0, 0, '未找到任何文件', execution_id))
                         conn.commit()
                 
                 # 清理任务状态
@@ -854,7 +854,7 @@ class TaskExecutor:
             
             if not filtered_files:
                 cls._add_log(task_id, '没有需要下载的文件', 'warning')
-                cls._update_progress(task_id, status='completed', total_files=0)
+                cls._update_progress(task_id, status='success', total_files=0)
                 return
             
             cls._update_progress(task_id, total_files=len(filtered_files))
@@ -1123,7 +1123,7 @@ class TaskExecutor:
             # 更新最终状态
             cls._update_progress(
                 task_id,
-                status='completed',
+                status='success',
                 progress=100,
                 downloaded_files=len(filtered_files),
                 success_count=success_count,

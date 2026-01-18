@@ -951,7 +951,7 @@ class SchedulerService:
                                     task_logger.info(f"所有剧集均已下载完成，无需下载")
                                     task_logger.info(f"任务执行完成")
                                     
-                                    VideoTask.update(task_id, status='completed', progress=100)
+                                    VideoTask.update(task_id, status='success', progress=100)
                                     
                                     end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                     start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
@@ -1074,12 +1074,23 @@ class SchedulerService:
                         end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
                         duration = int((end_dt - start_dt).total_seconds())
                         
+                        # 根据下载结果判断最终状态
+                        success_count = result['success_count'] + result.get('skipped_count', 0)
+                        failed_count = result['failed_count']
+                        
+                        if failed_count == 0:
+                            final_status = 'success'
+                        elif success_count == 0:
+                            final_status = 'failed'
+                        else:
+                            final_status = 'partial'  # 部分成功
+                        
                         if result['success']:
                             VideoTask.update(
                                 task_id,
-                                status='completed',
+                                status=final_status,
                                 progress=100,
-                                downloaded_episodes=result['success_count'] + result.get('skipped_count', 0)
+                                downloaded_episodes=success_count
                             )
                             
                             task_logger.info(f"任务执行完成")
@@ -1092,8 +1103,8 @@ class SchedulerService:
                                     SET end_time = ?, duration = ?, status = ?, 
                                         success_count = ?, failed_count = ?, logs = ?
                                     WHERE id = ?
-                                """, (end_time, duration, 'success', result['success_count'] + result.get('skipped_count', 0), 
-                                      result['failed_count'], json.dumps(task_logger.get_logs(), ensure_ascii=False), execution_id))
+                                """, (end_time, duration, final_status, success_count, 
+                                      failed_count, json.dumps(task_logger.get_logs(), ensure_ascii=False), execution_id))
                                 conn.commit()
                             
                             # 执行关联的插件
@@ -1102,23 +1113,35 @@ class SchedulerService:
                                 task_type='video',
                                 execution_id=execution_id,
                                 task_name=task.name,
-                                final_status='success',
+                                final_status=final_status,
                                 start_time=start_time,
                                 end_time=end_time,
-                                success_count=result['success_count'] + result.get('skipped_count', 0),
-                                failed_count=result['failed_count'],
+                                success_count=success_count,
+                                failed_count=failed_count,
                                 total_count=result['total'],
                                 target_path=actual_save_directory,
                                 task_logger=task_logger
                             )
                         else:
+                            # 下载失败的情况
+                            success_count = result['success_count']
+                            failed_count = result['failed_count']
+                            
+                            # 根据成功/失败数量判断最终状态
+                            if failed_count == 0:
+                                final_status = 'success'
+                            elif success_count == 0:
+                                final_status = 'failed'
+                            else:
+                                final_status = 'partial'  # 部分成功
+                            
                             VideoTask.update(
                                 task_id,
-                                status='failed',
-                                downloaded_episodes=result['success_count']
+                                status=final_status,
+                                downloaded_episodes=success_count
                             )
                             
-                            error_message = f"部分下载失败: 成功 {result['success_count']}/{result['total']}"
+                            error_message = f"部分下载失败: 成功 {success_count}/{result['total']}"
                             task_logger.info(f"{error_message}")
                             
                             with get_db() as conn:
@@ -1128,8 +1151,8 @@ class SchedulerService:
                                     SET end_time = ?, duration = ?, status = ?, 
                                         success_count = ?, failed_count = ?, logs = ?, error_message = ?
                                     WHERE id = ?
-                                """, (end_time, duration, 'failed', result['success_count'], 
-                                      result['failed_count'], json.dumps(task_logger.get_logs(), ensure_ascii=False), error_message, execution_id))
+                                """, (end_time, duration, final_status, success_count, 
+                                      failed_count, json.dumps(task_logger.get_logs(), ensure_ascii=False), error_message, execution_id))
                                 conn.commit()
                             
                             # 执行关联的插件（即使任务失败也执行）

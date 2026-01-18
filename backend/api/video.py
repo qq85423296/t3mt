@@ -520,7 +520,7 @@ def execute_task(task_id):
                             task_logger.info("任务执行完成")
                             
                             # 更新任务状态为完成
-                            VideoTask.update(task_id, status='completed', progress=100)
+                            VideoTask.update(task_id, status='success', progress=100)
                             
                             # 计算执行时长
                             end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -615,7 +615,7 @@ def execute_task(task_id):
                         task_logger.info("任务执行完成")
                         
                         # 更新任务状态为完成
-                        VideoTask.update(task_id, status='completed', progress=100)
+                        VideoTask.update(task_id, status='success', progress=100)
                         
                         # 计算执行时长
                         end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -707,12 +707,23 @@ def execute_task(task_id):
                 end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
                 duration = int((end_dt - start_dt).total_seconds())
                 
+                # 根据下载结果判断最终状态
+                success_count = result['success_count'] + result.get('skipped_count', 0)
+                failed_count = result['failed_count']
+                
+                if failed_count == 0:
+                    final_status = 'success'
+                elif success_count == 0:
+                    final_status = 'failed'
+                else:
+                    final_status = 'partial'  # 部分成功
+                
                 if result['success']:
                     VideoTask.update(
                         task_id,
-                        status='completed',
+                        status=final_status,
                         progress=100,
-                        downloaded_episodes=result['success_count'] + result.get('skipped_count', 0)
+                        downloaded_episodes=success_count
                     )
                     
                     task_logger.info("任务执行完成")
@@ -726,8 +737,8 @@ def execute_task(task_id):
                             SET end_time = ?, duration = ?, status = ?, 
                                 success_count = ?, failed_count = ?, logs = ?
                             WHERE id = ?
-                        ''', (end_time, duration, 'success', result['success_count'] + result.get('skipped_count', 0), 
-                              result['failed_count'], json.dumps(task_logger.get_logs(), ensure_ascii=False), history_id))
+                        ''', (end_time, duration, final_status, success_count, 
+                              failed_count, json.dumps(task_logger.get_logs(), ensure_ascii=False), history_id))
                     
                     # 执行关联的插件
                     try:
@@ -781,13 +792,25 @@ def execute_task(task_id):
                         # 更新日志到数据库
                         update_logs_to_db()
                 else:
+                    # 下载失败的情况
+                    success_count = result['success_count']
+                    failed_count = result['failed_count']
+                    
+                    # 根据成功/失败数量判断最终状态
+                    if failed_count == 0:
+                        final_status = 'success'
+                    elif success_count == 0:
+                        final_status = 'failed'
+                    else:
+                        final_status = 'partial'  # 部分成功
+                    
                     VideoTask.update(
                         task_id,
-                        status='failed',
-                        downloaded_episodes=result['success_count']
+                        status=final_status,
+                        downloaded_episodes=success_count
                     )
                     
-                    error_message = f"部分下载失败: 成功 {result['success_count']}/{result['total']}"
+                    error_message = f"部分下载失败: 成功 {success_count}/{result['total']}"
                     task_logger.info(f"{error_message}")
                     
                     # 更新执行历史
@@ -798,8 +821,8 @@ def execute_task(task_id):
                             SET end_time = ?, duration = ?, status = ?, 
                                 success_count = ?, failed_count = ?, logs = ?, error_message = ?
                             WHERE id = ?
-                        ''', (end_time, duration, 'failed', result['success_count'], 
-                              result['failed_count'], json.dumps(task_logger.get_logs(), ensure_ascii=False), error_message, history_id))
+                        ''', (end_time, duration, final_status, success_count, 
+                              failed_count, json.dumps(task_logger.get_logs(), ensure_ascii=False), error_message, history_id))
                     
                     # 执行关联的插件（即使任务失败也执行）
                     try:
@@ -812,13 +835,13 @@ def execute_task(task_id):
                             'task_id': task_id,
                             'task_name': task.name,
                             'task_type': 'video',
-                            'status': 'failed',
+                            'status': final_status,
                             'start_time': start_time,
                             'end_time': end_time,
                             'duration': duration,
                             'total_count': result['total'],
-                            'success_count': result['success_count'],
-                            'failed_count': result['failed_count'],
+                            'success_count': success_count,
+                            'failed_count': failed_count,
                             'total_size': 0,  # 影视下载不统计总大小
                             'source_path': task.website_url,
                             'target_path': actual_save_directory,
