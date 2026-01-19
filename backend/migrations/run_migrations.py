@@ -206,6 +206,30 @@ class MigrationRunner:
         
         return True
     
+    def _check_folder_id_migration_needed(self):
+        """检查是否需要执行文件夹ID字段的迁移"""
+        migration_name = 'add_folder_id_fields'
+        applied_migrations = self._get_applied_migrations()
+        
+        if migration_name in applied_migrations:
+            return False
+        
+        # 检查 transfer_tasks 表的 target_folder_id 字段
+        transfer_columns = self._get_table_columns('transfer_tasks')
+        transfer_has_field = 'target_folder_id' in transfer_columns
+        
+        # 检查 download_tasks 表的 source_folder_id 字段
+        download_columns = self._get_table_columns('download_tasks')
+        download_has_field = 'source_folder_id' in download_columns
+        
+        if transfer_has_field and download_has_field:
+            # 字段已存在，记录迁移但不执行
+            print(f"  迁移 {migration_name} 的字段已存在，跳过执行")
+            self._record_migration(migration_name)
+            return False
+        
+        return True
+    
     def run_migrations(self):
         """执行所有待执行的迁移"""
         from utils.logger import logger
@@ -304,6 +328,19 @@ class MigrationRunner:
                 
                 self._record_migration('add_account_credentials')
                 logger.info("✅ 迁移 add_account_credentials 执行成功")
+                migrations_executed = True
+            
+            # 迁移7：文件夹ID字段
+            if self._check_folder_id_migration_needed():
+                logger.info("检测到需要执行迁移: add_folder_id_fields")
+                logger.info("正在执行迁移...")
+                
+                from migrations.add_folder_id_fields import upgrade
+                with get_db() as conn:
+                    upgrade(conn)
+                
+                self._record_migration('add_folder_id_fields')
+                logger.info("✅ 迁移 add_folder_id_fields 执行成功")
                 migrations_executed = True
             
             if not migrations_executed:

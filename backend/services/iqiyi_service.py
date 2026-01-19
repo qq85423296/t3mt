@@ -259,13 +259,14 @@ class IqiyiService:
             logger.warning(f"获取channelId失败: {str(e)}")
             return None
     
-    def get_episode_list(self, tvid: str, url: str = None) -> Dict:
+    def get_episode_list(self, tvid: str, url: str = None, video_type: str = None) -> Dict:
         """
         获取剧集列表
         
         Args:
             tvid: 视频ID
             url: 原始URL(用于电影类型返回当前地址)
+            video_type: 视频类型(电视剧/综艺/电影/动漫),用于决定剧集名称格式
             
         Returns:
             包含剧集列表的字典
@@ -274,7 +275,7 @@ class IqiyiService:
         self._check_config()
         
         # 方案A: 尝试使用API获取（支持分页）
-        result = self._get_episode_list_from_api(tvid, url)
+        result = self._get_episode_list_from_api(tvid, url, video_type)
         
         # 检查数据完整性
         if result.get('success'):
@@ -287,20 +288,21 @@ class IqiyiService:
                 
                 # 方案B: 使用HTML解析作为备用
                 if url:
-                    html_result = self._get_episode_list_from_html(url, tvid)
+                    html_result = self._get_episode_list_from_html(url, tvid, video_type)
                     if html_result.get('success') and len(html_result.get('episodes', [])) > len(episodes):
                         logger.info(f"HTML解析成功，获取到{len(html_result.get('episodes', []))}集")
                         return html_result
         
         return result
     
-    def _get_episode_list_from_api(self, tvid: str, url: str = None) -> Dict:
+    def _get_episode_list_from_api(self, tvid: str, url: str = None, video_type: str = None) -> Dict:
         """
         从API获取剧集列表（支持按月份获取综艺）
         
         Args:
             tvid: 视频ID
             url: 原始URL(用于电影类型返回当前地址)
+            video_type: 视频类型(电视剧/综艺/电影/动漫),用于决定剧集名称格式
             
         Returns:
             包含剧集列表的字典
@@ -369,8 +371,8 @@ class IqiyiService:
                     logger.info(f"检测到集数不完整（{len(videos)}/{expected_count}），尝试分页获取")
                     videos = self._fetch_all_episodes_with_pagination(tvid, videos, expected_count)
                 
-                # 解析剧集信息
-                episodes = self._parse_episodes(videos)
+                # 解析剧集信息(传入视频类型)
+                episodes = self._parse_episodes(videos, video_type)
                 
                 # 数据完整性检查
                 if expected_count > 0 and len(episodes) < expected_count:
@@ -572,12 +574,13 @@ class IqiyiService:
         
         return all_videos
     
-    def _parse_episodes(self, videos: List) -> List[Dict]:
+    def _parse_episodes(self, videos: List, video_type: str = None) -> List[Dict]:
         """
         解析视频列表为剧集信息
         
         Args:
             videos: 原始视频列表
+            video_type: 视频类型(电视剧/综艺/电影/动漫),用于决定剧集名称格式
             
         Returns:
             解析后的剧集列表
@@ -611,12 +614,28 @@ class IqiyiService:
             if is_preview:
                 continue
             
-            # 提取集数，格式化为"第X集"
+            # 提取集数和期数信息
             pd = video.get('pd', 0)
-            episode_name = f"第{pd}集"
+            period = video.get('period', '')  # 发布日期，如 "2026-01-19"
+            
+            # 根据视频类型决定剧集名称格式
+            if video_type == '综艺':
+                # 综艺: 使用日期作为名称
+                if period:
+                    # 格式化日期: "20260119" -> "2026-01-19"
+                    if len(period) == 8 and period.isdigit():
+                        episode_name = f"{period[:4]}-{period[4:6]}-{period[6:8]}"
+                    else:
+                        episode_name = period
+                else:
+                    # 如果没有日期，使用期数
+                    episode_name = f"{pd}期"
+            else:
+                # 电视剧/电影/动漫: 使用"第X集"格式
+                episode_name = f"第{pd}集"
             
             episodes.append({
-                'name': episode_name,  # 集数名称，统一格式为"第X集"
+                'name': episode_name,  # 集数名称，根据类型格式化
                 'title': title,  # 集标题，如"秦枫目睹胡小跃跳楼"
                 'url': video.get('pageUrl', ''),  # 播放页面URL
                 'video_id': str(video.get('id', '')),
@@ -626,7 +645,7 @@ class IqiyiService:
                 'time_length': video.get('timeLength', 0),  # 时长（秒）
                 'is_vip': video.get('payMark') == 1,  # 是否VIP
                 'image': video.get('imageUrl', ''),
-                'period': video.get('period', ''),  # 发布日期
+                'period': period,  # 发布日期
                 'pd': pd  # 集数序号
             })
         
@@ -635,13 +654,14 @@ class IqiyiService:
         
         return episodes
     
-    def _get_episode_list_from_html(self, url: str, tvid: str) -> Dict:
+    def _get_episode_list_from_html(self, url: str, tvid: str, video_type: str = None) -> Dict:
         """
         从HTML页面解析剧集列表（备用方案）
         
         Args:
             url: 爱奇艺官网地址
             tvid: 视频ID
+            video_type: 视频类型(电视剧/综艺/电影/动漫),用于决定剧集名称格式
             
         Returns:
             包含剧集列表的字典
@@ -701,8 +721,8 @@ class IqiyiService:
                         continue
             
             if episodes_data:
-                # 解析剧集信息
-                episodes = self._parse_episodes(episodes_data)
+                # 解析剧集信息(传入视频类型)
+                episodes = self._parse_episodes(episodes_data, video_type)
                 
                 return {
                     'success': True,
@@ -754,8 +774,20 @@ class IqiyiService:
         if channel_id:
             video_info['channelId'] = channel_id
         
-        # 获取剧集列表(传递URL用于电影类型)
-        episodes_result = self.get_episode_list(tvid, url)
+        # 识别视频类型
+        video_type = None
+        if channel_id:
+            type_mapping = {
+                1: '电影',
+                2: '电视剧',
+                4: '动漫',
+                6: '综艺'
+            }
+            video_type = type_mapping.get(channel_id)
+            logger.info(f"识别视频类型: {video_type}")
+        
+        # 获取剧集列表(传递URL和视频类型)
+        episodes_result = self.get_episode_list(tvid, url, video_type)
         if not episodes_result.get('success'):
             return episodes_result
         
