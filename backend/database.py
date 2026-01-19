@@ -124,6 +124,14 @@ class Database:
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN check_mode VARCHAR(20) DEFAULT 'replaced'")
                 print("✅ transfer_tasks表已添加正则替换字段")
             
+            # 迁移：为已存在的transfer_tasks表添加目标文件夹ID字段
+            try:
+                cursor.execute("SELECT target_folder_id FROM transfer_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN target_folder_id VARCHAR(100)")
+                print("✅ transfer_tasks表已添加target_folder_id字段（用于快速定位目录）")
+            
             # 创建下载任务表（包含filter_extensions、include_extensions、正则替换字段和cloud_type字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS download_tasks (
@@ -159,6 +167,14 @@ class Database:
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN regex_pattern TEXT")
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN replacement_pattern TEXT")
                 print("✅ download_tasks表已添加正则替换字段")
+            
+            # 迁移：为已存在的download_tasks表添加源文件夹ID字段
+            try:
+                cursor.execute("SELECT source_folder_id FROM download_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE download_tasks ADD COLUMN source_folder_id VARCHAR(100)")
+                print("✅ download_tasks表已添加source_folder_id字段（用于快速定位目录）")
             
             # 创建影视下载任务表（包含create_subfolder、集数选择、影视类型和cloud_type字段）
             cursor.execute('''

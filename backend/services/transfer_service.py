@@ -105,18 +105,19 @@ class TransferService:
                 
                 cursor.execute("""
                     INSERT INTO transfer_tasks (
-                        name, share_urls, target_account_id, target_path,
+                        name, share_urls, target_account_id, target_path, target_folder_id,
                         save_mode, target_folder_name,
                         rules, filter_extensions, include_extensions,
                         update_dirs, file_start_date, overwrite_mode, end_date,
                         cron_expression, regex_pattern, replacement_pattern, check_mode,
                         cloud_type, status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     share_urls_json,
                     task_data['target_account_id'],
                     task_data['target_path'],
+                    task_data.get('target_folder_id'),  # 新增：保存目标文件夹ID
                     task_data.get('save_mode', 'current'),
                     task_data.get('target_folder_name', ''),
                     rules_json,
@@ -159,7 +160,7 @@ class TransferService:
                 cursor.execute("""
                     UPDATE transfer_tasks SET
                         name = ?, share_urls = ?, target_account_id = ?,
-                        target_path = ?, save_mode = ?, target_folder_name = ?,
+                        target_path = ?, target_folder_id = ?, save_mode = ?, target_folder_name = ?,
                         rules = ?, filter_extensions = ?,
                         include_extensions = ?, update_dirs = ?,
                         file_start_date = ?, overwrite_mode = ?, end_date = ?,
@@ -171,6 +172,7 @@ class TransferService:
                     share_urls_json,
                     task_data['target_account_id'],
                     task_data['target_path'],
+                    task_data.get('target_folder_id'),  # 新增：保存目标文件夹ID
                     task_data.get('save_mode', 'current'),
                     task_data.get('target_folder_name', ''),
                     rules_json,

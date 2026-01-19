@@ -399,7 +399,8 @@ class TaskExecutor:
             
             # 并行下载所有分块
             start_time = time.time()
-            failed_chunks = []
+            failed_chunks = []  # 记录失败的分块详细信息
+            chunk_results = {}  # 记录每个分块的下载结果
             
             with ThreadPoolExecutor(max_workers=threads_per_file) as executor:
                 future_to_chunk = {
@@ -422,19 +423,81 @@ class TaskExecutor:
                     chunk = future_to_chunk[future]
                     try:
                         result = future.result()
+                        chunk_results[chunk['index']] = result
                         if not result['success']:
-                            failed_chunks.append(chunk['index'])
+                            failed_chunks.append({
+                                'index': chunk['index'],
+                                'reason': result.get('message', '未知错误'),
+                                'range': f"{cls._format_size(chunk['start'])}-{cls._format_size(chunk['end'])}"
+                            })
                     except Exception as e:
-                        failed_chunks.append(chunk['index'])
+                        error_msg = f"{type(e).__name__}: {str(e)}"
+                        failed_chunks.append({
+                            'index': chunk['index'],
+                            'reason': error_msg,
+                            'range': f"{cls._format_size(chunk['start'])}-{cls._format_size(chunk['end'])}"
+                        })
                         logger.error(f"分块 {chunk['index']} 异常: {e}")
             
             # 检查是否有失败的分块
             if failed_chunks:
+                cls._add_log(task_id, f"   ❌ {len(failed_chunks)} 个分块下载失败:", 'error')
+                for failed in failed_chunks:
+                    cls._add_log(task_id, 
+                        f"      分块 {failed['index'] + 1}/{num_chunks} ({failed['range']}): {failed['reason']}", 
+                        'error')
+                
+                # 清理所有分块文件
                 for chunk in chunks:
                     if chunk['file'].exists():
-                        chunk['file'].unlink()
-                cls._add_log(task_id, f"   部分分块下载失败: {failed_chunks}", 'error')
+                        try:
+                            chunk['file'].unlink()
+                        except Exception as e:
+                            logger.error(f"清理分块文件失败: {chunk['file']}, {e}")
+                
                 return False
+            
+            # 验证所有分块文件都存在且大小正确
+            cls._add_log(task_id, f"   验证 {num_chunks} 个分块完整性...", 'info')
+            missing_chunks = []
+            invalid_chunks = []
+            
+            for chunk in chunks:
+                if not chunk['file'].exists():
+                    missing_chunks.append(chunk['index'])
+                else:
+                    actual_size = chunk['file'].stat().st_size
+                    expected_size = chunk['end'] - chunk['start'] + 1
+                    if actual_size != expected_size:
+                        invalid_chunks.append({
+                            'index': chunk['index'],
+                            'expected': expected_size,
+                            'actual': actual_size
+                        })
+            
+            # 如果有缺失或无效的分块,清理并返回失败
+            if missing_chunks or invalid_chunks:
+                if missing_chunks:
+                    cls._add_log(task_id, f"   ❌ 缺失分块: {[i+1 for i in missing_chunks]}", 'error')
+                if invalid_chunks:
+                    cls._add_log(task_id, f"   ❌ 分块大小不匹配:", 'error')
+                    for invalid in invalid_chunks:
+                        cls._add_log(task_id, 
+                            f"      分块 {invalid['index'] + 1}: 期望 {cls._format_size(invalid['expected'])}, "
+                            f"实际 {cls._format_size(invalid['actual'])}", 
+                            'error')
+                
+                # 清理所有分块文件
+                for chunk in chunks:
+                    if chunk['file'].exists():
+                        try:
+                            chunk['file'].unlink()
+                        except Exception as e:
+                            logger.error(f"清理分块文件失败: {chunk['file']}, {e}")
+                
+                return False
+            
+            cls._add_log(task_id, f"   ✅ 所有分块验证通过", 'success')
             
             # 合并分块
             cls._add_log(task_id, f"   合并 {num_chunks} 个分块...", 'info')
@@ -675,7 +738,12 @@ class TaskExecutor:
             cls._add_log(task_id, f"云盘类型: {cloud_type}", 'info')
             
             try:
-                cloud_service = CloudServiceFactory.create_service(cloud_type, account['cookie'])
+                cloud_service = CloudServiceFactory.create_service(
+                    cloud_type, 
+                    account['cookie'],
+                    username=account.get('username'),
+                    password=account.get('password')
+                )
             except Exception as e:
                 cls._add_log(task_id, f"初始化云盘服务失败: {str(e)}", 'error')
                 cls._update_progress(task_id, status='failed')
@@ -685,9 +753,15 @@ class TaskExecutor:
             cls._add_log(task_id, '正在获取文件列表...', 'info')
             
             source_path = task['source_path']
+            source_folder_id = task.get('source_folder_id')  # 新增：优先使用文件夹ID
             folder_id = '0' if cloud_type == CloudType.QUARK else '-11'  # 夸克用'0',天翼用'-11'
             
-            if source_path and source_path != '/':
+            # 优先使用 folder_id，如果没有则使用路径查找
+            if source_folder_id:
+                cls._add_log(task_id, f"使用文件夹ID: {source_folder_id}", 'info')
+                current_fid = source_folder_id
+            elif source_path and source_path != '/':
+                cls._add_log(task_id, f"使用路径查找: {source_path}", 'info')
                 path_parts = [p for p in source_path.strip('/').split('/') if p]
                 cls._add_log(task_id, f"解析路径: {' -> '.join(path_parts)}", 'info')
                 
@@ -753,8 +827,10 @@ class TaskExecutor:
                                 del cls._running_tasks[task_id]
                         
                         return
-                
-                folder_id = current_fid
+            else:
+                # 使用根目录
+                cls._add_log(task_id, f"使用根目录", 'info')
+                current_fid = folder_id
             
             # 递归获取所有文件和文件夹的函数
             def get_all_files_recursive(folder_id, parent_path="", depth=0, max_depth=10):
@@ -799,7 +875,7 @@ class TaskExecutor:
             
             # 递归获取所有文件
             cls._add_log(task_id, '开始递归扫描文件...', 'info')
-            all_files = get_all_files_recursive(folder_id)
+            all_files = get_all_files_recursive(current_fid)
             
             if not all_files:
                 cls._add_log(task_id, '未找到任何文件', 'warning')
@@ -881,7 +957,32 @@ class TaskExecutor:
                 with cls._lock:
                     if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
                         cls._add_log(task_id, '任务已终止，停止下载', 'warning')
-                        break
+                        
+                        # 刷新日志到数据库
+                        cls._flush_logs_to_db(task_id)
+                        
+                        # 更新执行历史记录为已终止
+                        if execution_id:
+                            import json
+                            from database import get_db
+                            with get_db() as conn:
+                                cursor = conn.cursor()
+                                logs_json = json.dumps(cls._running_tasks[task_id]['logs'], ensure_ascii=False)
+                                cursor.execute("""
+                                    UPDATE task_execution_history 
+                                    SET status = ?, end_time = ?, logs = ?,
+                                        success_count = ?, failed_count = ?, error_message = ?
+                                    WHERE id = ?
+                                """, ('failed', datetime.now(), logs_json, success_count, fail_count, '任务已被手动终止', execution_id))
+                                conn.commit()
+                        
+                        # 清理任务状态
+                        with cls._lock:
+                            if task_id in cls._running_tasks:
+                                del cls._running_tasks[task_id]
+                                logger.info(f"[TaskExecutor] 任务 {task_id} 已终止，已清除状态")
+                        
+                        return
                 
                 # 定期刷新日志到数据库(每10秒或每10个文件)
                 current_time = time.time()
@@ -1134,6 +1235,12 @@ class TaskExecutor:
             cls._add_log(task_id, f"\n任务执行完成！", 'success')
             cls._add_log(task_id, f"成功: {success_count} 个，失败: {fail_count} 个", 'info')
             
+            # 清理任务状态
+            with cls._lock:
+                if task_id in cls._running_tasks:
+                    del cls._running_tasks[task_id]
+                    logger.info(f"[TaskExecutor] 任务 {task_id} 执行完成，已清除状态")
+            
         except Exception as e:
             cls._add_log(task_id, f"执行异常: {str(e)}", 'error')
             cls._update_progress(task_id, status='failed')
@@ -1156,6 +1263,12 @@ class TaskExecutor:
                     conn.commit()
             
             logger.error(f"执行下载任务异常: {e}", exc_info=True)
+            
+            # 清理任务状态
+            with cls._lock:
+                if task_id in cls._running_tasks:
+                    del cls._running_tasks[task_id]
+                    logger.info(f"[TaskExecutor] 任务 {task_id} 执行异常，已清除状态")
     
     @classmethod
     def clear_task(cls, task_id: int):

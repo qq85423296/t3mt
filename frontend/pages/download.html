@@ -762,6 +762,9 @@
         document.getElementById('sourceAccount').value = '';
         document.getElementById('sourcePath').value = '';
         
+        // 清空文件夹ID
+        window.selectedSourceFolderId = null;
+        
         // 获取系统配置的默认下载目录
         try {
             const configResult = await ConfigAPI.get();
@@ -910,17 +913,39 @@
     // ========== 目录选择器 ==========
     
     let folderSelectorAccountId = null;
+    let folderSelectorCloudType = null;  // 新增：保存云盘类型
     let folderSelectorPath = [{ id: '0', name: '根目录' }];
 
     // 显示目录选择器
     async function showFolderSelector(accountId) {
         folderSelectorAccountId = accountId;
-        folderSelectorPath = [{ id: '0', name: '根目录' }];
+        
+        // 获取账号信息，确定云盘类型
+        try {
+            const accountsResult = await fetch(`${API_BASE_URL}/api/accounts`).then(res => res.json());
+            if (accountsResult.code === 200 && accountsResult.data) {
+                const account = accountsResult.data.find(acc => acc.id == accountId);
+                if (account) {
+                    folderSelectorCloudType = account.cloud_type || 'quark';
+                } else {
+                    folderSelectorCloudType = 'quark';
+                }
+            } else {
+                folderSelectorCloudType = 'quark';
+            }
+        } catch (error) {
+            console.error('获取账号信息失败:', error);
+            folderSelectorCloudType = 'quark';
+        }
+        
+        // 根据云盘类型设置根目录ID
+        const rootFolderId = folderSelectorCloudType === 'cloud189' ? '-11' : '0';
+        folderSelectorPath = [{ id: rootFolderId, name: '根目录' }];
         
         document.getElementById('selectedPath').value = '/';
         document.getElementById('folderSelectorModal').classList.add('show');
         
-        await loadFolderList('0', '根目录');
+        await loadFolderList(rootFolderId, '根目录');
     }
 
     // 隐藏目录选择器
@@ -934,8 +959,10 @@
         tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
 
         try {
-            // 调用API获取文件列表（使用后端端口）
-            const result = await fetch(`${API_BASE_URL}/api/quark/files?account_id=${folderSelectorAccountId}&folder_id=${folderId}`, {
+            // 使用统一的文件列表API（自动根据账号类型调用对应的云盘服务）
+            const apiUrl = `${API_BASE_URL}/api/files?account_id=${folderSelectorAccountId}&folder_id=${folderId}`;
+            
+            const result = await fetch(apiUrl, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
@@ -1024,6 +1051,14 @@
     function confirmFolderSelection() {
         const path = document.getElementById('selectedPath').value;
         document.getElementById('sourcePath').value = path;
+        
+        // 保存当前选中的文件夹ID（用于快速定位）
+        const currentFolder = folderSelectorPath[folderSelectorPath.length - 1];
+        if (currentFolder && currentFolder.id) {
+            // 将文件夹ID保存到隐藏字段或全局变量
+            window.selectedSourceFolderId = currentFolder.id;
+        }
+        
         hideFolderSelector();
     }
 
@@ -1065,6 +1100,7 @@
             name,
             source_account_id: parseInt(sourceAccountId),
             source_path: sourcePath,
+            source_folder_id: window.selectedSourceFolderId || null,  // 新增：保存文件夹ID
             target_path: targetPath,
             filter_extensions: document.getElementById('filterExtensions').value.trim(),
             include_extensions: document.getElementById('includeExtensions').value.trim(),
@@ -1143,6 +1179,13 @@
         document.getElementById('deleteAfterDownload').checked = task.delete_after_download;
         document.getElementById('cronExpression').value = task.cron_expression;
         document.getElementById('cronDisplay').textContent = CronConfig.parseCronExpression(task.cron_expression);
+        
+        // 恢复文件夹ID（用于快速定位）
+        if (task.source_folder_id) {
+            window.selectedSourceFolderId = task.source_folder_id;
+        } else {
+            window.selectedSourceFolderId = null;
+        }
         
         // 回填正则替换字段（添加空值检查）
         const dlRegexPattern = document.getElementById('dlRegexPattern');

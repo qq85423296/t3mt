@@ -61,6 +61,10 @@ def create_app():
     app.register_blueprint(config_bp)
     app.register_blueprint(video_bp)
     
+    # 注册统一文件管理蓝图
+    from api.files import files_bp
+    app.register_blueprint(files_bp)
+    
     # 注册正则规则库蓝图
     from api.regex_rules import regex_rules_bp
     app.register_blueprint(regex_rules_bp)
@@ -261,7 +265,8 @@ def main():
         debug = Config.DEBUG
         
         logger.info(f"启动Flask服务: http://{host}:{port}")
-        app.run(host=host, port=port, debug=debug)
+        # 启用多线程模式，避免请求阻塞
+        app.run(host=host, port=port, debug=debug, threaded=True)
         
     except Exception as e:
         logger.error(f"应用启动失败: {e}")

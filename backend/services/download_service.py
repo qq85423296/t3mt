@@ -80,16 +80,17 @@ class DownloadService:
                 
                 cursor.execute("""
                     INSERT INTO download_tasks (
-                        name, source_account_id, source_path, target_path,
+                        name, source_account_id, source_path, source_folder_id, target_path,
                         cron_expression, filter_extensions, include_extensions,
                         only_new_files, keep_structure, delete_after_download,
                         regex_pattern, replacement_pattern,
                         cloud_type, status, progress, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     task_data['source_account_id'],
                     task_data['source_path'],
+                    task_data.get('source_folder_id'),  # 新增：保存源文件夹ID
                     task_data['target_path'],
                     task_data['cron_expression'],
                     task_data.get('filter_extensions'),
@@ -124,7 +125,7 @@ class DownloadService:
                 
                 cursor.execute("""
                     UPDATE download_tasks SET
-                        name = ?, source_account_id = ?, source_path = ?,
+                        name = ?, source_account_id = ?, source_path = ?, source_folder_id = ?,
                         target_path = ?, cron_expression = ?,
                         filter_extensions = ?, include_extensions = ?,
                         only_new_files = ?, keep_structure = ?,
@@ -136,6 +137,7 @@ class DownloadService:
                     task_data['name'],
                     task_data['source_account_id'],
                     task_data['source_path'],
+                    task_data.get('source_folder_id'),  # 新增：保存源文件夹ID
                     task_data['target_path'],
                     task_data['cron_expression'],
                     task_data.get('filter_extensions'),

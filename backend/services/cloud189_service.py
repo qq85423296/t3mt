@@ -451,9 +451,91 @@ class Cloud189Service(ICloudService):
             logger.error(f"✗ 登录异常: {e}", exc_info=True)
             return {'success': False, 'message': f'登录异常: {str(e)}'}
     
+    def _auto_refresh_cookie(self):
+        """
+        自动刷新Cookie（当检测到Cookie过期时）
+        
+        Returns:
+            bool: 是否刷新成功
+        """
+        # 只有在提供了用户名和密码时才能自动刷新
+        if not self.username or not self.password:
+            logger.warning("无法自动刷新Cookie：未提供用户名或密码")
+            return False
+        
+        try:
+            logger.info(f"检测到Cookie过期，尝试自动重新登录: username={self.username[:3]}***")
+            
+            # 调用登录方法
+            login_result = self.login(self.username, self.password)
+            
+            if not login_result.get('success'):
+                logger.error(f"自动重新登录失败: {login_result.get('message')}")
+                return False
+            
+            # 更新实例的认证信息
+            new_cookie = login_result.get('cookies', '')
+            new_session_key = login_result.get('session_key', '')
+            new_access_token = login_result.get('access_token', '')
+            
+            if not new_cookie:
+                logger.error("自动重新登录成功但未获取到Cookie")
+                return False
+            
+            # 更新实例属性
+            self.cookie = new_cookie
+            self.session_key = new_session_key
+            self.access_token = new_access_token
+            
+            # 重新设置Cookie到session
+            self._set_cookies(new_cookie)
+            
+            logger.info("Cookie自动刷新成功")
+            
+            # 尝试更新数据库中的Cookie（如果可以找到对应的账号）
+            try:
+                from models.account import Account
+                from utils.crypto import CryptoUtil
+                from database import get_db
+                
+                # 查找使用该用户名的账号
+                with get_db() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT id FROM quark_accounts 
+                        WHERE username = ? AND cloud_type = 'cloud189'
+                    """, (self.username,))
+                    account = cursor.fetchone()
+                    
+                    if account:
+                        account_id = account['id']
+                        # 加密新Cookie
+                        encrypted_cookie = CryptoUtil.encrypt(new_cookie)
+                        
+                        # 更新数据库
+                        cursor.execute("""
+                            UPDATE quark_accounts 
+                            SET cookie = ?, updated_at = datetime('now')
+                            WHERE id = ?
+                        """, (encrypted_cookie, account_id))
+                        conn.commit()
+                        
+                        logger.info(f"已更新数据库中的Cookie: account_id={account_id}")
+                    else:
+                        logger.warning(f"未找到用户名为 {self.username} 的天翼账号，无法更新数据库")
+                        
+            except Exception as db_err:
+                logger.warning(f"更新数据库Cookie失败（不影响当前会话）: {db_err}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"自动刷新Cookie失败: {e}", exc_info=True)
+            return False
+    
     def _send_request(self, method, url, **kwargs):
         """
-        发送HTTP请求 (自动添加sessionKey参数)
+        发送HTTP请求 (自动添加sessionKey参数，支持Cookie自动更新)
         
         Args:
             method: 请求方法 (GET/POST)
@@ -500,6 +582,27 @@ class Cloud189Service(ICloudService):
             response = self.session.request(method, url, timeout=30, **kwargs)
             
             logger.debug(f"189 API请求: {method} {url}, 状态码: {response.status_code}")
+            
+            # 检测Cookie过期（401未授权 或 400错误且返回特定错误码）
+            if response.status_code in [401, 400]:
+                try:
+                    result = response.json()
+                    # 天翼云盘的认证失败错误码
+                    if result.get('res_code') in [-2, -3] or result.get('errorCode') in ['InvalidSessionKey', 'SessionExpired']:
+                        logger.warning(f"检测到Cookie可能已过期: status={response.status_code}, res_code={result.get('res_code')}, errorCode={result.get('errorCode')}")
+                        
+                        # 尝试自动刷新Cookie
+                        if self._auto_refresh_cookie():
+                            logger.info("Cookie已自动刷新，重试请求...")
+                            # 重新发起请求（递归调用，但只重试一次）
+                            # 为了避免无限递归，添加一个标记
+                            if not kwargs.get('_retry_after_refresh'):
+                                kwargs['_retry_after_refresh'] = True
+                                return self._send_request(method, url, **kwargs)
+                        else:
+                            logger.error("Cookie自动刷新失败，请手动更新账号")
+                except:
+                    pass  # 如果不是JSON响应，忽略
             
             return response
             
@@ -766,6 +869,53 @@ class Cloud189Service(ICloudService):
         except Exception as e:
             logger.error(f"189云盘路径处理失败: {e}", exc_info=True)
             return '-11'
+    
+    def get_folder_id_by_path(self, path):
+        """
+        根据路径获取文件夹ID（不创建，仅查找）
+        
+        Args:
+            path: 目标路径，如 "/测试" 或 "/测试/子目录"
+        
+        Returns:
+            str: 文件夹ID，未找到返回 None
+        """
+        try:
+            # 处理空路径或根目录
+            if not path or path == '/' or path.strip() == '':
+                return '-11'
+            
+            # 规范化路径：去除首尾空格和多余斜杠
+            path = path.strip().strip('/')
+            if not path:
+                return '-11'
+            
+            # 分割路径
+            path_parts = [p for p in path.split('/') if p]
+            if not path_parts:
+                return '-11'
+            
+            logger.debug(f"189云盘查找路径: path={path}, parts={path_parts}")
+            
+            current_folder_id = '-11'  # 从根目录开始
+            
+            for folder_name in path_parts:
+                # 在当前目录下查找目标文件夹
+                found_folder_id = self._find_folder_in_parent(folder_name, current_folder_id)
+                
+                if found_folder_id:
+                    current_folder_id = found_folder_id
+                    logger.debug(f"189云盘找到文件夹: {folder_name} -> {current_folder_id}")
+                else:
+                    # 没找到，返回 None
+                    logger.warning(f"189云盘未找到文件夹: {folder_name} in {current_folder_id}")
+                    return None
+            
+            return current_folder_id
+            
+        except Exception as e:
+            logger.error(f"189云盘路径查找失败: {e}", exc_info=True)
+            return None
     
     def _find_folder_in_parent(self, folder_name, parent_id):
         """

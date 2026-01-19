@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   t3mt:
-    image: 85423296/t3mt
+    image: 85423296/t3mt:latest  # 稳定版,使用 latest 或指定版本号如 2.1.4
     container_name: t3mt
     restart: unless-stopped
     ports:

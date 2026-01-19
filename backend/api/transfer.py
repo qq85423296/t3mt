@@ -330,7 +330,12 @@ def execute_task(task_id):
             if cloud_type == 'cloud189':
                 # 天翼云盘
                 from services.cloud189_service import Cloud189Service
-                cloud_service = Cloud189Service(account['cookie'])
+                # 传入 username 和 password 以支持 Cookie 自动更新
+                cloud_service = Cloud189Service(
+                    cookie=account['cookie'],
+                    username=account.get('username'),
+                    password=account.get('password')
+                )
                 
                 # 解析分享链接
                 share_urls = task['share_urls']
@@ -371,20 +376,33 @@ def execute_task(task_id):
                         # 执行转存
                         add_log(f"[{idx}/{len(share_urls)}] 开始转存...", 'info')
                         
-                        # 获取目标文件夹ID
-                        target_folder_id = '-11'  # 天翼云盘根目录
+                        # 获取目标文件夹ID（优先使用保存的ID）
+                        target_folder_id = task.get('target_folder_id')  # 新增：优先使用保存的文件夹ID
                         final_target_path = task['target_path']
                         
                         # 处理保存模式
                         if task.get('save_mode') == 'subfolder' and task.get('target_folder_name'):
                             final_target_path = f"{task['target_path'].rstrip('/')}/{task['target_folder_name']}"
                         
-                        # 如果目标路径不是根目录，需要创建或查找目标文件夹
-                        if final_target_path and final_target_path != '/':
-                            add_log(f"[{idx}/{len(share_urls)}] 目标路径: {final_target_path}", 'info')
-                            # 获取或创建目标文件夹
-                            target_folder_id = cloud_service.get_or_create_folder_by_path(final_target_path)
-                            logger.info(f"189云盘目标文件夹ID: {target_folder_id}")
+                        # 如果没有保存的folder_id，则通过路径获取或创建
+                        if not target_folder_id:
+                            if cloud_type == 'cloud189':
+                                target_folder_id = '-11'  # 天翼云盘根目录
+                            else:
+                                target_folder_id = '0'  # 夸克网盘根目录
+                            
+                            # 如果目标路径不是根目录，需要创建或查找目标文件夹
+                            if final_target_path and final_target_path != '/':
+                                add_log(f"[{idx}/{len(share_urls)}] 目标路径: {final_target_path}", 'info')
+                                # 获取或创建目标文件夹
+                                if cloud_type == 'cloud189':
+                                    target_folder_id = cloud_service.get_or_create_folder_by_path(final_target_path)
+                                else:
+                                    # 夸克网盘也需要类似的方法
+                                    target_folder_id = final_target_path  # 夸克直接使用路径作为ID
+                                logger.info(f"{cloud_type}云盘目标文件夹ID: {target_folder_id}")
+                        else:
+                            add_log(f"[{idx}/{len(share_urls)}] 使用保存的文件夹ID: {target_folder_id}", 'info')
                         
                         # 调用转存方法
                         logger.info(f"调用save_share: url={share_url}, target_folder_id={target_folder_id}")
@@ -746,7 +764,8 @@ def execute_task(task_id):
                     # 获取目标文件夹ID
                     add_log(f"[{idx}/{len(share_urls)}] 查找目标文件夹...", 'info')
                     
-                    target_fid = "0"  # 默认根目录
+                    # 获取目标文件夹ID（优先使用保存的ID）
+                    target_fid = task.get('target_folder_id')  # 新增：优先使用保存的文件夹ID
                     final_target_path = task['target_path']
                     
                     # 处理保存模式
@@ -757,24 +776,28 @@ def execute_task(task_id):
                     else:
                         add_log(f"[{idx}/{len(share_urls)}] 使用当前文件夹模式: {final_target_path}", 'info')
                     
-                    if final_target_path and final_target_path != '/':
-                        # 使用get_fids_by_paths获取目标文件夹ID
-                        add_log(f"[{idx}/{len(share_urls)}] 正在查询路径: {final_target_path}", 'info')
-                        fid_infos = quark.get_fids_by_paths([final_target_path])
+                    # 如果没有保存的folder_id，则通过路径获取或创建
+                    if not target_fid:
+                        target_fid = "0"  # 默认根目录
                         
-                        # 记录查询结果用于调试
-                        logger.info(f"查询路径结果: {fid_infos}")
-                        
-                        if fid_infos and len(fid_infos) > 0:
-                            fid_info = fid_infos[0]
-                            # 检查返回的数据结构
-                            if isinstance(fid_info, dict) and 'fid' in fid_info:
-                                target_fid = fid_info['fid']
-                                add_log(f"[{idx}/{len(share_urls)}] 找到目标文件夹 FID: {target_fid}", 'info')
-                            else:
-                                add_log(f"[{idx}/{len(share_urls)}] 路径查询返回数据格式异常: {fid_info}", 'warning')
-                                # 尝试逐级创建目录
-                                add_log(f"[{idx}/{len(share_urls)}] 尝试创建目录...", 'info')
+                        if final_target_path and final_target_path != '/':
+                            # 使用get_fids_by_paths获取目标文件夹ID
+                            add_log(f"[{idx}/{len(share_urls)}] 正在查询路径: {final_target_path}", 'info')
+                            fid_infos = quark.get_fids_by_paths([final_target_path])
+                            
+                            # 记录查询结果用于调试
+                            logger.info(f"查询路径结果: {fid_infos}")
+                            
+                            if fid_infos and len(fid_infos) > 0:
+                                fid_info = fid_infos[0]
+                                # 检查返回的数据结构
+                                if isinstance(fid_info, dict) and 'fid' in fid_info:
+                                    target_fid = fid_info['fid']
+                                    add_log(f"[{idx}/{len(share_urls)}] 找到目标文件夹 FID: {target_fid}", 'info')
+                                else:
+                                    add_log(f"[{idx}/{len(share_urls)}] 路径查询返回数据格式异常: {fid_info}", 'warning')
+                                    # 尝试逐级创建目录
+                                    add_log(f"[{idx}/{len(share_urls)}] 尝试创建目录...", 'info')
                                 target_fid = create_path_recursive(quark, final_target_path, add_log, idx, len(share_urls))
                                 if target_fid:
                                     add_log(f"[{idx}/{len(share_urls)}] 创建目录成功，FID: {target_fid}", 'success')
@@ -1244,7 +1267,12 @@ def check_share_status(task_id):
         # 根据云盘类型初始化服务
         if cloud_type == 'cloud189':
             from services.cloud189_service import Cloud189Service
-            cloud_service = Cloud189Service(account['cookie'])
+            # 传入 username 和 password 以支持 Cookie 自动更新
+            cloud_service = Cloud189Service(
+                cookie=account['cookie'],
+                username=account.get('username'),
+                password=account.get('password')
+            )
         else:
             from services.quark_service import QuarkService
             cloud_service = QuarkService(account['cookie'])
@@ -1451,7 +1479,12 @@ def browse_share():
         if cloud_type == 'cloud189':
             # 天翼云盘
             from services.cloud189_service import Cloud189Service
-            cloud_service = Cloud189Service(account['cookie'])
+            # 传入 username 和 password 以支持 Cookie 自动更新
+            cloud_service = Cloud189Service(
+                cookie=account['cookie'],
+                username=account.get('username'),
+                password=account.get('password')
+            )
             
             # 解析分享链接
             share_code, access_code = Cloud189Service.parse_share_url(share_url)

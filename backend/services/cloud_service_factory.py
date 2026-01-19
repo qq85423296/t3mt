@@ -11,13 +11,15 @@ class CloudServiceFactory:
     """云盘服务工厂类"""
     
     @staticmethod
-    def create_service(cloud_type, credential):
+    def create_service(cloud_type, credential, username=None, password=None):
         """
         创建云盘服务实例
         
         Args:
             cloud_type: 云盘类型 (quark/cloud189)
             credential: 登录凭证 (cookie/token)
+            username: 用户名（可选，用于天翼云盘自动刷新Cookie）
+            password: 密码（可选，用于天翼云盘自动刷新Cookie）
         
         Returns:
             ICloudService: 云盘服务实例
@@ -36,7 +38,12 @@ class CloudServiceFactory:
         elif cloud_type == CloudType.CLOUD189:
             from services.cloud189_service import Cloud189Service
             logger.debug(f"创建天翼189云盘服务实例")
-            return Cloud189Service(credential)
+            # 传入 username 和 password 以支持 Cookie 自动更新
+            return Cloud189Service(
+                cookie=credential,
+                username=username,
+                password=password
+            )
         
         else:
             raise ValueError(f"不支持的云盘类型: {cloud_type}")
