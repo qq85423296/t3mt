@@ -495,6 +495,7 @@ def execute_task(task_id):
                         'total_count': total_files,
                         'success_count': success_count,
                         'failed_count': fail_count,
+                        'total_size': 0,  # 转存任务暂不统计大小
                         'source_path': source_path,
                         'target_path': target_path,
                     }
@@ -1151,6 +1152,7 @@ def execute_task(task_id):
                         'total_count': total_files,
                         'success_count': success_count,
                         'failed_count': fail_count,
+                        'total_size': 0,  # 转存任务暂不统计大小
                         'source_path': source_path,
                         'target_path': target_path,
                     }
