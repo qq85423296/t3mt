@@ -1120,7 +1120,9 @@ class SchedulerService:
                                 failed_count=failed_count,
                                 total_count=result['total'],
                                 target_path=actual_save_directory,
-                                task_logger=task_logger
+                                task_logger=task_logger,
+                                duration=duration,  # 传递执行耗时
+                                total_size=0  # 影视下载暂不统计大小
                             )
                         else:
                             # 下载失败的情况
@@ -1169,7 +1171,9 @@ class SchedulerService:
                                 total_count=result['total'],
                                 target_path=actual_save_directory,
                                 task_logger=task_logger,
-                                error_message=error_message
+                                error_message=error_message,
+                                duration=duration,  # 传递执行耗时
+                                total_size=0  # 影视下载暂不统计大小
                             )
                         
                     except Exception as e:
@@ -1250,7 +1254,8 @@ class SchedulerService:
     def _execute_task_plugins(cls, task_id, task_type, execution_id, task_name,
                               final_status, start_time, end_time, success_count,
                               failed_count, total_count, target_path,
-                              task_logger=None, source_path='', error_message=''):
+                              task_logger=None, source_path='', error_message='',
+                              duration=0, total_size=0):
         """
         执行任务关联的插件
         
@@ -1269,6 +1274,8 @@ class SchedulerService:
             task_logger: 任务日志记录器（可选）
             source_path: 源路径（可选）
             error_message: 错误信息（可选）
+            duration: 执行耗时（秒）
+            total_size: 总大小（字节）
         """
         try:
             from services.plugin_executor import PluginExecutor
@@ -1281,9 +1288,11 @@ class SchedulerService:
                 'status': final_status,
                 'start_time': start_time,
                 'end_time': end_time,
+                'duration': duration,  # 添加执行耗时
                 'total_count': total_count,
                 'success_count': success_count,
                 'failed_count': failed_count,
+                'total_size': total_size,  # 添加总大小
                 'source_path': source_path,
                 'target_path': target_path,
                 'error_message': error_message,

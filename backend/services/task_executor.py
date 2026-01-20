@@ -1192,9 +1192,11 @@ class TaskExecutor:
                         'status': final_status,
                         'start_time': cls._running_tasks[task_id].get('start_time'),
                         'end_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'duration': 0,  # 下载任务暂不统计耗时
                         'total_count': len(filtered_files),
                         'success_count': success_count,
                         'failed_count': fail_count,
+                        'total_size': 0,  # 下载任务暂不统计大小
                         'source_path': task.get('source_path', ''),
                         'target_path': task.get('target_path', ''),
                     }
