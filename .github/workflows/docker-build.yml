@@ -38,8 +38,8 @@ jobs:
         run: |
           if [ "${{ github.ref }}" == "refs/heads/main" ]; then
             # 稳定版: latest + 版本号
-            echo "tags=85423296/t3mt:latest,85423296/t3mt:2.1.4" >> $GITHUB_OUTPUT
-            echo "version=稳定版 (latest, 2.1.4)" >> $GITHUB_OUTPUT
+            echo "tags=85423296/t3mt:latest,85423296/t3mt:2.1.5" >> $GITHUB_OUTPUT
+            echo "version=稳定版 (latest, 2.1.5)" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" == "refs/heads/test" ]; then
             # 测试版: test
             echo "tags=85423296/t3mt:test" >> $GITHUB_OUTPUT
