@@ -1240,8 +1240,8 @@
                     </div>
                     <div class="result-actions">
                         <button class="btn btn-small btn-copy">复制链接</button>
-                        ${item.platform === 'quark' ? `<button class="btn btn-small btn-check">检测有效性</button>` : ''}
-                        ${item.platform === 'quark' ? `<button class="btn btn-small btn-primary btn-transfer">定时转存</button>` : ''}
+                        ${(item.platform === 'quark' || item.platform === 'cloud189' || item.platform === 'tianyi') ? `<button class="btn btn-small btn-check">检测有效性</button>` : ''}
+                        ${(item.platform === 'quark' || item.platform === 'cloud189' || item.platform === 'tianyi') ? `<button class="btn btn-small btn-primary btn-transfer">定时转存</button>` : ''}
                     </div>
                 </div>
             `;
@@ -1327,8 +1327,8 @@
                     </div>
                     <div class="result-actions">
                         <button class="btn btn-small btn-copy">复制链接</button>
-                        ${item.platform === 'quark' ? `<button class="btn btn-small btn-check">检测有效性</button>` : ''}
-                        ${item.platform === 'quark' ? `<button class="btn btn-small btn-primary btn-transfer">定时转存</button>` : ''}
+                        ${(item.platform === 'quark' || item.platform === 'cloud189' || item.platform === 'tianyi') ? `<button class="btn btn-small btn-check">检测有效性</button>` : ''}
+                        ${(item.platform === 'quark' || item.platform === 'cloud189' || item.platform === 'tianyi') ? `<button class="btn btn-small btn-primary btn-transfer">定时转存</button>` : ''}
                     </div>
                 </div>
             `;

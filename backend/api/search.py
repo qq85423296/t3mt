@@ -71,23 +71,69 @@ def check_validity():
                 'message': '分享链接不能为空'
             }), 400
         
-        # 获取主账号
-        main_account = Account.get_main_account()
-        if not main_account:
+        # 判断链接类型
+        is_tianyi = 'cloud.189.cn' in share_url or 'c.189.cn' in share_url
+        
+        if is_tianyi:
+            # 天翼云盘链接检测
+            from services.cloud189_service import Cloud189Service
+            from models.cloud_type import CloudType
+            
+            # 获取天翼云盘主账号
+            main_account = Account.get_main_account(CloudType.CLOUD189)
+            if not main_account:
+                return jsonify({
+                    'code': 400,
+                    'message': '请先配置天翼云盘账号'
+                }), 400
+            
+            # 创建天翼云盘服务
+            cloud189_service = Cloud189Service(
+                main_account['cookie'],
+                username=main_account.get('username'),
+                password=main_account.get('password')
+            )
+            
+            # 解析分享链接
+            result = cloud189_service.parse_share_url(share_url)
+            
+            if result.get('code') == 0:
+                return jsonify({
+                    'code': 200,
+                    'message': 'success',
+                    'data': {
+                        'valid': True,
+                        'title': result.get('data', {}).get('title', ''),
+                        'file_count': len(result.get('data', {}).get('files', []))
+                    }
+                })
+            else:
+                return jsonify({
+                    'code': 200,
+                    'message': 'success',
+                    'data': {
+                        'valid': False,
+                        'error': result.get('message', '链接无效')
+                    }
+                })
+        else:
+            # 夸克网盘链接检测
+            main_account = Account.get_main_account()
+            if not main_account:
+                return jsonify({
+                    'code': 400,
+                    'message': '请先配置夸克账号'
+                }), 400
+            
+            # 检测链接有效性
+            quark_service = QuarkService(main_account['cookie'])
+            result = SearchService.check_quark_share_validity(share_url, quark_service)
+            
             return jsonify({
-                'code': 400,
-                'message': '请先配置夸克账号'
-            }), 400
-        
-        # 检测链接有效性
-        quark_service = QuarkService(main_account['cookie'])
-        result = SearchService.check_quark_share_validity(share_url, quark_service)
-        
-        return jsonify({
-            'code': 200,
-            'message': 'success',
-            'data': result
-        })
+                'code': 200,
+                'message': 'success',
+                'data': result
+            })
     except Exception as e:
         logger.error(f"检测链接有效性失败: {e}")
         return jsonify({
