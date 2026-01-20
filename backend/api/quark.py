@@ -36,8 +36,13 @@ def get_files():
         
         cloud_type = account.get('cloud_type', CloudType.QUARK)
         
-        # 根据云盘类型创建服务
-        service = CloudServiceFactory.create_service(cloud_type, account['cookie'])
+        # 根据云盘类型创建服务(传入username和password以支持天翼云盘Cookie自动刷新)
+        service = CloudServiceFactory.create_service(
+            cloud_type, 
+            account['cookie'],
+            username=account.get('username'),
+            password=account.get('password')
+        )
         
         # 天翼云盘根目录ID为-11，夸克为0
         if cloud_type == CloudType.CLOUD189 and folder_id == '0':
@@ -125,7 +130,12 @@ def create_folder():
             parent_id = '-11'
         
         # 创建文件夹
-        service = CloudServiceFactory.create_service(cloud_type, account['cookie'])
+        service = CloudServiceFactory.create_service(
+            cloud_type, 
+            account['cookie'],
+            username=account.get('username'),
+            password=account.get('password')
+        )
         result = service.mkdir(name, parent_id)
         
         logger.info(f"创建文件夹返回: {result}")
@@ -189,7 +199,12 @@ def delete_files():
         cloud_type = account.get('cloud_type', CloudType.QUARK)
         
         # 删除文件
-        service = CloudServiceFactory.create_service(cloud_type, account['cookie'])
+        service = CloudServiceFactory.create_service(
+            cloud_type, 
+            account['cookie'],
+            username=account.get('username'),
+            password=account.get('password')
+        )
         
         # 天翼云盘需要传递文件信息
         if cloud_type == CloudType.CLOUD189 and file_infos:
@@ -246,7 +261,12 @@ def share_files():
         cloud_type = account.get('cloud_type', CloudType.QUARK)
         
         # 分享文件
-        service = CloudServiceFactory.create_service(cloud_type, account['cookie'])
+        service = CloudServiceFactory.create_service(
+            cloud_type, 
+            account['cookie'],
+            username=account.get('username'),
+            password=account.get('password')
+        )
         result = service.create_share(file_ids, expire_days, need_password, password)
         
         if result.get('code') == 0:
@@ -292,7 +312,12 @@ def get_download_url():
         cloud_type = account.get('cloud_type', CloudType.QUARK)
         
         # 获取下载链接
-        service = CloudServiceFactory.create_service(cloud_type, account['cookie'])
+        service = CloudServiceFactory.create_service(
+            cloud_type, 
+            account['cookie'],
+            username=account.get('username'),
+            password=account.get('password')
+        )
         result, new_cookie = service.get_download_url([file_id])
         
         if result.get('code') == 0 and result.get('data'):
@@ -349,7 +374,12 @@ def save_share():
             target_folder_id = '-11'
         
         # 转存文件
-        service = CloudServiceFactory.create_service(cloud_type, account['cookie'])
+        service = CloudServiceFactory.create_service(
+            cloud_type, 
+            account['cookie'],
+            username=account.get('username'),
+            password=account.get('password')
+        )
         result = service.save_share(share_url, target_folder_id, password)
         
         if result.get('success'):

@@ -1519,22 +1519,59 @@
 
     // 检测有效性
     async function checkValidity(url) {
+        // 创建持久化的加载提示
+        let loadingMessage = null;
+        
         try {
-            Message.info('正在检测链接有效性...');
+            // 显示加载提示（不自动消失）
+            loadingMessage = document.createElement('div');
+            loadingMessage.className = 'message message-info show';
+            loadingMessage.innerHTML = `
+                <span class="loading-spinner" style="display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; vertical-align: middle;"></span>
+                正在检测链接有效性...
+            `;
+            document.body.appendChild(loadingMessage);
+            
+            // 添加旋转动画（如果还没有）
+            if (!document.getElementById('loading-spinner-style')) {
+                const style = document.createElement('style');
+                style.id = 'loading-spinner-style';
+                style.textContent = `
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
             const result = await SearchAPI.checkValidity(url);
             
+            // 移除加载提示
+            if (loadingMessage) {
+                loadingMessage.remove();
+                loadingMessage = null;
+            }
+            
             if (result.code === 200 && result.data) {
-                if (result.data.is_valid) {
-                    Message.success('链接有效');
+                if (result.data.valid) {
+                    const title = result.data.title ? `（${result.data.title}）` : '';
+                    const fileCount = result.data.file_count ? `，包含 ${result.data.file_count} 个文件` : '';
+                    Message.success(`链接有效${title}${fileCount}`);
                 } else {
-                    Message.warning(result.data.message || '链接已失效');
+                    Message.warning(result.data.error || '链接已失效');
                 }
             } else {
                 Message.error(result.message || '检测失败');
             }
         } catch (error) {
             console.error('检测失败:', error);
-            Message.error('检测失败');
+            
+            // 移除加载提示
+            if (loadingMessage) {
+                loadingMessage.remove();
+            }
+            
+            Message.error('检测失败：' + (error.message || '网络错误'));
         }
     }
 
