@@ -206,14 +206,24 @@ class QuarkService:
     
     # ========== 文件管理 ==========
     
-    def get_file_list(self, pdir_fid="0", page=1, size=50):
-        """获取文件列表"""
+    def get_file_list(self, folder_id="0", page=1, size=50):
+        """
+        获取文件列表
+        
+        Args:
+            folder_id: 文件夹ID，默认为根目录
+            page: 页码
+            size: 每页数量
+        
+        Returns:
+            dict: 文件列表响应
+        """
         url = f"{self.base_url}/1/clouddrive/file/sort"
         params = {
             "pr": "ucpro",
             "fr": "pc",
             "uc_param_str": "",
-            "pdir_fid": pdir_fid,
+            "pdir_fid": folder_id,  # 使用folder_id参数
             "_page": page,
             "_size": size,
             "_fetch_total": "1",
@@ -236,7 +246,7 @@ class QuarkService:
             list: 文件列表，失败返回 None
         """
         try:
-            response = self.get_file_list(pdir_fid=folder_id, page=page, size=size)
+            response = self.get_file_list(folder_id=folder_id, page=page, size=size)
             if response.get('code') == 0:
                 return response.get('data', {}).get('list', [])
             else:

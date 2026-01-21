@@ -48,7 +48,8 @@ def get_files():
         if cloud_type == CloudType.CLOUD189 and folder_id == '0':
             folder_id = '-11'
         
-        result = service.get_file_list(folder_id, page, page_size)
+        # 使用命名参数调用，确保兼容性
+        result = service.get_file_list(folder_id=folder_id, page=page, size=page_size)
         
         # 转换数据格式
         if result.get('code') == 0 and result.get('data'):

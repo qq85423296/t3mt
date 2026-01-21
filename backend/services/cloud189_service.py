@@ -929,7 +929,7 @@ class Cloud189Service(ICloudService):
             str: 文件夹ID，未找到返回 None
         """
         try:
-            result = self.get_file_list(parent_id, page=1, size=1000)
+            result = self.get_file_list(folder_id=parent_id, page=1, size=1000)
             if result.get('code') != 0:
                 return None
             

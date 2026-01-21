@@ -878,7 +878,7 @@ def execute_task(task_id):
                         if task.get('overwrite_mode') == 1:
                             # 重存模式：删除目标目录中已存在的同名文件
                             try:
-                                target_files_response = quark.get_file_list(folder_target_fid, 1, 500)
+                                target_files_response = quark.get_file_list(folder_id=folder_target_fid, page=1, size=500)
                                 if target_files_response.get('code') == 0:
                                     target_files = target_files_response['data']['list']
                                     target_file_names = {f['file_name'] for f in target_files}
@@ -899,7 +899,7 @@ def execute_task(task_id):
                         else:
                             # 增量模式：只转存新文件
                             try:
-                                target_files_response = quark.get_file_list(folder_target_fid, 1, 500)
+                                target_files_response = quark.get_file_list(folder_id=folder_target_fid, page=1, size=500)
                                 if target_files_response.get('code') == 0:
                                     target_files = target_files_response['data']['list']
                                     target_file_names = {f['file_name'] for f in target_files}
@@ -989,7 +989,7 @@ def execute_task(task_id):
                                         replacer = FilenameReplacer()
                                         
                                         # 获取目标文件夹中的文件列表
-                                        target_files_response = quark.get_file_list(folder_target_fid, 1, 500)
+                                        target_files_response = quark.get_file_list(folder_id=folder_target_fid, page=1, size=500)
                                         if target_files_response.get('code') == 0:
                                             target_files = target_files_response['data']['list']
                                             

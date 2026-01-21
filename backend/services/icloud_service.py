@@ -45,7 +45,7 @@ class ICloudService(ABC):
             list: 文件列表,每个元素包含统一的字段(id, name, isFolder, size等)
                   如果失败返回None
         """
-        result = self.get_file_list(folder_id, 1, 100)
+        result = self.get_file_list(folder_id=folder_id, page=1, size=100)
         if result.get('code') == 0:
             return result.get('data', {}).get('list', [])
         return None
