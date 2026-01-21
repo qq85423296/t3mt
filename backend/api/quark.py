@@ -59,7 +59,7 @@ def get_files():
             for file in file_list:
                 # 夸克和天翼云盘字段名不同，统一处理
                 if cloud_type == CloudType.QUARK:
-                    items.append({
+                    item = {
                         'id': file.get('fid'),
                         'name': file.get('file_name'),
                         'isFolder': file.get('dir', False),
@@ -67,7 +67,8 @@ def get_files():
                         'modifiedTime': file.get('updated_at'),
                         'mimeType': file.get('mime_type', ''),
                         'category': file.get('category', 0),
-                    })
+                    }
+                    items.append(item)
                 else:
                     # 天翼云盘格式
                     items.append({
@@ -79,7 +80,7 @@ def get_files():
                         'mimeType': file.get('mimeType', ''),
                     })
             
-            return jsonify({
+            response_data = {
                 'code': 200,
                 'message': 'success',
                 'data': {
@@ -87,7 +88,9 @@ def get_files():
                     'total': result['data'].get('metadata', {}).get('_total', len(items)),
                     'cloud_type': cloud_type
                 }
-            })
+            }
+            
+            return jsonify(response_data)
         else:
             return jsonify({
                 'code': 500,

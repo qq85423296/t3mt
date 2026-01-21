@@ -32,15 +32,33 @@ def get_files():
             file_list = result['data'].get('list', [])
             items = []
             
+            # 获取账号信息以判断云盘类型
+            from services.account_service import AccountService
+            from models.cloud_type import CloudType
+            account = AccountService.get_account(account_id)
+            cloud_type = account.get('cloud_type', CloudType.QUARK) if account else CloudType.QUARK
+            
             for file in file_list:
-                items.append({
-                    'id': file.get('id'),
-                    'name': file.get('name'),
-                    'isFolder': file.get('isFolder', False),
-                    'size': file.get('size', 0),
-                    'modifiedTime': file.get('modifiedTime'),
-                    'mimeType': file.get('mimeType', ''),
-                })
+                # 夸克和天翼云盘字段名不同，统一处理
+                if cloud_type == CloudType.QUARK:
+                    items.append({
+                        'id': file.get('fid'),
+                        'name': file.get('file_name'),
+                        'isFolder': file.get('dir', False),
+                        'size': file.get('size', 0),
+                        'modifiedTime': file.get('updated_at'),
+                        'mimeType': file.get('mime_type', ''),
+                    })
+                else:
+                    # 天翼云盘格式
+                    items.append({
+                        'id': file.get('id'),
+                        'name': file.get('name'),
+                        'isFolder': file.get('isFolder', False),
+                        'size': file.get('size', 0),
+                        'modifiedTime': file.get('modifiedTime'),
+                        'mimeType': file.get('mimeType', ''),
+                    })
             
             return jsonify({
                 'code': 200,
