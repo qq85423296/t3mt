@@ -520,7 +520,10 @@ class TaskExecutor:
                     return _orig_create_connection(address, timeout, source_address, socket_options)
                 except OSError as e:
                     # 如果端口被占用，让系统自动分配
-                    if e.winerror == 10048:  # 端口已被使用
+                    # Windows: e.winerror == 10048
+                    # Linux: e.errno == 98 (EADDRINUSE)
+                    if (hasattr(e, 'winerror') and e.winerror == 10048) or \
+                       (hasattr(e, 'errno') and e.errno == 98):
                         logger.warning(f"源端口 {source_port} 被占用，使用系统自动分配")
                         return _orig_create_connection(address, timeout, None, socket_options)
                     raise
