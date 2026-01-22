@@ -476,11 +476,11 @@ class TaskExecutor:
         """
         下载文件的一个分块（使用共享的下载链接，像aria2一样）
         
-        每个线程使用不同的源端口（60001, 60002, 60003...），模拟不同客户端
+        每个线程创建独立连接，系统自动分配源端口
         
         Args:
             task_id: 任务ID
-            download_url: 共享的下载链接（真实下载地址）
+            download_url: 共享的下载链接（代理URL）
             headers: 请求头
             start: 起始字节
             end: 结束字节
@@ -495,75 +495,41 @@ class TaskExecutor:
         
         try:
             # 为每个线程创建独立的Session
+            # 每个Session会使用不同的TCP连接和源端口（系统自动分配）
             session = requests.Session()
             
             # 禁用系统代理，直连下载
             session.trust_env = False
             session.proxies = {}
             
-            # 计算源端口（基于chunk_index，避免冲突）
-            # 使用60001 + chunk_index，确保每个分块使用不同的端口
-            source_port = 60001 + (chunk_index % 1000)  # 限制在60001-61000范围内
+            # 禁用连接池复用，强制每次创建新连接
+            # 这样每个线程会使用不同的源端口（系统自动分配）
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=1,
+                pool_maxsize=1,
+                max_retries=0
+            )
+            session.mount('http://', adapter)
+            session.mount('https://', adapter)
             
-            # 创建自定义的HTTPAdapter，支持源端口绑定
-            from requests.adapters import HTTPAdapter
-            from urllib3.util.connection import create_connection as _orig_create_connection
-            import socket
+            # 设置Range请求头
+            chunk_headers = headers.copy()
+            chunk_headers['Range'] = f'bytes={start}-{end}'
+            # 添加Connection: close，确保不复用连接
+            chunk_headers['Connection'] = 'close'
             
-            # 定义绑定源端口的连接函数
-            def create_connection_with_source_port(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
-                                                   source_address=None, socket_options=None):
-                """创建绑定特定源端口的连接"""
-                try:
-                    # 尝试绑定指定的源端口
-                    source_address = ('0.0.0.0', source_port)
-                    return _orig_create_connection(address, timeout, source_address, socket_options)
-                except OSError as e:
-                    # 如果端口被占用，让系统自动分配
-                    # Windows: e.winerror == 10048
-                    # Linux: e.errno == 98 (EADDRINUSE)
-                    if (hasattr(e, 'winerror') and e.winerror == 10048) or \
-                       (hasattr(e, 'errno') and e.errno == 98):
-                        logger.warning(f"源端口 {source_port} 被占用，使用系统自动分配")
-                        return _orig_create_connection(address, timeout, None, socket_options)
-                    raise
+            timeout = cls._get_config('download_timeout', 60)
             
-            # 临时替换create_connection函数
-            import urllib3.util.connection
-            original_create_connection = urllib3.util.connection.create_connection
-            urllib3.util.connection.create_connection = create_connection_with_source_port
+            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 开始下载 ({cls._format_size(start)}-{cls._format_size(end)})", 'info')
             
-            try:
-                # 创建adapter
-                adapter = HTTPAdapter(
-                    pool_connections=1,
-                    pool_maxsize=1,
-                    max_retries=0
-                )
-                session.mount('http://', adapter)
-                session.mount('https://', adapter)
-                
-                # 设置Range请求头
-                chunk_headers = headers.copy()
-                chunk_headers['Range'] = f'bytes={start}-{end}'
-                # 添加Connection: close，确保不复用连接
-                chunk_headers['Connection'] = 'close'
-                
-                timeout = cls._get_config('download_timeout', 60)
-                
-                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 开始下载 (源端口:{source_port}, {cls._format_size(start)}-{cls._format_size(end)})", 'info')
-                
-                response = session.get(
-                    download_url,
-                    headers=chunk_headers,
-                    stream=True,
-                    timeout=timeout,
-                    verify=False,
-                    allow_redirects=True  # 允许302重定向
-                )
-            finally:
-                # 恢复原始的create_connection函数
-                urllib3.util.connection.create_connection = original_create_connection
+            response = session.get(
+                download_url,
+                headers=chunk_headers,
+                stream=True,
+                timeout=timeout,
+                verify=False,
+                allow_redirects=True  # 允许302重定向
+            )
             
             if response.status_code not in [200, 206]:
                 error_msg = f"HTTP {response.status_code}"
