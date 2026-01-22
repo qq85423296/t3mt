@@ -267,7 +267,7 @@ class TaskExecutor:
     def _download_file_multithread(cls, task_id: int, file_info: dict, cloud_service, file_fid: str,
                                    headers: dict, local_file_path: str) -> bool:
         """
-        多线程分块下载单个文件（动态按需获取链接：每个线程独立实时获取下载链接）
+        多线程分块下载单个文件（共享下载链接：所有线程使用同一个下载链接）
         
         Args:
             task_id: 任务ID
@@ -288,9 +288,33 @@ class TaskExecutor:
         
         cls._add_log(task_id, f"🚀 使用多线程下载: {file_name} ({cls._format_size(file_size)})", 'info')
         cls._add_log(task_id, f"   配置: {threads_per_file} 个线程，每块 {cls._format_size(multithread_chunk_size)}", 'info')
-        cls._add_log(task_id, f"   策略: 每个线程独立实时获取下载链接（动态按需）", 'info')
         
         try:
+            # 【智能代理方案】生成代理URL，每次请求自动302到最新链接
+            cls._add_log(task_id, f"   正在生成代理下载URL...", 'info')
+            
+            # 检查cloud_service是否有account_id
+            if not hasattr(cloud_service, 'account_id') or not cloud_service.account_id:
+                raise Exception("云盘服务缺少account_id，无法生成代理URL")
+            
+            # 生成代理URL
+            from config import Config
+            import hashlib
+            
+            account_id = cloud_service.account_id
+            timestamp = int(time.time())
+            secret = Config.SECRET_KEY
+            data = f"{account_id}:{file_fid}:{timestamp}:{secret}"
+            token = hashlib.sha256(data.encode()).hexdigest()
+            
+            # 构建代理URL（通过本地API，每次请求自动获取最新下载链接）
+            # 注意：这里使用127.0.0.1而不是localhost，避免IPv6问题
+            proxy_url = f"http://127.0.0.1:8520/api/download-proxy/{account_id}/{file_fid}?token={token}&ts={timestamp}"
+            
+            cls._add_log(task_id, f"   ✓ 代理URL生成成功", 'success')
+            cls._add_log(task_id, f"   每个线程通过代理自动获取最新下载链接", 'info')
+            cls._add_log(task_id, f"   源端口范围: 60001-{60000 + threads_per_file}", 'info')
+            
             # 计算分块
             num_chunks = (file_size + multithread_chunk_size - 1) // multithread_chunk_size
             chunks = []
@@ -308,7 +332,7 @@ class TaskExecutor:
             
             cls._add_log(task_id, f"   分块数量: {num_chunks}", 'info')
             
-            # 并行下载所有分块（每个线程独立获取链接）
+            # 并行下载所有分块（使用代理URL）
             start_time = time.time()
             failed_chunks = []
             chunk_results = {}
@@ -316,10 +340,9 @@ class TaskExecutor:
             with ThreadPoolExecutor(max_workers=threads_per_file) as executor:
                 future_to_chunk = {
                     executor.submit(
-                        cls._download_chunk_with_dynamic_url,
+                        cls._download_chunk_with_shared_url,
                         task_id,
-                        cloud_service,
-                        file_fid,
+                        proxy_url,  # 使用代理URL
                         headers,
                         chunk['start'],
                         chunk['end'],
@@ -445,6 +468,200 @@ class TaskExecutor:
                     chunk['file'].unlink()
             cls._add_log(task_id, f"多线程下载失败: {file_name} - {str(e)}", 'error')
             return False
+    
+    @classmethod
+    def _download_chunk_with_shared_url(cls, task_id: int, download_url: str, headers: dict, 
+                                        start: int, end: int, chunk_file: Path, chunk_index: int, 
+                                        total_chunks: int, retry: int = 0) -> Dict:
+        """
+        下载文件的一个分块（使用共享的下载链接，像aria2一样）
+        
+        每个线程使用不同的源端口（60001, 60002, 60003...），模拟不同客户端
+        
+        Args:
+            task_id: 任务ID
+            download_url: 共享的下载链接（真实下载地址）
+            headers: 请求头
+            start: 起始字节
+            end: 结束字节
+            chunk_file: 分块文件保存路径
+            chunk_index: 分块索引
+            total_chunks: 总分块数
+            retry: 当前重试次数
+        """
+        max_retry = 5  # 最大重试次数
+        response = None
+        session = None
+        
+        try:
+            # 为每个线程创建独立的Session
+            session = requests.Session()
+            
+            # 禁用系统代理，直连下载
+            session.trust_env = False
+            session.proxies = {}
+            
+            # 计算源端口（基于chunk_index，避免冲突）
+            # 使用60001 + chunk_index，确保每个分块使用不同的端口
+            source_port = 60001 + (chunk_index % 1000)  # 限制在60001-61000范围内
+            
+            # 创建自定义的HTTPAdapter，支持源端口绑定
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.connection import create_connection as _orig_create_connection
+            import socket
+            
+            # 定义绑定源端口的连接函数
+            def create_connection_with_source_port(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+                                                   source_address=None, socket_options=None):
+                """创建绑定特定源端口的连接"""
+                try:
+                    # 尝试绑定指定的源端口
+                    source_address = ('0.0.0.0', source_port)
+                    return _orig_create_connection(address, timeout, source_address, socket_options)
+                except OSError as e:
+                    # 如果端口被占用，让系统自动分配
+                    if e.winerror == 10048:  # 端口已被使用
+                        logger.warning(f"源端口 {source_port} 被占用，使用系统自动分配")
+                        return _orig_create_connection(address, timeout, None, socket_options)
+                    raise
+            
+            # 临时替换create_connection函数
+            import urllib3.util.connection
+            original_create_connection = urllib3.util.connection.create_connection
+            urllib3.util.connection.create_connection = create_connection_with_source_port
+            
+            try:
+                # 创建adapter
+                adapter = HTTPAdapter(
+                    pool_connections=1,
+                    pool_maxsize=1,
+                    max_retries=0
+                )
+                session.mount('http://', adapter)
+                session.mount('https://', adapter)
+                
+                # 设置Range请求头
+                chunk_headers = headers.copy()
+                chunk_headers['Range'] = f'bytes={start}-{end}'
+                # 添加Connection: close，确保不复用连接
+                chunk_headers['Connection'] = 'close'
+                
+                timeout = cls._get_config('download_timeout', 60)
+                
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 开始下载 (源端口:{source_port}, {cls._format_size(start)}-{cls._format_size(end)})", 'info')
+                
+                response = session.get(
+                    download_url,
+                    headers=chunk_headers,
+                    stream=True,
+                    timeout=timeout,
+                    verify=False,
+                    allow_redirects=True  # 允许302重定向
+                )
+            finally:
+                # 恢复原始的create_connection函数
+                urllib3.util.connection.create_connection = original_create_connection
+            
+            if response.status_code not in [200, 206]:
+                error_msg = f"HTTP {response.status_code}"
+                # 尝试读取响应内容
+                try:
+                    error_content = response.text[:200]
+                    if error_content:
+                        error_msg += f", 响应: {error_content}"
+                except:
+                    pass
+                raise Exception(error_msg)
+            
+            # 写入分块文件
+            downloaded = 0
+            with open(chunk_file, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    # 检查任务是否被停止
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 已停止", 'warning')
+                            response.close()
+                            if chunk_file.exists():
+                                chunk_file.unlink()
+                            return {'success': False, 'message': '任务已停止'}
+                    
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+            
+            response.close()
+            if session:
+                session.close()
+            
+            # 验证下载的大小
+            expected_size = end - start + 1
+            actual_size = chunk_file.stat().st_size
+            
+            if actual_size != expected_size:
+                error_msg = f"大小不匹配: 期望{cls._format_size(expected_size)}, 实际{cls._format_size(actual_size)}"
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} {error_msg}", 'error')
+                if chunk_file.exists():
+                    chunk_file.unlink()
+                raise Exception(error_msg)
+            
+            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 完成 ({cls._format_size(actual_size)})", 'success')
+            
+            return {'success': True, 'size': actual_size}
+            
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError) as e:
+            # 网络类错误：指数退避重试
+            if response:
+                try:
+                    response.close()
+                except:
+                    pass
+            if session:
+                try:
+                    session.close()
+                except:
+                    pass
+            
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            if retry < max_retry:
+                delay = 2 ** retry  # 指数退避：1s, 2s, 4s, 8s, 16s
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 网络错误，{delay}秒后重试 ({retry + 1}/{max_retry}): {error_detail}", 'warning')
+                time.sleep(delay)
+                return cls._download_chunk_with_shared_url(task_id, download_url, headers, start, end, 
+                                                           chunk_file, chunk_index, total_chunks, retry + 1)
+            else:
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 网络错误，已重试{max_retry}次: {error_detail}", 'error')
+                return {'success': False, 'message': error_detail}
+                
+        except Exception as e:
+            # 通用异常
+            if response:
+                try:
+                    response.close()
+                except:
+                    pass
+            if session:
+                try:
+                    session.close()
+                except:
+                    pass
+            
+            # 记录详细的异常信息
+            import traceback
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            error_trace = traceback.format_exc()
+            
+            logger.error(f"线程 {chunk_index + 1}/{total_chunks} 异常详情:\n{error_trace}")
+            
+            if retry < max_retry:
+                delay = 2 ** retry
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 异常，{delay}秒后重试 ({retry + 1}/{max_retry}): {error_detail}", 'warning')
+                time.sleep(delay)
+                return cls._download_chunk_with_shared_url(task_id, download_url, headers, start, end, 
+                                                           chunk_file, chunk_index, total_chunks, retry + 1)
+            else:
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 异常，已重试{max_retry}次: {error_detail}", 'error')
+                return {'success': False, 'message': error_detail}
     
     @classmethod
     def _download_chunk_with_dynamic_url(cls, task_id: int, cloud_service, file_fid: str, headers: dict, 
@@ -852,7 +1069,8 @@ class TaskExecutor:
                     cloud_type, 
                     account['cookie'],
                     username=account.get('username'),
-                    password=account.get('password')
+                    password=account.get('password'),
+                    account_id=account['id']  # 传递账号ID用于代理下载
                 )
             except Exception as e:
                 cls._add_log(task_id, f"初始化云盘服务失败: {str(e)}", 'error')
