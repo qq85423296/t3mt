@@ -313,7 +313,6 @@ class TaskExecutor:
             
             cls._add_log(task_id, f"   ✓ 代理URL生成成功", 'success')
             cls._add_log(task_id, f"   每个线程通过代理自动获取最新下载链接", 'info')
-            cls._add_log(task_id, f"   源端口范围: 60001-{60000 + threads_per_file}", 'info')
             
             # 计算分块
             num_chunks = (file_size + multithread_chunk_size - 1) // multithread_chunk_size
