@@ -89,6 +89,10 @@ def create_app():
     from api.plugins import plugins_bp
     app.register_blueprint(plugins_bp)
     
+    # 注册下载代理蓝图
+    from api.download_proxy import download_proxy_bp
+    app.register_blueprint(download_proxy_bp)
+    
     # 健康检查接口
     @app.route('/health', methods=['GET'])
     def health_check():
