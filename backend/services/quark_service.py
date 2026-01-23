@@ -907,6 +907,36 @@ class QuarkService:
         
         return response
     
+    # ========== 下载相关 ==========
+    
+    def prepare_download_headers(self, file_id: str) -> dict:
+        """
+        准备夸克下载请求头（夸克专属实现）
+        
+        夸克下载需要携带完整的Cookie和特定的Headers才能通过认证
+        
+        Args:
+            file_id: 文件ID
+        
+        Returns:
+            dict: 下载请求头，包含Cookie、User-Agent、Referer等
+        """
+        headers = {
+            'Cookie': self.cookie,
+            'User-Agent': self.user_agent,
+            'Accept': '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Connection': 'keep-alive',
+        }
+        
+        # 设置Referer（夸克要求）
+        if self.base_url:
+            quark_referer = self.base_url.replace('drive-pc', 'pan')
+            headers['Referer'] = quark_referer
+        
+        logger.debug(f"夸克下载请求头已准备: file_id={file_id}")
+        return headers
+    
     # ========== 辅助方法 ==========
     
     @staticmethod

@@ -2007,3 +2007,20 @@ class Cloud189Service(ICloudService):
                 'code': -1,
                 'message': f'获取下载链接失败: {str(e)}'
             }, self.cookie
+    
+    def prepare_download_headers(self, file_id: str) -> dict:
+        """
+        准备天翼云盘下载请求头（天翼专属实现）
+        
+        天翼云盘的下载链接本身包含认证信息（URL中的token），
+        因此不需要额外的Cookie或Headers
+        
+        Args:
+            file_id: 文件ID
+        
+        Returns:
+            dict: 下载请求头（天翼云盘返回空字典，因为URL自带认证）
+        """
+        # 天翼云盘的下载链接自带token，不需要额外的认证信息
+        logger.debug(f"天翼云盘下载请求头已准备: file_id={file_id} (无需额外Headers)")
+        return {}

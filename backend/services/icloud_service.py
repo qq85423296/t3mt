@@ -120,6 +120,20 @@ class ICloudService(ABC):
         """
         pass
     
+    def prepare_download_headers(self, file_id: str) -> dict:
+        """
+        准备下载请求头（不同云盘有不同的认证方式）
+        
+        Args:
+            file_id: 文件ID
+        
+        Returns:
+            dict: 下载请求头
+        """
+        # 默认实现：返回空字典
+        # 子类可以重写此方法以提供特定的认证信息
+        return {}
+    
     @abstractmethod
     def parse_share_url(self, url):
         """

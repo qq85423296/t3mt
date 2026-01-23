@@ -267,7 +267,7 @@ class TaskExecutor:
     def _download_file_multithread(cls, task_id: int, file_info: dict, cloud_service, file_fid: str,
                                    headers: dict, local_file_path: str) -> bool:
         """
-        多线程分块下载单个文件（共享下载链接：所有线程使用同一个下载链接）
+        多线程分块下载单个文件（动态获取下载链接：每个线程独立获取最新链接）
         
         Args:
             task_id: 任务ID
@@ -290,29 +290,8 @@ class TaskExecutor:
         cls._add_log(task_id, f"   配置: {threads_per_file} 个线程，每块 {cls._format_size(multithread_chunk_size)}", 'info')
         
         try:
-            # 【智能代理方案】生成代理URL，每次请求自动302到最新链接
-            cls._add_log(task_id, f"   正在生成代理下载URL...", 'info')
-            
-            # 检查cloud_service是否有account_id
-            if not hasattr(cloud_service, 'account_id') or not cloud_service.account_id:
-                raise Exception("云盘服务缺少account_id，无法生成代理URL")
-            
-            # 生成代理URL
-            from config import Config
-            import hashlib
-            
-            account_id = cloud_service.account_id
-            timestamp = int(time.time())
-            secret = Config.SECRET_KEY
-            data = f"{account_id}:{file_fid}:{timestamp}:{secret}"
-            token = hashlib.sha256(data.encode()).hexdigest()
-            
-            # 构建代理URL（通过本地API，每次请求自动获取最新下载链接）
-            # 注意：这里使用127.0.0.1而不是localhost，避免IPv6问题
-            proxy_url = f"http://127.0.0.1:8520/api/download-proxy/{account_id}/{file_fid}?token={token}&ts={timestamp}"
-            
-            cls._add_log(task_id, f"   ✓ 代理URL生成成功", 'success')
-            cls._add_log(task_id, f"   每个线程通过代理自动获取最新下载链接", 'info')
+            # 【动态获取方案】每个线程独立获取最新下载链接
+            cls._add_log(task_id, f"   使用动态获取链接方案（每个线程独立获取最新链接）", 'info')
             
             # 计算分块
             num_chunks = (file_size + multithread_chunk_size - 1) // multithread_chunk_size
@@ -331,7 +310,7 @@ class TaskExecutor:
             
             cls._add_log(task_id, f"   分块数量: {num_chunks}", 'info')
             
-            # 并行下载所有分块（使用代理URL）
+            # 并行下载所有分块（使用动态获取链接）
             start_time = time.time()
             failed_chunks = []
             chunk_results = {}
@@ -339,9 +318,10 @@ class TaskExecutor:
             with ThreadPoolExecutor(max_workers=threads_per_file) as executor:
                 future_to_chunk = {
                     executor.submit(
-                        cls._download_chunk_with_shared_url,
+                        cls._download_chunk_with_dynamic_url,
                         task_id,
-                        proxy_url,  # 使用代理URL
+                        cloud_service,  # 传递云盘服务实例
+                        file_fid,       # 传递文件ID
                         headers,
                         chunk['start'],
                         chunk['end'],
