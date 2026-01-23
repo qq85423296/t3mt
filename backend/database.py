@@ -336,12 +336,12 @@ class Database:
             # 插入默认系统配置
             default_configs = [
                 ('schedule_log_retention_days', '30', 'log', '调度日志保留天数'),
-                ('download_default_dir', 'D:\\Downloads', 'download', '默认下载目录'),
-                ('download_max_concurrent', '3', 'download', '最大并发下载数'),
-                ('download_speed_limit', '0', 'download', '下载速度限制(MB/s)'),
-                ('download_chunk_size', '10', 'download', '分块下载大小(MB)'),
-                ('download_retry_count', '3', 'download', '下载重试次数'),
-                ('pansou_api_url', 'http://192.168.0.111:8383/', 'pansou', '盘搜API地址'),
+                ('download_default_dir', '/app/backend/downloads/云盘下载', 'download', '默认下载目录'),
+                ('download_timeout', '30', 'download', '请求超时时间(秒)'),
+                ('download_enable_multithread', 'true', 'download', '启用多线程下载'),
+                ('download_threads_per_file', '4', 'download', '每文件线程数'),
+                ('download_multithread_chunk_size', '10', 'download', '每线程分块大小(MB)'),
+                ('pansou_api_url', 'http://pans.fn.22l2.com/', 'pansou', '盘搜API地址'),
                 ('video_download_default_dir', '/app/backend/downloads/官网下载', 'video_download', '影视下载默认目录'),
                 ('video_download_temp_dir', '/app/backend/downloads/temp', 'video_download', '影视下载临时目录'),
                 ('video_download_max_threads', '3', 'video_download', '视频片段下载线程数（1-10）'),

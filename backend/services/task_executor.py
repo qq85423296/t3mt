@@ -803,7 +803,7 @@ class TaskExecutor:
             temp_file_path = local_file_path + '.tmp'
             
             timeout = cls._get_config('download_timeout', 60)
-            chunk_size = cls._get_config('download_chunk_size', 2) * 1024 * 1024
+            chunk_size = 10 * 1024 * 1024  # 固定10MB，单线程下载时的读取缓冲区大小
             
             cls._add_log(task_id, f"   开始请求下载链接...", 'info')
             
@@ -1338,7 +1338,10 @@ class TaskExecutor:
                     file_info = {'file_name': file_name, 'size': file_size}
                     
                     enable_multithread = cls._get_config('download_enable_multithread', True)
-                    multithread_threshold = cls._get_config('download_multithread_threshold', 50) * 1024 * 1024
+                    threads_per_file = cls._get_config('download_threads_per_file', 4)
+                    chunk_size_mb = cls._get_config('download_multithread_chunk_size', 10)
+                    # 自动计算阈值：线程数 × 每线程分块大小
+                    multithread_threshold = threads_per_file * chunk_size_mb * 1024 * 1024
                     
                     # 准备请求头(根据云盘类型设置)
                     download_headers = {

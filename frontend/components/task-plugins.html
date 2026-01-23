@@ -13,9 +13,32 @@
         display: flex;
         align-items: center;
         gap: 8px;
+        cursor: pointer;
+        user-select: none;
+        padding: 8px;
+        border-radius: 6px;
+        transition: background 0.2s;
+    }
+    .task-plugins-title:hover {
+        background: #F3F4F6;
     }
     .task-plugins-title .icon {
         font-size: 16px;
+    }
+    .task-plugins-title .toggle-icon {
+        margin-left: auto;
+        font-size: 12px;
+        color: #9CA3AF;
+        transition: transform 0.2s;
+    }
+    .task-plugins-title.collapsed .toggle-icon {
+        transform: rotate(-90deg);
+    }
+    .task-plugins-content {
+        display: none;
+    }
+    .task-plugins-content.expanded {
+        display: block;
     }
     .task-plugins-list {
         display: flex;
@@ -181,23 +204,26 @@
 </style>
 
 <div class="task-plugins-section" id="taskPluginsSection">
-    <div class="task-plugins-title">
+    <div class="task-plugins-title collapsed" id="taskPluginsTitle" onclick="TaskPluginsManager.toggleSection()">
         <span class="icon">🔌</span>
         <span>执行完成后触发插件</span>
+        <span class="toggle-icon">▼</span>
     </div>
     
-    <!-- 可用参数说明 -->
-    <div class="available-params-section" id="availableParamsSection">
-        <div class="available-params-title">📋 任务可输出的参数（供插件使用）</div>
-        <div class="available-params-list" id="availableParamsList">
-            <!-- 动态生成 -->
+    <div class="task-plugins-content" id="taskPluginsContent">
+        <!-- 可用参数说明 -->
+        <div class="available-params-section" id="availableParamsSection">
+            <div class="available-params-title">📋 任务可输出的参数（供插件使用）</div>
+            <div class="available-params-list" id="availableParamsList">
+                <!-- 动态生成 -->
+            </div>
         </div>
+        
+        <div class="task-plugins-list" id="taskPluginsList">
+            <div class="task-plugins-empty">加载中...</div>
+        </div>
+        <div class="task-plugins-hint">勾选插件后，可选择要传递给插件的参数</div>
     </div>
-    
-    <div class="task-plugins-list" id="taskPluginsList">
-        <div class="task-plugins-empty">加载中...</div>
-    </div>
-    <div class="task-plugins-hint">勾选插件后，可选择要传递给插件的参数</div>
 </div>
 
 <script>
@@ -270,6 +296,26 @@ window.TaskPluginsManager = (function() {
     const DEFAULT_PARAMS = ['task_name', 'task_type', 'status', 'start_time', 'end_time', 
                            'source_path', 'target_path', 'total_count', 'success_count', 
                            'failed_count', 'total_size', 'error_message', 'duration'];
+    
+    /**
+     * 切换区块展开/折叠
+     */
+    function toggleSection() {
+        const title = document.getElementById('taskPluginsTitle');
+        const content = document.getElementById('taskPluginsContent');
+        
+        if (title && content) {
+            const isCollapsed = title.classList.contains('collapsed');
+            
+            if (isCollapsed) {
+                title.classList.remove('collapsed');
+                content.classList.add('expanded');
+            } else {
+                title.classList.add('collapsed');
+                content.classList.remove('expanded');
+            }
+        }
+    }
     
     /**
      * 初始化
@@ -492,6 +538,7 @@ window.TaskPluginsManager = (function() {
         saveTaskPlugins,
         togglePlugin,
         toggleParam,
+        toggleSection,
         getSelectedPlugins: () => selectedPlugins,
         getTaskParams,
         reset

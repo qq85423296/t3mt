@@ -498,8 +498,10 @@
             <!-- 模块1：基础信息 -->
             <div class="form-section">
                 <div class="form-group">
-                    <label class="form-label">任务名称 *</label>
-                    <input type="text" class="form-input" id="taskName" placeholder="请输入任务名称" />
+                    <label class="form-label">转存账号 *</label>
+                    <select class="form-input" id="targetAccount">
+                        <option value="">选择账号</option>
+                    </select>
                 </div>
                 
                 <div class="form-group">
@@ -513,13 +515,6 @@
                         </div>
                     </div>
                     <div class="form-hint">可添加多个备用链接，点击"浏览"选择要转存的目录</div>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">转存账号 *</label>
-                    <select class="form-input" id="targetAccount">
-                        <option value="">选择账号</option>
-                    </select>
                 </div>
                 
                 <div class="form-group">
@@ -546,6 +541,11 @@
                         <input type="text" class="form-input" id="targetFolderName" placeholder="输入子文件夹名称" />
                         <div class="form-hint">文件将保存到：转存目录/子文件夹名称</div>
                     </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">任务名称 *</label>
+                    <input type="text" class="form-input" id="taskName" placeholder="请输入任务名称" />
                 </div>
             </div>
             

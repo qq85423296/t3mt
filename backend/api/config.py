@@ -5,7 +5,6 @@
 import json
 from flask import Blueprint, request, jsonify
 from models.config import ConfigModel
-from services.email_service import EmailService
 from utils.logger import logger
 from utils.feature_gate import require_pro
 from utils.config_crypto import config_crypto
@@ -46,23 +45,11 @@ def get_config():
             },
             'download': {
                 'default_dir': ConfigModel.get_config('download_default_dir', 'downloads'),
-                'max_concurrent': int(ConfigModel.get_config('download_max_concurrent', 3)),
-                'chunk_size': int(ConfigModel.get_config('download_chunk_size', 2)),
-                'retry_count': int(ConfigModel.get_config('download_retry_count', 3)),
-                'retry_delay': int(ConfigModel.get_config('download_retry_delay', 5)),
                 'timeout': int(ConfigModel.get_config('download_timeout', 30)),
                 # 多线程下载配置
                 'enable_multithread': ConfigModel.get_config('download_enable_multithread', 'true') == 'true',
-                'multithread_threshold': int(ConfigModel.get_config('download_multithread_threshold', 50)),
                 'threads_per_file': int(ConfigModel.get_config('download_threads_per_file', 4)),
                 'multithread_chunk_size': int(ConfigModel.get_config('download_multithread_chunk_size', 10))
-            },
-            'email': {
-                'smtp_server': ConfigModel.get_config('email_smtp_server', ''),
-                'smtp_port': int(ConfigModel.get_config('email_smtp_port', 465)),
-                'sender': ConfigModel.get_config('email_sender', ''),
-                'password': '******' if ConfigModel.get_config('email_password') else '',
-                'receivers': ConfigModel.get_config_list('email_receivers')
             },
             'pansou': {
                 'api_url': ConfigModel.get_config('pansou_api_url', 'http://192.168.0.111:8383/'),
@@ -116,29 +103,11 @@ def save_config():
         if 'download' in data:
             download_config = data['download']
             ConfigModel.set_config('download_default_dir', download_config['default_dir'], 'download')
-            ConfigModel.set_config('download_max_concurrent', str(download_config['max_concurrent']), 'download')
-            ConfigModel.set_config('download_chunk_size', str(download_config['chunk_size']), 'download')
-            ConfigModel.set_config('download_retry_count', str(download_config['retry_count']), 'download')
-            ConfigModel.set_config('download_retry_delay', str(download_config['retry_delay']), 'download')
             ConfigModel.set_config('download_timeout', str(download_config['timeout']), 'download')
             # 多线程下载配置
             ConfigModel.set_config('download_enable_multithread', 'true' if download_config.get('enable_multithread') else 'false', 'download')
-            ConfigModel.set_config('download_multithread_threshold', str(download_config['multithread_threshold']), 'download')
             ConfigModel.set_config('download_threads_per_file', str(download_config['threads_per_file']), 'download')
             ConfigModel.set_config('download_multithread_chunk_size', str(download_config['multithread_chunk_size']), 'download')
-        
-        # 保存邮件配置
-        if 'email' in data:
-            email_config = data['email']
-            ConfigModel.set_config('email_smtp_server', email_config['smtp_server'], 'email')
-            ConfigModel.set_config('email_smtp_port', str(email_config['smtp_port']), 'email')
-            ConfigModel.set_config('email_sender', email_config['sender'], 'email')
-            
-            # 只有提供了新密码才更新
-            if email_config.get('password') and email_config['password'] != '******':
-                ConfigModel.set_config('email_password', email_config['password'], 'email')
-            
-            ConfigModel.set_config_list('email_receivers', email_config.get('receivers', []), 'email')
         
         # 保存盘搜配置
         if 'pansou' in data:
@@ -191,42 +160,4 @@ def save_config():
         return jsonify({
             'code': 500,
             'message': f'保存配置失败: {str(e)}'
-        }), 500
-
-
-@config_bp.route('/email/test', methods=['POST'])
-def test_email():
-    """测试邮件配置"""
-    try:
-        data = request.get_json()
-        
-        # 验证必填字段
-        required_fields = ['smtp_server', 'smtp_port', 'sender', 'password', 'receiver']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({
-                    'code': 400,
-                    'message': f'{field}不能为空'
-                }), 400
-        
-        # 构建SMTP配置
-        smtp_config = {
-            'server': data['smtp_server'],
-            'port': data['smtp_port'],
-            'sender': data['sender'],
-            'password': data['password']
-        }
-        
-        # 发送测试邮件
-        EmailService.test_smtp_config(smtp_config, data['receiver'])
-        
-        return jsonify({
-            'code': 200,
-            'message': '测试邮件发送成功'
-        })
-    except Exception as e:
-        logger.error(f"测试邮件配置失败: {e}")
-        return jsonify({
-            'code': 500,
-            'message': f'测试失败: {str(e)}'
         }), 500

@@ -332,20 +332,12 @@
             <!-- 模块1：基础信息 -->
             <div class="form-section">
                 <div class="form-group">
-                    <label class="form-label">任务名称 <span class="required">*</span></label>
-                    <input type="text" class="form-input" id="taskName" placeholder="请输入任务名称" />
-                </div>
-                
-                <div class="form-group">
                     <label class="form-label">源账号 <span class="required">*</span></label>
                     <select class="form-input" id="sourceAccount">
                         <option value="">选择账号</option>
                     </select>
                 </div>
-            </div>
-            
-            <!-- 模块2：目录配置 -->
-            <div class="form-section">
+                
                 <div class="form-group">
                     <label class="form-label">网盘目录 <span class="required">*</span></label>
                     <div class="input-with-button">
@@ -356,14 +348,16 @@
                 
                 <div class="form-group">
                     <label class="form-label">本地目录 <span class="required">*</span></label>
-                    <div class="input-with-button">
-                        <input type="text" class="form-input" id="targetPath" placeholder="D:\Downloads\Movies" />
-                        <button class="btn-select" onclick="selectLocalPath()">选择目录</button>
-                    </div>
+                    <input type="text" class="form-input" id="targetPath" placeholder="D:\Downloads\Movies" />
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">任务名称 <span class="required">*</span></label>
+                    <input type="text" class="form-input" id="taskName" placeholder="请输入任务名称" />
                 </div>
             </div>
             
-            <!-- 模块3：过滤规则 -->
+            <!-- 模块2：过滤规则 -->
             <div class="form-section">
                 <div class="form-group">
                     <label class="form-label">文件过滤</label>
