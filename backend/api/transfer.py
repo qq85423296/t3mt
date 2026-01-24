@@ -366,7 +366,7 @@ def execute_task(task_id):
                         # 解析分享链接
                         add_log(f"[{idx}/{len(share_urls)}] 解析分享链接...", 'info')
                         share_code, access_code = Cloud189Service.parse_share_url(share_url)
-                        add_log(f"[{idx}/{len(share_urls)}] 解析结果: share_code={share_code}", 'info')
+                        add_log(f"[{idx}/{len(share_urls)}] 解析结果: share_code={share_code}, access_code={access_code}", 'info')
                         
                         if not share_code:
                             add_log(f"[{idx}/{len(share_urls)}] 解析失败：无效的分享链接", 'error')
@@ -405,14 +405,22 @@ def execute_task(task_id):
                             add_log(f"[{idx}/{len(share_urls)}] 使用保存的文件夹ID: {target_folder_id}", 'info')
                         
                         # 调用转存方法
-                        logger.info(f"调用save_share: url={share_url}, target_folder_id={target_folder_id}")
-                        result = cloud_service.save_share(share_url, target_folder_id, access_code)
+                        # 获取重存模式参数
+                        overwrite_mode = task.get('overwrite_mode', 0) == 1
+                        logger.info(f"调用save_share: url={share_url}, target_folder_id={target_folder_id}, access_code={access_code}, overwrite_mode={overwrite_mode}")
+                        result = cloud_service.save_share(share_url, target_folder_id, access_code, overwrite_mode)
                         logger.info(f"save_share返回: {result}")
                         
                         if result.get('success'):
-                            add_log(f"[{idx}/{len(share_urls)}] 转存成功", 'success')
+                            # 检查是否有跳过的文件
+                            if result.get('skipped'):
+                                skipped_count = result.get('skipped_count', 0)
+                                add_log(f"[{idx}/{len(share_urls)}] 转存完成（跳过{skipped_count}个已存在文件）", 'success')
+                            else:
+                                add_log(f"[{idx}/{len(share_urls)}] 转存成功", 'success')
                             success_count += 1
-                            total_files += 1
+                            # 统计实际转存的文件数
+                            total_files += result.get('total_count', 1)
                         else:
                             add_log(f"[{idx}/{len(share_urls)}] 转存失败: {result.get('message', '未知错误')}", 'error')
                             fail_count += 1
@@ -772,7 +780,12 @@ def execute_task(task_id):
                     # 处理保存模式
                     if task.get('save_mode') == 'subfolder' and task.get('target_folder_name'):
                         # 子文件夹模式：目标路径 + 自定义文件夹名
-                        final_target_path = f"{task['target_path'].rstrip('/')}/{task['target_folder_name']}"
+                        # 去除子文件夹名的前导和尾随斜杠，避免路径拼接错误
+                        subfolder_name = task['target_folder_name'].strip('/')
+                        final_target_path = f"{task['target_path'].rstrip('/')}/{subfolder_name}"
+                        # 规范化路径：将多个连续斜杠替换为单个斜杠
+                        import re
+                        final_target_path = re.sub(r'/+', '/', final_target_path)
                         add_log(f"[{idx}/{len(share_urls)}] 使用子文件夹模式: {final_target_path}", 'info')
                     else:
                         add_log(f"[{idx}/{len(share_urls)}] 使用当前文件夹模式: {final_target_path}", 'info')
@@ -799,21 +812,21 @@ def execute_task(task_id):
                                     add_log(f"[{idx}/{len(share_urls)}] 路径查询返回数据格式异常: {fid_info}", 'warning')
                                     # 尝试逐级创建目录
                                     add_log(f"[{idx}/{len(share_urls)}] 尝试创建目录...", 'info')
+                                    target_fid = create_path_recursive(quark, final_target_path, add_log, idx, len(share_urls))
+                                    if target_fid:
+                                        add_log(f"[{idx}/{len(share_urls)}] 创建目录成功，FID: {target_fid}", 'success')
+                                    else:
+                                        add_log(f"[{idx}/{len(share_urls)}] 创建目录失败，使用根目录", 'warning')
+                            else:
+                                # 目标路径不存在，尝试逐级创建
+                                add_log(f"[{idx}/{len(share_urls)}] 目标路径不存在，尝试创建...", 'info')
                                 target_fid = create_path_recursive(quark, final_target_path, add_log, idx, len(share_urls))
                                 if target_fid:
                                     add_log(f"[{idx}/{len(share_urls)}] 创建目录成功，FID: {target_fid}", 'success')
                                 else:
                                     add_log(f"[{idx}/{len(share_urls)}] 创建目录失败，使用根目录", 'warning')
                         else:
-                            # 目标路径不存在，尝试逐级创建
-                            add_log(f"[{idx}/{len(share_urls)}] 目标路径不存在，尝试创建...", 'info')
-                            target_fid = create_path_recursive(quark, final_target_path, add_log, idx, len(share_urls))
-                            if target_fid:
-                                add_log(f"[{idx}/{len(share_urls)}] 创建目录成功，FID: {target_fid}", 'success')
-                            else:
-                                add_log(f"[{idx}/{len(share_urls)}] 创建目录失败，使用根目录", 'warning')
-                    else:
-                        add_log(f"[{idx}/{len(share_urls)}] 使用根目录，FID: 0", 'info')
+                            add_log(f"[{idx}/{len(share_urls)}] 使用根目录", 'info')
                     
                     # 按文件夹分组转存，保留目录结构
                     add_log(f"[{idx}/{len(share_urls)}] 开始转存 {len(filtered_files)} 个文件（保留目录结构）...", 'info')
@@ -1347,26 +1360,11 @@ def check_share_status(task_id):
                         else:
                             status = f"异常({share_info.get('res_code')})"
                 else:
-                    # 夸克云盘链接检查
-                    from services.quark_service import QuarkService
-                    pwd_id, passcode, folder_id = QuarkService.parse_share_url(url)
-                    
-                    if not pwd_id:
-                        status = '链接格式错误'
-                    else:
-                        # 尝试获取分享令牌
-                        token_response = cloud_service.get_stoken(pwd_id, passcode)
-                        
-                        if token_response.get('code') == 0:
-                            status = '正常'
-                        elif token_response.get('code') == 31001:
-                            status = '分享已失效'
-                        elif token_response.get('code') == 31002:
-                            status = '分享违规'
-                        elif token_response.get('code') == 31003:
-                            status = '密码错误'
-                        else:
-                            status = f"异常({token_response.get('code')})"
+                    # 夸克云盘链接检查 - 使用统一的check_share_link方法
+                    check_result = cloud_service.check_share_link(url)
+                    logger.info(f"夸克链接检查结果: {check_result}")
+                    status = check_result.get('status', '检查失败')
+                    logger.info(f"提取的status字段: {status}")
                 
             except Exception as e:
                 status = f'检查失败: {str(e)}'
@@ -1394,6 +1392,8 @@ def check_share_status(task_id):
                 WHERE id = ?
             """, (json.dumps(updated_urls), datetime.now(), task_id))
             conn.commit()
+        
+        logger.info(f"链接检查完成,返回数据: {updated_urls}")
         
         return jsonify({
             'code': 200,
@@ -1525,6 +1525,18 @@ def browse_share():
                         'code': 400,
                         'message': '访问码错误'
                     }), 400
+                
+                # 关键修复：如果get_share_info没有返回shareId，从check_access_code结果中获取
+                if not share_id and check_result.get('shareId'):
+                    share_id = check_result.get('shareId')
+                    logger.info(f"从访问码验证结果中获取到shareId: {share_id}")
+            
+            # 验证必需参数
+            if not share_id:
+                return jsonify({
+                    'code': 400,
+                    'message': '无法获取分享ID，请检查分享链接是否有效'
+                }), 400
             
             # 获取分享文件列表
             # 如果pdir_fid是0或空，使用分享根目录的fileId
@@ -1576,15 +1588,37 @@ def browse_share():
                     'share_fid_token': ''
                 })
             
+            # 格式化标准链接：只有当原始链接不是标准格式时才返回
+            # 判断原始链接是否需要格式化
+            needs_normalization = False
+            normalized_url = None
+            
+            # 检查是否包含括号形式的密码或其他非标准格式
+            if access_code:
+                # 检查原始URL是否已经是标准格式 ?code=xxx&pwd=xxx
+                import re
+                if not re.search(r'[?&]pwd=' + re.escape(access_code), share_url):
+                    # 原始链接不是标准格式，需要格式化
+                    needs_normalization = True
+                    normalized_url = f"https://cloud.189.cn/web/share?code={share_code}&pwd={access_code}"
+                    logger.info(f"链接需要格式化: {share_url} -> {normalized_url}")
+            
+            # 构建返回数据
+            response_data = {
+                'files': formatted_files,
+                'share_id': share_id,
+                'share_code': share_code,
+                'share_name': share_info.get('fileName', '')  # 分享标题
+            }
+            
+            # 只有需要格式化时才返回 normalized_url
+            if needs_normalization and normalized_url:
+                response_data['normalized_url'] = normalized_url
+            
             return jsonify({
                 'code': 200,
                 'message': 'success',
-                'data': {
-                    'files': formatted_files,
-                    'share_id': share_id,
-                    'share_code': share_code,
-                    'share_name': share_info.get('fileName', '')  # 分享标题
-                }
+                'data': response_data
             })
         
         else:

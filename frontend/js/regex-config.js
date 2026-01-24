@@ -126,9 +126,103 @@
                 return; 
             }
 
+            // 前端直接格式化天翼云盘链接（将括号形式的密码转换为URL参数格式）
+            var normalizedUrl = this.normalizeCloud189Url(shareUrl);
+            if (normalizedUrl !== shareUrl) {
+                console.log('链接已格式化:', shareUrl, '->', normalizedUrl);
+                shareUrl = normalizedUrl;
+                if (shareUrlInput) {
+                    shareUrlInput.value = normalizedUrl;
+                }
+                Message.success('链接已自动格式化为标准格式');
+            }
+
             // 显示浏览弹窗并加载文件
             this.showShareBrowserModal();
             this.browseShareFolder(shareUrl, accountId, '0', []);
+        },
+
+        // 格式化天翼云盘链接（将括号形式的密码转换为URL参数格式）
+        normalizeCloud189Url: function(url) {
+            if (!url || typeof url !== 'string') {
+                return url;
+            }
+
+            // 只处理天翼云盘链接
+            if (!url.includes('cloud.189.cn') && !url.includes('189.cn')) {
+                return url;
+            }
+
+            // 先去除首尾空格
+            url = url.trim();
+
+            var shareCode = null;
+            var accessCode = '';
+
+            // 提取 share_code
+            // 格式1: code=xxx
+            var matchCode = url.match(/[?&]code=([a-zA-Z0-9]+)/);
+            if (matchCode) {
+                shareCode = matchCode[1];
+            }
+
+            // 格式2: /t/xxx 或 #/t/xxx (h5版本)
+            if (!shareCode) {
+                var matchPath = url.match(/[/#]t\/([a-zA-Z0-9]+)/);
+                if (matchPath) {
+                    shareCode = matchPath[1];
+                }
+            }
+
+            // 格式3: /share/xxx
+            if (!shareCode) {
+                var matchShare = url.match(/\/share\/([a-zA-Z0-9]+)/);
+                if (matchShare) {
+                    shareCode = matchShare[1];
+                }
+            }
+
+            if (!shareCode) {
+                return url; // 无法解析，返回原链接
+            }
+
+            // 提取 access_code (密码)
+            // 方式1: URL参数格式 ?pwd=xxxx 或 &pwd=xxxx
+            var matchPwd = url.match(/[?&]pwd=([a-zA-Z0-9]+)/);
+            if (matchPwd) {
+                accessCode = matchPwd[1];
+            }
+
+            // 方式2: 括号形式（中文括号或英文括号）
+            if (!accessCode) {
+                var matchBracket = url.match(/[（(](?:访问码|提取码|密码)[:：\s]*([a-zA-Z0-9]+)[）)]/);
+                if (matchBracket) {
+                    accessCode = matchBracket[1];
+                }
+            }
+
+            // 方式3: 无括号格式
+            if (!accessCode) {
+                var matchPlain = url.match(/(?:访问码|提取码|密码)[:：\s]+([a-zA-Z0-9]+)/);
+                if (matchPlain) {
+                    accessCode = matchPlain[1];
+                }
+            }
+
+            // 构建标准格式的链接
+            if (accessCode) {
+                // 检查原链接是否已经是标准格式
+                var standardFormat = 'https://cloud.189.cn/web/share?code=' + shareCode + '&pwd=' + accessCode;
+                if (url.includes('?code=' + shareCode + '&pwd=' + accessCode) || 
+                    url.includes('&pwd=' + accessCode)) {
+                    // 已经是标准格式，不需要修改
+                    return url;
+                }
+                return standardFormat;
+            } else {
+                // 无密码，返回标准格式
+                return 'https://cloud.189.cn/web/share?code=' + shareCode;
+            }
         },
 
         showShareBrowserModal: function() {

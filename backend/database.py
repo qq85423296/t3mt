@@ -124,6 +124,14 @@ class Database:
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN check_mode VARCHAR(20) DEFAULT 'replaced'")
                 print("✅ transfer_tasks表已添加正则替换字段")
             
+            # 迁移：为已存在的transfer_tasks表添加重存模式字段
+            try:
+                cursor.execute("SELECT overwrite_mode FROM transfer_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN overwrite_mode TINYINT DEFAULT 0")
+                print("✅ transfer_tasks表已添加overwrite_mode字段（重存模式）")
+            
             # 迁移：为已存在的transfer_tasks表添加目标文件夹ID字段
             try:
                 cursor.execute("SELECT target_folder_id FROM transfer_tasks LIMIT 1")
