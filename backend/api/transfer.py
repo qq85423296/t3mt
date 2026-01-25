@@ -1487,12 +1487,15 @@ def check_share_status(task_id):
                     else:
                         # 获取分享信息
                         share_info = cloud_service.get_share_info(share_code)
+                        logger.info(f"天翼云盘分享信息: {share_info}")
                         
                         if share_info.get('res_code') == 0:
                             # 尝试直接列出分享内容来判断是否真的需要访问码
                             share_id = share_info.get('shareId')
                             file_id = share_info.get('fileId')
                             share_mode = share_info.get('shareMode')
+                            
+                            logger.info(f"提取的字段: share_id={share_id}, file_id={file_id}, share_mode={share_mode}")
                             
                             if share_id and file_id and share_mode:
                                 # 尝试不带访问码访问
