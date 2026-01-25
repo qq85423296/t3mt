@@ -451,11 +451,28 @@
     .cron-display:hover {
         background: #F3F4F6;
     }
+    
+    /* 返回搜索按钮高亮样式 */
+    #backToSearchBtnModal:hover {
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%) !important;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.6) !important;
+        transform: translateY(-1px);
+        transition: all 0.2s ease;
+    }
+    
+    #backToSearchBtnModal:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 6px rgba(102, 126, 234, 0.4) !important;
+    }
 </style>
 
 <div class="toolbar">
     <div class="toolbar-title">定时转存任务</div>
     <div style="display: flex; align-items: center; gap: 10px;">
+        <!-- 返回搜索结果按钮（从搜索页面跳转过来时显示） -->
+        <button id="backToSearchBtn" class="btn btn-secondary" onclick="backToSearchResults()" style="display: none;">
+            ← 返回搜索结果
+        </button>
         <!-- 云盘类型筛选 -->
         <select id="transferCloudTypeFilter" class="form-select" style="height: 32px; padding: 0 10px; font-size: 13px; min-width: 120px;">
             <option value="">全部类型</option>
@@ -492,14 +509,20 @@
     <div class="modal-content">
         <div class="modal-header">
             <div class="modal-title" id="modalTitle">新建转存任务</div>
+            <!-- 返回搜索结果按钮（从搜索页面跳转过来时显示，在关闭按钮左侧） -->
+            <button id="backToSearchBtnModal" class="btn btn-small" onclick="backToSearchResults()" style="display: none; height: 28px; padding: 0 12px; font-size: 13px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4); font-weight: 500; margin-right: 8px;">
+                ← 返回搜索
+            </button>
             <button class="modal-close" onclick="hideTaskModal()">×</button>
         </div>
         <div class="modal-body">
             <!-- 模块1：基础信息 -->
             <div class="form-section">
                 <div class="form-group">
-                    <label class="form-label">任务名称 *</label>
-                    <input type="text" class="form-input" id="taskName" placeholder="请输入任务名称" />
+                    <label class="form-label">转存账号 *</label>
+                    <select class="form-input" id="targetAccount">
+                        <option value="">选择账号</option>
+                    </select>
                 </div>
                 
                 <div class="form-group">
@@ -513,13 +536,6 @@
                         </div>
                     </div>
                     <div class="form-hint">可添加多个备用链接，点击"浏览"选择要转存的目录</div>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">转存账号 *</label>
-                    <select class="form-input" id="targetAccount">
-                        <option value="">选择账号</option>
-                    </select>
                 </div>
                 
                 <div class="form-group">
@@ -546,6 +562,11 @@
                         <input type="text" class="form-input" id="targetFolderName" placeholder="输入子文件夹名称" />
                         <div class="form-hint">文件将保存到：转存目录/子文件夹名称</div>
                     </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">任务名称 *</label>
+                    <input type="text" class="form-input" id="taskName" placeholder="请输入任务名称" />
                 </div>
             </div>
             
@@ -598,6 +619,14 @@
                     <input type="text" class="form-input" id="replacementPattern" 
                            placeholder="替换表达式 (如: 综艺.2026.S01E\1)" />
                     <div class="form-hint">使用正则表达式自动重命名文件，留空则不替换。配置后自动使用替换后的文件名检查重复。</div>
+                </div>
+                
+                <!-- 排除关键词配置 -->
+                <div class="form-group">
+                    <label class="form-label">排除关键词</label>
+                    <input type="text" class="form-input" id="excludeKeywords" 
+                           placeholder="输入关键词，多个关键词用 | 分割 (如: 火力全员|预告|花絮)" />
+                    <div class="form-hint">转存时将跳过包含这些关键词的文件，多个关键词用 | 分割</div>
                 </div>
                 
                 <div class="form-group">
@@ -898,10 +927,22 @@
             }).join('');
             const moreUrls = urls.length > 2 ? `<div style="font-size: 12px; color: #9CA3AF; margin-top: 4px;">...等${urls.length}个链接</div>` : '';
             
-            const statusClass = task.status === 'running' ? 'badge-success' : 
-                              task.status === 'paused' ? 'badge-warning' : 'badge-error';
-            const statusText = task.status === 'running' ? '运行中' : 
-                             task.status === 'paused' ? '已暂停' : '已失效';
+            // 状态显示和按钮文本逻辑
+            // draft(新建) -> 显示"新建"，按钮为"发布"
+            // active(生效) -> 显示"生效"，按钮为"下线"
+            // inactive(失效) -> 显示"失效"，按钮为"发布"
+            // 兼容旧状态：running -> active, paused -> inactive
+            let normalizedStatus = task.status;
+            if (task.status === 'running') normalizedStatus = 'active';
+            if (task.status === 'paused') normalizedStatus = 'inactive';
+            
+            const statusClass = normalizedStatus === 'active' ? 'badge-success' : 
+                              normalizedStatus === 'draft' ? 'badge-warning' : 'badge-error';
+            const statusText = normalizedStatus === 'active' ? '生效' : 
+                             normalizedStatus === 'draft' ? '新建' : '失效';
+            
+            // 按钮文本：新建和失效状态显示"发布"，生效状态显示"下线"
+            const toggleButtonText = (normalizedStatus === 'draft' || normalizedStatus === 'inactive') ? '发布' : '下线';
             
             // 构建完整的转存路径
             let fullTargetPath = task.target_path;
@@ -932,10 +973,10 @@
                             <button class="btn-small" onclick="checkShareStatus(${task.id})">检查</button>
                             <button class="btn-small" onclick="executeTask(${task.id})">执行</button>
                             <button class="btn-small" onclick="editTask(${task.id})">编辑</button>
+                            <button class="btn-small" onclick="toggleTask(${task.id})">${toggleButtonText}</button>
                             <div class="more-actions">
                                 <button class="more-actions-btn" onclick="toggleMoreActions(event, ${task.id})">⋯</button>
                                 <div class="more-actions-menu" id="moreMenu${task.id}">
-                                    <button onclick="toggleTask(${task.id})">${task.status === 'running' ? '暂停任务' : '启动任务'}</button>
                                     <button class="danger" onclick="deleteTask(${task.id})">删除任务</button>
                                 </div>
                             </div>
@@ -1020,8 +1061,58 @@
         document.getElementById('taskModal').classList.add('show');
     }
     
-    // 页面加载时检查是否有待创建的任务
+    // 页面加载时检查是否有待创建的任务和搜索状态
     (function checkPendingTask() {
+        console.log('[调试-转存] 页面加载，检查搜索状态...');
+        
+        // 检查是否有搜索状态（从搜索页面跳转过来）
+        const searchState = sessionStorage.getItem('searchState');
+        const fromSearchPage = sessionStorage.getItem('fromSearchPage');
+        console.log('[调试-转存] searchState:', searchState);
+        console.log('[调试-转存] fromSearchPage:', fromSearchPage);
+        
+        if (searchState && fromSearchPage === 'true') {
+            try {
+                const state = JSON.parse(searchState);
+                console.log('[调试-转存] 解析的状态:', state);
+                
+                // 检查状态是否在24小时内
+                const stateAge = Date.now() - state.timestamp;
+                const maxAge = 24 * 60 * 60 * 1000; // 24小时
+                
+                console.log('[调试-转存] 状态年龄:', stateAge, '最大年龄:', maxAge);
+                
+                if (stateAge < maxAge) {
+                    // 显示弹窗内的返回按钮
+                    const backBtnModal = document.getElementById('backToSearchBtnModal');
+                    console.log('[调试-转存] 弹窗返回按钮元素:', backBtnModal);
+                    
+                    if (backBtnModal) {
+                        backBtnModal.style.display = 'inline-block';
+                        console.log('[调试-转存] ✅ 弹窗返回按钮已显示');
+                    } else {
+                        console.error('[调试-转存] ❌ 未找到弹窗返回按钮元素');
+                    }
+                    
+                    // 同时显示工具栏的返回按钮（保留）
+                    const backBtn = document.getElementById('backToSearchBtn');
+                    if (backBtn) {
+                        backBtn.style.display = 'inline-block';
+                    }
+                } else {
+                    console.log('[调试-转存] 搜索状态已过期');
+                }
+            } catch (e) {
+                console.error('[调试-转存] 解析搜索状态失败:', e);
+            }
+        } else {
+            console.log('[调试-转存] 没有搜索状态或不是从搜索页面跳转');
+        }
+        
+        // 清除来源标记（只在首次加载时显示按钮）
+        sessionStorage.removeItem('fromSearchPage');
+        
+        // 检查是否有待创建的任务
         const pendingTask = sessionStorage.getItem('pendingTransferTask');
         if (pendingTask) {
             try {
@@ -1068,6 +1159,8 @@
         // 重置正则替换字段
         document.getElementById('regexPattern').value = '';
         document.getElementById('replacementPattern').value = '';
+        // 重置排除关键词字段
+        document.getElementById('excludeKeywords').value = '';
         document.getElementById('previewFilename').value = '';
         document.getElementById('previewResult').style.display = 'none';
     }
@@ -1117,14 +1210,104 @@
             return;
         }
         
+        // 前端直接格式化天翼云盘链接（将括号形式的密码转换为URL参数格式）
+        const normalizedUrl = normalizeCloud189Url(shareUrl);
+        if (normalizedUrl !== shareUrl) {
+            console.log('链接已格式化:', shareUrl, '->', normalizedUrl);
+            urlInput.value = normalizedUrl;
+            Message.success('链接已自动格式化为标准格式');
+        }
+        
         currentBrowseButton = btn;
         
         // 打开模态框
         const modal = document.getElementById('browseShareModal');
         modal.classList.add('show');
         
-        // 加载文件列表
-        await loadShareFiles(shareUrl, accountId, '0');
+        // 加载文件列表（使用格式化后的链接）
+        await loadShareFiles(normalizedUrl, accountId, '0');
+    }
+    
+    // 格式化天翼云盘链接（将括号形式的密码转换为URL参数格式）
+    function normalizeCloud189Url(url) {
+        if (!url || typeof url !== 'string') {
+            return url;
+        }
+
+        // 只处理天翼云盘链接
+        if (!url.includes('cloud.189.cn') && !url.includes('189.cn')) {
+            return url;
+        }
+
+        // 先去除首尾空格
+        url = url.trim();
+
+        let shareCode = null;
+        let accessCode = '';
+
+        // 提取 share_code
+        // 格式1: code=xxx
+        let matchCode = url.match(/[?&]code=([a-zA-Z0-9]+)/);
+        if (matchCode) {
+            shareCode = matchCode[1];
+        }
+
+        // 格式2: /t/xxx 或 #/t/xxx (h5版本)
+        if (!shareCode) {
+            let matchPath = url.match(/[/#]t\/([a-zA-Z0-9]+)/);
+            if (matchPath) {
+                shareCode = matchPath[1];
+            }
+        }
+
+        // 格式3: /share/xxx
+        if (!shareCode) {
+            let matchShare = url.match(/\/share\/([a-zA-Z0-9]+)/);
+            if (matchShare) {
+                shareCode = matchShare[1];
+            }
+        }
+
+        if (!shareCode) {
+            return url; // 无法解析，返回原链接
+        }
+
+        // 提取 access_code (密码)
+        // 方式1: URL参数格式 ?pwd=xxxx 或 &pwd=xxxx
+        let matchPwd = url.match(/[?&]pwd=([a-zA-Z0-9]+)/);
+        if (matchPwd) {
+            accessCode = matchPwd[1];
+        }
+
+        // 方式2: 括号形式（中文括号或英文括号）
+        if (!accessCode) {
+            let matchBracket = url.match(/[（(](?:访问码|提取码|密码)[:：\s]*([a-zA-Z0-9]+)[）)]/);
+            if (matchBracket) {
+                accessCode = matchBracket[1];
+            }
+        }
+
+        // 方式3: 无括号格式
+        if (!accessCode) {
+            let matchPlain = url.match(/(?:访问码|提取码|密码)[:：\s]+([a-zA-Z0-9]+)/);
+            if (matchPlain) {
+                accessCode = matchPlain[1];
+            }
+        }
+
+        // 构建标准格式的链接
+        if (accessCode) {
+            // 检查原链接是否已经是标准格式
+            if (url.includes('?code=' + shareCode + '&pwd=' + accessCode) || 
+                url.includes('&pwd=' + accessCode)) {
+                // 已经是标准格式，不需要修改
+                return url;
+            }
+            return 'https://cloud.189.cn/web/share?code=' + shareCode + '&pwd=' + accessCode;
+        } else {
+            // 无密码，返回标准格式
+            return 'https://cloud.189.cn/web/share?code=' + shareCode;
+        }
     }
     
     async function loadShareFiles(shareUrl, accountId, pdirFid) {
@@ -2124,7 +2307,9 @@
             end_date: document.getElementById('endDate').value || null,
             // 正则替换字段
             regex_pattern: document.getElementById('regexPattern').value.trim() || null,
-            replacement_pattern: document.getElementById('replacementPattern').value.trim() || null
+            replacement_pattern: document.getElementById('replacementPattern').value.trim() || null,
+            // 排除关键词字段
+            exclude_keywords: document.getElementById('excludeKeywords').value.trim() || null
         };
 
         try {
@@ -2251,6 +2436,8 @@
         // 回填正则替换字段
         document.getElementById('regexPattern').value = task.regex_pattern || '';
         document.getElementById('replacementPattern').value = task.replacement_pattern || '';
+        // 回填排除关键词字段
+        document.getElementById('excludeKeywords').value = task.exclude_keywords || '';
     }
 
     // 执行任务
@@ -2348,13 +2535,15 @@
         modal.classList.remove('show');
     }
 
-    // 切换任务状态
+    // 切换任务状态（发布/下线）
     async function toggleTask(taskId) {
         try {
             const result = await TransferAPI.toggle(taskId);
             
             if (result.code === 200) {
-                Message.success('操作成功');
+                const newStatus = result.data?.status || result.data;
+                const statusText = newStatus === 'active' ? '已发布' : '已下线';
+                Message.success(`任务${statusText}`);
                 loadTasks();
             } else {
                 Message.error(result.message || '操作失败');
@@ -2496,6 +2685,18 @@
         hideFolderSelector();
     }
 
+    // 返回搜索结果页面
+    function backToSearchResults() {
+        // 跳转到搜索页面（搜索页面会自动恢复状态）
+        const searchMenuItem = document.querySelector('.menu-item[data-page="search"]');
+        if (searchMenuItem) {
+            searchMenuItem.click();
+        }
+        
+        // 不需要设置 clearSearchStateAfterRestore，因为 searchState 需要保留以便恢复搜索结果
+        // fromSearchPage 标记已经在页面加载时被清除了
+    }
+
     // 暴露需要在HTML中调用的函数到window对象
     window.showCreateTaskModal = showCreateTaskModal;
     window.hideTaskModal = hideTaskModal;
@@ -2529,6 +2730,7 @@
     window.loadFolderList = loadFolderList;
     window.hideFolderSelector = hideFolderSelector;
     window.confirmFolderSelection = confirmFolderSelection;
+    window.backToSearchResults = backToSearchResults;
 
     // 云盘类型筛选事件监听
     const transferCloudTypeFilter = document.getElementById('transferCloudTypeFilter');

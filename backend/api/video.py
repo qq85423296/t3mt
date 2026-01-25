@@ -119,7 +119,8 @@ def create_task():
             max_retry_count=max_retry_count,
             retry_interval=retry_interval,
             regex_pattern=data.get('regex_pattern'),
-            replacement_pattern=data.get('replacement_pattern')
+            replacement_pattern=data.get('replacement_pattern'),
+            exclude_keywords=data.get('exclude_keywords')
         )
         
         return jsonify({
@@ -242,6 +243,10 @@ def update_task(task_id):
         if 'replacement_pattern' in data:
             update_data['replacement_pattern'] = data['replacement_pattern']
         
+        # 处理排除关键词配置
+        if 'exclude_keywords' in data:
+            update_data['exclude_keywords'] = data['exclude_keywords']
+        
         VideoTask.update(task_id, **update_data)
         
         return jsonify({
@@ -258,11 +263,20 @@ def delete_task(task_id):
     """删除任务"""
     try:
         from database import db
+        from tasks.scheduler import task_scheduler
         
         task = VideoTask.get_by_id(task_id)
         if not task:
             return jsonify({'code': 404, 'message': '任务不存在'})
         
+        # 从调度器中移除任务
+        try:
+            task_scheduler.remove_task(task_id, 'video')
+            logger.info(f"从调度器移除影视下载任务: {task_id}")
+        except Exception as e:
+            logger.warning(f"从调度器移除任务失败: {str(e)}")
+        
+        # 删除任务记录
         VideoTask.delete(task_id)
         
         # 删除关联的执行历史记录
@@ -277,6 +291,14 @@ def delete_task(task_id):
                 logger.info(f"删除影视下载任务 {task_id} 的 {deleted_count} 条执行历史记录")
         except Exception as e:
             logger.warning(f"删除执行历史记录失败: {str(e)}")
+        
+        # 删除任务的失败记录
+        try:
+            from services.retry_manager import RetryManager
+            RetryManager.clear_task_failures(task_id)
+            logger.info(f"清除影视下载任务 {task_id} 的失败记录")
+        except Exception as e:
+            logger.warning(f"清除失败记录失败: {str(e)}")
         
         return jsonify({
             'code': 200,
@@ -322,28 +344,24 @@ def execute_task(task_id):
                     WHERE id = ?
                 ''', (start_time, len(task.episodes), history_id))
         else:
-            # 手动执行：删除该任务之前的所有执行记录，确保每个任务只保留最新一次执行记录
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    DELETE FROM task_execution_history 
-                    WHERE task_id = ? AND task_type = 'video'
-                ''', (task_id,))
-            
+            # 手动执行：不删除历史记录，直接创建新的执行记录
             # 创建新的执行历史记录
             start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            schedule_period = datetime.now().strftime('%Y%m%d')  # 设置账期为当天，确保能被筛选到
             
             with db.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
                     INSERT INTO task_execution_history 
-                    (task_id, task_type, task_name, start_time, status, total_count)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (task_id, 'video', task.name, start_time, 'running', len(task.episodes)))
+                    (task_id, task_type, task_name, start_time, status, total_count, schedule_period)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (task_id, 'video', task.name, start_time, 'running', len(task.episodes), schedule_period))
                 history_id = cursor.lastrowid
+                conn.commit()  # 立即提交，确保记录可见
         
-        # 更新任务状态为执行中
-        VideoTask.update(task_id, status='downloading', progress=0)
+        # 执行任务时不修改任务状态，只重置进度
+        # 任务状态只能通过"发布"和"下线"按钮修改
+        VideoTask.update(task_id, progress=0)
         
         # 异步执行下载（避免阻塞请求）
         import threading
@@ -376,6 +394,16 @@ def execute_task(task_id):
             try:
                 task_logger.info("开始执行影视下载任务")
                 task_logger.info(f"任务名称: {task.name}")
+                
+                # 提前构建任务配置，避免在异常处理中使用未定义的变量
+                task_config = {
+                    'task_id': task_id,
+                    'enable_file_size_check': task.enable_file_size_check,
+                    'min_file_size': task.min_file_size,
+                    'enable_retry': task.enable_retry,
+                    'max_retry_count': task.max_retry_count,
+                    'retry_interval': task.retry_interval
+                }
                 
                 # 增量更新：重新读取官网获取最新剧集
                 task_logger.info("正在检查更新...")
@@ -519,8 +547,10 @@ def execute_task(task_id):
                             task_logger.info("所有剧集均已下载完成，无需下载")
                             task_logger.info("任务执行完成")
                             
-                            # 更新任务状态为完成
-                            VideoTask.update(task_id, status='success', progress=100)
+                            # 手动执行完成，恢复为active状态（如果原来是active）
+                            # 或保持原状态不变
+                            # 只更新进度，不修改状态
+                            VideoTask.update(task_id, progress=100)
                             
                             # 计算执行时长
                             end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -614,8 +644,10 @@ def execute_task(task_id):
                         task_logger.info("所有剧集均已下载完成，无需下载")
                         task_logger.info("任务执行完成")
                         
-                        # 更新任务状态为完成
-                        VideoTask.update(task_id, status='success', progress=100)
+                        # 手动执行完成，恢复为active状态（如果原来是active）
+                        # 或保持原状态不变
+                        # 只更新进度，不修改状态
+                        VideoTask.update(task_id, progress=100)
                         
                         # 计算执行时长
                         end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -679,16 +711,6 @@ def execute_task(task_id):
                         task_logger.error(f"下载失败: {episode_name}")
                 
                 # 执行下载
-                # 构建任务配置
-                task_config = {
-                    'task_id': task_id,
-                    'enable_file_size_check': task.enable_file_size_check,
-                    'min_file_size': task.min_file_size,
-                    'enable_retry': task.enable_retry,
-                    'max_retry_count': task.max_retry_count,
-                    'retry_interval': task.retry_interval
-                }
-                
                 result = video_download_service.download_task_episodes(
                     task_id,
                     task.episodes,
@@ -698,7 +720,8 @@ def execute_task(task_id):
                     progress_callback,
                     lambda msg: task_logger.info(msg),
                     task.regex_pattern,  # 传入正则表达式
-                    task.replacement_pattern  # 传入替换表达式
+                    task.replacement_pattern,  # 传入替换表达式
+                    task.exclude_keywords  # 传入排除关键词
                 )
                 
                 # 更新最终状态
@@ -719,15 +742,16 @@ def execute_task(task_id):
                     final_status = 'partial'  # 部分成功
                 
                 if result['success']:
+                    # 手动执行完成，保持原状态不变
+                    # 只更新进度和下载数
                     VideoTask.update(
                         task_id,
-                        status=final_status,
                         progress=100,
                         downloaded_episodes=success_count
                     )
                     
                     task_logger.info("任务执行完成")
-                    task_logger.info(f"新下载: {result['success_count']}, 跳过: {result.get('skipped_count', 0)}, 失败: {result['failed_count']}, 总计: {result['total']}")
+                    task_logger.info(f"新下载: {result['success_count']}, 跳过: {result.get('skipped_count', 0)}, 过滤: {result.get('filtered_count', 0)}, 失败: {result['failed_count']}, 总计: {result['total']}")
                     
                     # 更新执行历史
                     with db.get_connection() as conn:
@@ -878,7 +902,8 @@ def execute_task(task_id):
                     
             except Exception as e:
                 logger.error(f"下载任务 {task_id} 失败: {str(e)}", exc_info=True)
-                VideoTask.update(task_id, status='failed')
+                # 手动执行失败，保持原状态不变
+                # 不修改任务状态
                 
                 error_message = str(e)
                 task_logger.info(f"执行异常: {error_message}")
@@ -955,7 +980,11 @@ def execute_task(task_id):
         
         return jsonify({
             'code': 200,
-            'message': '任务已开始执行'
+            'message': '任务已开始执行',
+            'data': {
+                'execution_id': history_id,  # 返回执行记录ID，前端可以直接跳转
+                'task_id': task_id
+            }
         })
         
     except Exception as e:
@@ -997,14 +1026,27 @@ def parse_test():
 
 @video_bp.route('/task/<int:task_id>/toggle', methods=['POST'])
 def toggle_task(task_id):
-    """启用/禁用任务"""
+    """发布/下线任务"""
     try:
         task = VideoTask.get_by_id(task_id)
         if not task:
             return jsonify({'code': 404, 'message': '任务不存在'})
         
-        # 切换状态
-        new_status = 'paused' if task.status == 'running' else 'running'
+        # 状态转换逻辑：
+        # draft(新建) -> active(生效)
+        # inactive(失效) -> active(生效)
+        # active(生效) -> inactive(失效)
+        # 兼容旧状态：waiting/idle -> active, disabled -> inactive
+        current_status = task.status
+        
+        if current_status in ['draft', 'inactive', 'waiting', 'idle', 'disabled']:
+            new_status = 'active'
+        elif current_status == 'active':
+            new_status = 'inactive'
+        else:
+            # 其他状态（running, completed等）默认转为active
+            new_status = 'active'
+        
         VideoTask.update(task_id, status=new_status)
         
         return jsonify({

@@ -2,7 +2,8 @@
 <style>
     /* 页面容器紧凑边距 */
     body {
-        padding: 20px;
+        padding: 0;
+        margin: 0;
     }
     
     /* 紧凑化配置卡片 */
@@ -627,40 +628,12 @@
 </div>
 
 <div class="config-section">
-    <h3 class="section-title">基础下载配置</h3>
+    <h3 class="section-title">云盘下载配置</h3>
     <div class="config-form">
         <div class="form-row">
             <div class="form-row-label">默认下载目录</div>
             <div class="form-row-content">
                 <input type="text" class="form-input" id="downloadDefaultDir" />
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">最大并发任务数</div>
-            <div class="form-row-content">
-                <input type="number" class="form-input" id="downloadMaxConcurrent" min="1" max="10" />
-                <span class="form-hint">同时下载的任务数量（建议 1-5）</span>
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">分块下载大小</div>
-            <div class="form-row-content">
-                <input type="number" class="form-input" id="downloadChunkSize" min="1" max="100" />
-                <span class="form-hint">单位: MB，单线程下载时每次读取的块大小（建议 2-10）</span>
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">下载重试次数</div>
-            <div class="form-row-content">
-                <input type="number" class="form-input" id="downloadRetryCount" min="0" max="10" />
-                <span class="form-hint">下载失败后的重试次数（建议 3-5）</span>
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">重试延迟</div>
-            <div class="form-row-content">
-                <input type="number" class="form-input" id="downloadRetryDelay" min="1" max="60" />
-                <span class="form-hint">单位: 秒，重试前等待的时间（建议 5-10）</span>
             </div>
         </div>
         <div class="form-row">
@@ -670,26 +643,13 @@
                 <span class="form-hint">单位: 秒，网络请求超时时间（建议 30-60）</span>
             </div>
         </div>
-    </div>
-</div>
-
-<div class="config-section">
-    <h3 class="section-title">多线程下载配置</h3>
-    <div class="config-form">
         <div class="form-row">
-            <div class="form-row-label">启用多线程</div>
+            <div class="form-row-label">启用多线程下载</div>
             <div class="form-row-content">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                     <input type="checkbox" id="enableMultithreadDownload" style="width: auto; height: auto;" />
                     <span style="font-size: 13px;">启用多线程下载（大文件下载更快）</span>
                 </label>
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">多线程阈值</div>
-            <div class="form-row-content">
-                <input type="number" class="form-input" id="multithreadThreshold" min="10" max="1000" />
-                <span class="form-hint">单位: MB，文件大小超过此值时启用多线程下载（建议 50-100）</span>
             </div>
         </div>
         <div class="form-row">
@@ -700,74 +660,23 @@
             </div>
         </div>
         <div class="form-row">
-            <div class="form-row-label">多线程分块大小</div>
+            <div class="form-row-label">每线程分块大小</div>
             <div class="form-row-content">
                 <input type="number" class="form-input" id="multithreadChunkSize" min="1" max="100" />
-                <span class="form-hint">单位: MB，每个线程下载的块大小（建议 5-20）</span>
+                <span class="form-hint">单位: MB，每个线程下载的块大小（建议 5-20）。文件大小阈值将自动计算为：线程数 × 分块大小</span>
             </div>
         </div>
     </div>
 </div>
 
 <div class="config-section">
-    <h3 class="section-title">邮箱配置</h3>
-    <div class="config-form">
-        <div class="form-row">
-            <div class="form-row-label">SMTP服务器</div>
-            <div class="form-row-content">
-                <input type="text" class="form-input" id="emailSmtpServer" placeholder="smtp.qq.com" />
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">SMTP端口</div>
-            <div class="form-row-content">
-                <input type="number" class="form-input" id="emailSmtpPort" placeholder="465" />
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">发件邮箱</div>
-            <div class="form-row-content">
-                <input type="email" class="form-input" id="emailSender" />
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">邮箱密码/授权码</div>
-            <div class="form-row-content">
-                <input type="password" class="form-input" id="emailPassword" />
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">收件邮箱</div>
-            <div class="form-row-content">
-                <input type="email" class="form-input" id="emailReceiverInput" placeholder="输入邮箱地址" style="width: 200px;" />
-                <button class="btn" onclick="addEmailReceiver()" style="height: 28px; padding: 0 12px; font-size: 13px;">添加</button>
-                <div id="emailReceivers" class="email-tags"></div>
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label"></div>
-            <div class="form-row-content">
-                <button class="btn" onclick="testEmailConfig()" style="height: 28px; padding: 0 12px; font-size: 13px;">测试邮件配置</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="config-section">
-    <h3 class="section-title">API / 解析接口</h3>
+    <h3 class="section-title">盘搜配置</h3>
     <div class="config-form">
         <div class="form-row">
             <div class="form-row-label">盘搜API地址</div>
             <div class="form-row-content">
                 <input type="text" class="form-input" id="pansouApiUrl" />
-                <span class="form-hint">用于资源搜索功能</span>
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-row-label">API密钥</div>
-            <div class="form-row-content">
-                <input type="text" class="form-input" id="pansouApiKey" />
-                <span class="form-hint">如果需要密钥请输入</span>
+                <span class="form-hint">用于资源搜索功能。盘搜下载地址：<a href="https://github.com/fish2018/pansou" target="_blank" style="color: #2563EB; text-decoration: none;">https://github.com/fish2018/pansou</a></span>
             </div>
         </div>
     </div>
@@ -858,6 +767,29 @@
             <div class="form-row-content">
                 <input type="number" class="form-input" id="videoThreadsCount" min="2" max="16" />
                 <span class="form-hint">同时下载的视频片段数（建议 4-8）</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">任务自动失效配置</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">启用自动失效</div>
+            <div class="form-row-content">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="autoExpirationEnabled" style="width: auto; height: auto;" />
+                    <span style="font-size: 13px;">启用任务自动失效功能</span>
+                </label>
+                <div class="form-hint">当任务超过指定天数未新增剧集且所有剧集下载成功时，自动将任务状态设置为失效</div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">超时天数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="autoExpirationDays" min="1" max="365" value="7" />
+                <span class="form-hint">任务超过多少天未新增剧集将被自动失效（默认7天，范围1-365天）</span>
             </div>
         </div>
     </div>
@@ -968,7 +900,6 @@
 (function() {
     // 使用IIFE避免全局变量污染
     let configData = {};
-    let emailReceivers = [];
     let currentEditAccountId = null;
     let platformCookies = {}; // 存储各平台Cookie配置
     let activeCookieTab = null; // 当前激活的Cookie Tab
@@ -1055,31 +986,15 @@
         // 日志配置
         document.getElementById('logRetentionDays').value = data.log?.retention_days || 30;
 
-        // 下载配置
+        // 云盘下载配置
         document.getElementById('downloadDefaultDir').value = data.download?.default_dir || 'downloads';
-        document.getElementById('downloadMaxConcurrent').value = data.download?.max_concurrent || 3;
-        document.getElementById('downloadChunkSize').value = data.download?.chunk_size || 2;
-        document.getElementById('downloadRetryCount').value = data.download?.retry_count || 3;
-        document.getElementById('downloadRetryDelay').value = data.download?.retry_delay || 5;
         document.getElementById('downloadTimeout').value = data.download?.timeout || 30;
-        
-        // 多线程下载配置
         document.getElementById('enableMultithreadDownload').checked = data.download?.enable_multithread !== false;
-        document.getElementById('multithreadThreshold').value = data.download?.multithread_threshold || 50;
         document.getElementById('threadsPerFile').value = data.download?.threads_per_file || 4;
         document.getElementById('multithreadChunkSize').value = data.download?.multithread_chunk_size || 10;
 
-        // 邮件配置
-        document.getElementById('emailSmtpServer').value = data.email?.smtp_server || '';
-        document.getElementById('emailSmtpPort').value = data.email?.smtp_port || 465;
-        document.getElementById('emailSender').value = data.email?.sender || '';
-        document.getElementById('emailPassword').value = data.email?.password || '';
-        emailReceivers = data.email?.receivers || [];
-        displayEmailReceivers();
-
         // 盘搜配置
         document.getElementById('pansouApiUrl').value = data.pansou?.api_url || 'http://192.168.0.111:8383/';
-        document.getElementById('pansouApiKey').value = data.pansou?.api_key || '';
         
         // 影视解析配置 - 加载多接口配置
         renderVideoParseApis(
@@ -1099,6 +1014,10 @@
         document.getElementById('videoDownloadMaxThreads').value = data.video_download?.max_threads || 3;
         document.getElementById('videoEnableMultithreadDownload').checked = data.video_download?.enable_multithread !== false;
         document.getElementById('videoThreadsCount').value = data.video_download?.threads_count || 4;
+        
+        // 任务自动失效配置
+        document.getElementById('autoExpirationEnabled').checked = data.video_expiration?.enabled !== false;
+        document.getElementById('autoExpirationDays').value = data.video_expiration?.days || 7;
     }
 
     // 加载账号列表
@@ -1426,82 +1345,10 @@
     }
 
     // 添加收件邮箱
-    function addEmailReceiver() {
-        const input = document.getElementById('emailReceiverInput');
-        const email = input.value.trim();
-
-        if (!email) {
-            Message.warning('请输入邮箱地址');
-            return;
-        }
-
-        if (!validateEmail(email)) {
-            Message.warning('邮箱格式不正确');
-            return;
-        }
-
-        if (emailReceivers.includes(email)) {
-            Message.warning('该邮箱已添加');
-            return;
-        }
-
-        emailReceivers.push(email);
-        displayEmailReceivers();
-        input.value = '';
-    }
-
-    // 显示收件邮箱列表
-    function displayEmailReceivers() {
-        const container = document.getElementById('emailReceivers');
-        container.innerHTML = emailReceivers.map((email, index) => `
-            <div class="email-tag">
-                <span>${email}</span>
-                <span class="email-tag-remove" onclick="removeEmailReceiver(${index})">×</span>
-            </div>
-        `).join('');
-    }
-
-    // 移除收件邮箱
-    function removeEmailReceiver(index) {
-        emailReceivers.splice(index, 1);
-        displayEmailReceivers();
-    }
+    // 已删除邮箱配置相关函数
 
     // 测试邮件配置
-    async function testEmailConfig() {
-        const smtpServer = document.getElementById('emailSmtpServer').value.trim();
-        const smtpPort = document.getElementById('emailSmtpPort').value;
-        const sender = document.getElementById('emailSender').value.trim();
-        const password = document.getElementById('emailPassword').value;
-
-        if (!smtpServer || !smtpPort || !sender || !password) {
-            Message.warning('请填写完整的邮件配置');
-            return;
-        }
-
-        const testEmail = prompt('请输入测试收件邮箱:');
-        if (!testEmail) return;
-
-        try {
-            Message.info('正在发送测试邮件...');
-            const result = await ConfigAPI.testEmail({
-                smtp_server: smtpServer,
-                smtp_port: parseInt(smtpPort),
-                sender,
-                password,
-                receiver: testEmail
-            });
-
-            if (result.code === 200) {
-                Message.success('测试邮件发送成功');
-            } else {
-                Message.error(result.message || '发送失败');
-            }
-        } catch (error) {
-            console.error('测试邮件失败:', error);
-            Message.error('测试失败');
-        }
-    }
+    // 已删除邮箱配置相关函数
     
     // ========== 影视解析接口管理 ==========
     
@@ -1854,33 +1701,26 @@
 
     // 保存所有配置
     async function saveAllConfig() {
+        // 验证自动失效配置
+        const autoExpirationDays = parseInt(document.getElementById('autoExpirationDays').value);
+        if (isNaN(autoExpirationDays) || autoExpirationDays < 1 || autoExpirationDays > 365) {
+            Message.error('超时天数必须是1-365之间的整数');
+            return;
+        }
+        
         const data = {
             log: {
                 retention_days: parseInt(document.getElementById('logRetentionDays').value)
             },
             download: {
                 default_dir: document.getElementById('downloadDefaultDir').value,
-                max_concurrent: parseInt(document.getElementById('downloadMaxConcurrent').value),
-                chunk_size: parseInt(document.getElementById('downloadChunkSize').value),
-                retry_count: parseInt(document.getElementById('downloadRetryCount').value),
-                retry_delay: parseInt(document.getElementById('downloadRetryDelay').value),
                 timeout: parseInt(document.getElementById('downloadTimeout').value),
-                // 多线程下载配置
                 enable_multithread: document.getElementById('enableMultithreadDownload').checked,
-                multithread_threshold: parseInt(document.getElementById('multithreadThreshold').value),
                 threads_per_file: parseInt(document.getElementById('threadsPerFile').value),
                 multithread_chunk_size: parseInt(document.getElementById('multithreadChunkSize').value)
             },
-            email: {
-                smtp_server: document.getElementById('emailSmtpServer').value,
-                smtp_port: parseInt(document.getElementById('emailSmtpPort').value),
-                sender: document.getElementById('emailSender').value,
-                password: document.getElementById('emailPassword').value,
-                receivers: emailReceivers
-            },
             pansou: {
-                api_url: document.getElementById('pansouApiUrl').value,
-                api_key: document.getElementById('pansouApiKey').value
+                api_url: document.getElementById('pansouApiUrl').value
             },
             video_parse: {
                 apis: getVideoParseApis(),
@@ -1894,6 +1734,10 @@
                 max_threads: parseInt(document.getElementById('videoDownloadMaxThreads').value),
                 enable_multithread: document.getElementById('videoEnableMultithreadDownload').checked,
                 threads_count: parseInt(document.getElementById('videoThreadsCount').value)
+            },
+            video_expiration: {
+                enabled: document.getElementById('autoExpirationEnabled').checked,
+                days: parseInt(document.getElementById('autoExpirationDays').value)
             }
         };
 
@@ -1919,9 +1763,6 @@
     window.setMainAccount = setMainAccount;
     window.refreshAccount = refreshAccount;
     window.deleteAccount = deleteAccount;
-    window.addEmailReceiver = addEmailReceiver;
-    window.removeEmailReceiver = removeEmailReceiver;
-    window.testEmailConfig = testEmailConfig;
     window.testVideoParseConfig = testVideoParseConfig;
     window.saveAllConfig = saveAllConfig;
     window.onCloudTypeChange = onCloudTypeChange;

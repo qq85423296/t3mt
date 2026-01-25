@@ -6,6 +6,76 @@ import sqlite3
 import os
 from database import get_db
 
+
+def init_default_configs():
+    """初始化默认配置
+    
+    确保首次启动时创建默认配置，不覆盖已存在的配置
+    """
+    print("开始初始化默认配置...")
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # 检查system_config表是否存在
+        cursor.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='system_config'
+        """)
+        table_exists = cursor.fetchone() is not None
+        
+        if not table_exists:
+            print("⚠️  system_config表不存在，跳过配置初始化")
+            return
+        
+        # 定义默认配置项
+        default_configs = [
+            {
+                'config_key': 'video_auto_expiration_enabled',
+                'config_value': '1',
+                'config_type': 'video',
+                'description': '影视任务自动失效功能启用开关'
+            },
+            {
+                'config_key': 'video_auto_expiration_days',
+                'config_value': '7',
+                'config_type': 'video',
+                'description': '影视任务自动失效超时天数'
+            }
+        ]
+        
+        # 检查并插入配置项
+        for config in default_configs:
+            config_key = config['config_key']
+            
+            # 检查配置是否已存在
+            cursor.execute("""
+                SELECT config_key FROM system_config 
+                WHERE config_key = ?
+            """, (config_key,))
+            exists = cursor.fetchone() is not None
+            
+            if not exists:
+                # 插入新配置
+                cursor.execute('''
+                    INSERT INTO system_config 
+                    (config_key, config_value, config_type, description)
+                    VALUES (?, ?, ?, ?)
+                ''', (
+                    config['config_key'],
+                    config['config_value'],
+                    config['config_type'],
+                    config['description']
+                ))
+                print(f"  ✅ 已创建配置: {config_key} = {config['config_value']}")
+            else:
+                print(f"  ℹ️  配置已存在，跳过: {config_key}")
+        
+        conn.commit()
+    
+    print("✅ 默认配置初始化完成!")
+
+
 def check_and_migrate():
     """检查并迁移数据库"""
     print("开始检查数据库...")
@@ -68,6 +138,10 @@ def check_and_migrate():
                 print(f"✅ {field}字段已存在")
     
     print("数据库检查完成!")
+    
+    # 初始化默认配置
+    init_default_configs()
+
 
 if __name__ == '__main__':
     check_and_migrate()

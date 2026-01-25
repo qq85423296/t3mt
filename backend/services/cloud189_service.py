@@ -579,6 +579,9 @@ class Cloud189Service(ICloudService):
                 headers.update(kwargs['headers'])
                 kwargs['headers'] = headers
             
+            # 移除内部标记参数，避免传递给requests库
+            retry_flag = kwargs.pop('_retry_after_refresh', False)
+            
             response = self.session.request(method, url, timeout=30, **kwargs)
             
             logger.debug(f"189 API请求: {method} {url}, 状态码: {response.status_code}")
@@ -596,7 +599,7 @@ class Cloud189Service(ICloudService):
                             logger.info("Cookie已自动刷新，重试请求...")
                             # 重新发起请求（递归调用，但只重试一次）
                             # 为了避免无限递归，添加一个标记
-                            if not kwargs.get('_retry_after_refresh'):
+                            if not retry_flag:
                                 kwargs['_retry_after_refresh'] = True
                                 return self._send_request(method, url, **kwargs)
                         else:
@@ -1074,21 +1077,38 @@ class Cloud189Service(ICloudService):
             if result.get('res_code') == 0:
                 task_id = result.get('taskId')
                 
-                # 等待任务完成
-                for _ in range(30):
+                # 等待任务完成（最多15秒）
+                for i in range(30):
                     time.sleep(0.5)
                     status = self.check_task_status(task_id, 'DELETE')
-                    if status.get('taskStatus') == 4:  # 完成
+                    
+                    # 添加详细日志
+                    logger.info(f"189删除任务状态查询 [{i+1}/30]: {status}")
+                    
+                    # 检查返回结果
+                    if status.get('res_code') != 0:
+                        logger.warning(f"查询任务状态失败: {status.get('res_message')}")
+                        continue
+                    
+                    # 获取任务状态（天翼云盘的字段可能是taskStatus）
+                    task_status = status.get('taskStatus')
+                    
+                    if task_status == 4:  # 完成
+                        logger.info(f"189删除任务完成: task_id={task_id}")
                         return {
                             'code': 0,
                             'message': '删除成功'
                         }
-                    elif status.get('taskStatus') == 3:  # 失败
+                    elif task_status == 3:  # 失败
+                        logger.error(f"189删除任务失败: task_id={task_id}, status={status}")
                         return {
                             'code': -1,
-                            'message': '删除任务失败'
+                            'message': status.get('res_message', '删除任务失败')
                         }
+                    # 其他状态（0=等待, 1=进行中, 2=暂停）继续等待
                 
+                # 超时但任务可能已提交成功
+                logger.warning(f"189删除任务查询超时，但任务可能已提交: task_id={task_id}")
                 return {
                     'code': 0,
                     'message': '删除任务已提交'
@@ -1215,7 +1235,12 @@ class Cloud189Service(ICloudService):
         - https://cloud.189.cn/t/xxx
         - https://h5.cloud.189.cn/share.html#/t/xxx
         - https://cloud.189.cn/web/share/xxx
+        - https://cloud.189.cn/web/share?code=xxx（访问码：xxxx）
+        - https://cloud.189.cn/web/share?code=xxx (访问码：xxxx)
         """
+        # 先去除URL首尾空格，避免解析错误
+        url = url.strip() if url else ''
+        
         share_code = None
         access_code = ''
         
@@ -1236,10 +1261,26 @@ class Cloud189Service(ICloudService):
             if match_share:
                 share_code = match_share.group(1)
         
-        # 提取access_code (提取码)
+        # 提取access_code (提取码/密码)
+        # 方式1: URL参数格式 ?pwd=xxxx 或 &pwd=xxxx
         match_pwd = re.search(r'[?&]pwd=([a-zA-Z0-9]+)', url)
         if match_pwd:
             access_code = match_pwd.group(1)
+        
+        # 方式2: 括号形式（中文括号或英文括号）
+        # 支持格式：（访问码：xxxx）、（提取码：xxxx）、（密码：xxxx）
+        # 也支持：(访问码：xxxx)、(提取码：xxxx)、(密码：xxxx)
+        if not access_code:
+            match_bracket = re.search(r'[（(](?:访问码|提取码|密码)[:：\s]*([a-zA-Z0-9]+)[）)]', url)
+            if match_bracket:
+                access_code = match_bracket.group(1)
+        
+        # 方式3: 空格后直接跟密码（无括号）
+        # 支持格式：访问码：xxxx、提取码：xxxx、密码：xxxx
+        if not access_code:
+            match_plain = re.search(r'(?:访问码|提取码|密码)[:：\s]+([a-zA-Z0-9]+)', url)
+            if match_plain:
+                access_code = match_plain.group(1)
         
         logger.info(f"解析天翼分享链接: url={url}, share_code={share_code}, access_code={access_code}")
         
@@ -1325,13 +1366,18 @@ class Cloud189Service(ICloudService):
             }
             
             # 关键修复：fileId参数必须传入，优先使用file_id，其次使用root_file_id
-            if file_id and file_id != '0' and file_id != '':
+            # 确保参数不为None、空字符串或'0'
+            if file_id and str(file_id) not in ['0', '', 'None']:
                 params['fileId'] = str(file_id)
-            elif root_file_id and root_file_id != '0' and root_file_id != '':
+                logger.info(f"使用file_id作为fileId参数: {file_id}")
+            elif root_file_id and str(root_file_id) not in ['0', '', 'None']:
                 params['fileId'] = str(root_file_id)
+                logger.info(f"使用root_file_id作为fileId参数: {root_file_id}")
             else:
-                # 如果都没有，记录警告但继续尝试
-                logger.warning("list_share_dir: 未提供有效的fileId参数")
+                # 如果都没有，记录错误并返回
+                error_msg = "list_share_dir: 缺少必需的fileId参数"
+                logger.error(error_msg)
+                return {'res_code': -1, 'res_message': error_msg}
             
             # 如果有访问码
             if access_code:
@@ -1494,7 +1540,7 @@ class Cloud189Service(ICloudService):
             return {'res_code': -1, 'res_message': str(e)}
 
     
-    def save_share(self, share_url, target_folder_id='-11', password=''):
+    def save_share(self, share_url, target_folder_id='-11', password='', overwrite_mode=False):
         """
         转存分享文件（完整流程）
         
@@ -1502,17 +1548,22 @@ class Cloud189Service(ICloudService):
             share_url: 分享链接
             target_folder_id: 目标文件夹ID
             password: 分享密码
+            overwrite_mode: 重存模式，True=删除已存在文件并重新转存，False=增量更新（默认）
         
         Returns:
             dict: 转存结果
         """
-        print(f"[DEBUG] save_share被调用: url={share_url}, target={target_folder_id}")
-        logger.info(f"[save_share] 开始执行: url={share_url}, target_folder_id={target_folder_id}")
+        print(f"[DEBUG] save_share被调用: url={share_url}, target={target_folder_id}, password={password}, overwrite_mode={overwrite_mode}")
+        logger.info(f"[save_share] 开始执行: url={share_url}, target_folder_id={target_folder_id}, password={password}, overwrite_mode={overwrite_mode}")
         try:
             # 1. 解析分享链接
             share_code, access_code = self.parse_share_url(share_url)
+            logger.info(f"[save_share] 解析链接结果: share_code={share_code}, access_code={access_code}")
             if password:
+                logger.info(f"[save_share] 使用传入的password覆盖access_code: {password}")
                 access_code = password
+            
+            logger.info(f"[save_share] 最终使用的access_code: {access_code}")
             
             if not share_code:
                 return {
@@ -1520,7 +1571,7 @@ class Cloud189Service(ICloudService):
                     'message': '无效的分享链接格式'
                 }
             
-            logger.info(f"开始转存189分享: share_code={share_code}")
+            logger.info(f"开始转存189分享: share_code={share_code}, 重存模式: {overwrite_mode}")
             
             # 2. 获取分享信息
             share_info = self.get_share_info(share_code)
@@ -1544,6 +1595,18 @@ class Cloud189Service(ICloudService):
                         'success': False,
                         'message': '访问码错误'
                     }
+                
+                # 关键修复：如果get_share_info没有返回shareId，从check_access_code结果中获取
+                if not share_id and check_result.get('shareId'):
+                    share_id = check_result.get('shareId')
+                    logger.info(f"从访问码验证结果中获取到shareId: {share_id}")
+            
+            # 验证必需参数
+            if not share_id:
+                return {
+                    'success': False,
+                    'message': '无法获取分享ID，请检查分享链接是否有效'
+                }
             
             # 4. 获取分享文件列表
             # 关键修复：使用root_file_id作为fileId参数
@@ -1606,12 +1669,88 @@ class Cloud189Service(ICloudService):
                     'message': '分享链接中没有文件'
                 }
             
-            logger.info(f"准备转存 {len(all_items)} 个文件/文件夹")
+            logger.info(f"分享链接中共有 {len(all_items)} 个文件/文件夹（{len(folder_list)}个文件夹 + {len(file_list)}个文件）")
             
-            # 5. 构造转存任务参数
+            # 5. 处理重存模式或增量更新
+            if overwrite_mode:
+                logger.info(f"[DEBUG] 使用重存模式")
+                # 重存模式：删除目标文件夹中的所有文件
+                logger.info(f"[重存模式] 开始删除目标文件夹中的所有文件: target_folder_id={target_folder_id}")
+                try:
+                    # 获取目标文件夹中的所有文件
+                    target_files_result = self.get_file_list(folder_id=target_folder_id, page=1, size=1000)
+                    if target_files_result.get('code') == 0:
+                        target_items = target_files_result.get('data', {}).get('list', [])
+                        if target_items:
+                            # 删除所有文件和文件夹
+                            delete_ids = [item['id'] for item in target_items]
+                            logger.info(f"[重存模式] 准备删除 {len(delete_ids)} 个文件/文件夹")
+                            
+                            # 批量删除
+                            delete_result = self.delete_files(delete_ids)
+                            if delete_result.get('res_code') == 0:
+                                logger.info(f"[重存模式] 成功删除 {len(delete_ids)} 个文件/文件夹")
+                            else:
+                                logger.warning(f"[重存模式] 删除文件失败: {delete_result.get('res_message')}")
+                        else:
+                            logger.info(f"[重存模式] 目标文件夹为空，无需删除")
+                    else:
+                        logger.warning(f"[重存模式] 获取目标文件夹列表失败: {target_files_result.get('message')}")
+                except Exception as delete_err:
+                    logger.warning(f"[重存模式] 删除文件时出错: {delete_err}")
+                
+                # 重存模式下转存所有文件
+                items_to_save = all_items
+                logger.info(f"[重存模式] 准备转存所有 {len(items_to_save)} 个文件/文件夹")
+            else:
+                logger.info(f"[DEBUG] 使用增量更新模式，overwrite_mode={overwrite_mode}")
+                # 增量更新模式：只转存不存在的文件
+                logger.info(f"[增量更新] 开始对比目标文件夹中的文件")
+                try:
+                    logger.info(f"[DEBUG] 调用get_file_list: folder_id={target_folder_id}")
+                    # 获取目标文件夹中的所有文件
+                    target_files_result = self.get_file_list(folder_id=target_folder_id, page=1, size=1000)
+                    logger.info(f"[DEBUG] get_file_list返回: code={target_files_result.get('code')}, message={target_files_result.get('message')}")
+                    
+                    if target_files_result.get('code') == 0:
+                        target_items = target_files_result.get('data', {}).get('list', [])
+                        logger.info(f"[DEBUG] 目标文件夹中有 {len(target_items)} 个文件/文件夹")
+                        # 构建已存在文件名集合
+                        existing_names = {item['name'] for item in target_items}
+                        logger.info(f"[增量更新] 目标文件夹中已有 {len(existing_names)} 个文件/文件夹")
+                        
+                        # 过滤出不存在的文件
+                        items_to_save = [item for item in all_items if item['name'] not in existing_names]
+                        skipped_count = len(all_items) - len(items_to_save)
+                        logger.info(f"[DEBUG] 过滤后需要转存 {len(items_to_save)} 个，跳过 {skipped_count} 个")
+                        
+                        if skipped_count > 0:
+                            logger.info(f"[增量更新] 跳过 {skipped_count} 个已存在的文件/文件夹")
+                        
+                        if not items_to_save:
+                            logger.info(f"[增量更新] 所有文件都已存在，无需转存")
+                            return {
+                                'success': True,
+                                'message': f'所有文件都已存在，已跳过（共{len(all_items)}个）',
+                                'skipped': True,
+                                'total_count': len(all_items),
+                                'skipped_count': len(all_items)
+                            }
+                        
+                        logger.info(f"[增量更新] 准备转存 {len(items_to_save)} 个新文件/文件夹")
+                    else:
+                        logger.warning(f"[DEBUG] get_file_list失败，转存所有文件")
+                        logger.warning(f"[增量更新] 获取目标文件夹列表失败，将转存所有文件: {target_files_result.get('message')}")
+                        items_to_save = all_items
+                except Exception as compare_err:
+                    logger.error(f"[DEBUG] 增量更新异常: {compare_err}", exc_info=True)
+                    logger.warning(f"[增量更新] 对比文件时出错，将转存所有文件: {compare_err}")
+                    items_to_save = all_items
+            
+            # 6. 构造转存任务参数
             # 构造taskInfos数组，每个元素包含fileId、fileName、isFolder
             task_infos = []
-            for item in all_items:
+            for item in items_to_save:
                 task_infos.append({
                     'fileId': str(item['id']),
                     'fileName': item['name'],
@@ -1634,7 +1773,7 @@ class Cloud189Service(ICloudService):
                 batch_task_dto['accessCode'] = access_code
             
             logger.info(f"189转存任务参数: type={batch_task_dto['type']}, shareId={batch_task_dto['shareId']}, targetFolderId={batch_task_dto['targetFolderId']}, shareMode={batch_task_dto['shareMode']}, accessCode={'***' if access_code else 'None'}")
-            logger.info(f"189转存文件列表: {task_infos_json}")
+            logger.info(f"189转存文件列表（共{len(items_to_save)}个）: {task_infos_json}")
             
             # 6. 创建转存任务
             task_result = self.create_batch_task(batch_task_dto)
@@ -1664,22 +1803,64 @@ class Cloud189Service(ICloudService):
                 
                 task_status = status_result.get('taskStatus')
                 error_code = status_result.get('errorCode', '')
-                logger.info(f"任务状态: {task_status}, errorCode: {error_code}")
+                successed_count = status_result.get('successedCount', 0)
+                failed_count = status_result.get('failedCount', 0)
+                sub_task_count = status_result.get('subTaskCount', 0)
+                
+                logger.info(f"任务状态: taskStatus={task_status}, errorCode={error_code}, "
+                           f"成功={successed_count}/{sub_task_count}, 失败={failed_count}")
                 
                 if task_status == 4:  # 完成
                     logger.info(f"189转存任务完成: task_id={task_id}")
                     return {
                         'success': True,
                         'message': '转存成功',
-                        'task_id': task_id
+                        'task_id': task_id,
+                        'total_count': sub_task_count,  # 使用实际的子任务数
+                        'success_count': successed_count
                     }
-                elif task_status == 3:  # 失败
-                    error_msg = f"转存任务失败: {error_code}" if error_code else "转存任务失败"
-                    logger.error(f"189转存任务失败: {error_msg}")
-                    return {
-                        'success': False,
-                        'message': error_msg
-                    }
+                elif task_status == 3:  # 状态3需要根据成功/失败数量判断
+                    # 如果有成功的文件，且失败数为0，视为成功
+                    if successed_count > 0 and failed_count == 0:
+                        logger.info(f"189转存任务完成（状态3但全部成功）: task_id={task_id}, "
+                                   f"成功={successed_count}/{sub_task_count}")
+                        return {
+                            'success': True,
+                            'message': f'转存成功（{successed_count}/{sub_task_count}个文件）',
+                            'task_id': task_id,
+                            'total_count': sub_task_count,
+                            'success_count': successed_count
+                        }
+                    # 如果全部失败，返回失败
+                    elif failed_count > 0 and successed_count == 0:
+                        error_msg = f"转存任务失败: {error_code}" if error_code else "转存任务失败"
+                        logger.error(f"189转存任务失败: {error_msg}")
+                        return {
+                            'success': False,
+                            'message': error_msg,
+                            'total_count': sub_task_count,
+                            'failed_count': failed_count
+                        }
+                    # 部分成功部分失败
+                    elif successed_count > 0 and failed_count > 0:
+                        logger.warning(f"189转存任务部分成功: 成功={successed_count}, 失败={failed_count}")
+                        return {
+                            'success': True,
+                            'message': f'部分转存成功（成功{successed_count}个，失败{failed_count}个）',
+                            'task_id': task_id,
+                            'total_count': sub_task_count,
+                            'success_count': successed_count,
+                            'failed_count': failed_count,
+                            'partial': True
+                        }
+                    # 状态3但还在处理中（成功数未达到总数）
+                    elif successed_count < sub_task_count:
+                        logger.info(f"189转存任务处理中（状态3）: 已完成={successed_count}/{sub_task_count}")
+                        continue
+                    else:
+                        # 其他情况，继续等待
+                        logger.warning(f"189转存任务状态3，继续等待: {status_result}")
+                        continue
                 elif task_status == 1:  # 处理中
                     # 重置无效状态计数
                     invalid_status_count = 0
@@ -1732,14 +1913,8 @@ class Cloud189Service(ICloudService):
                         
                         if manage_result.get('res_code') != 0:
                             error_msg = manage_result.get('res_message', '处理冲突失败')
-                            logger.warning(f"处理冲突API调用失败: {error_msg}，但仍视为成功（文件已存在）")
-                            # 即使处理冲突失败，也视为成功（文件已存在）
-                            return {
-                                'success': True,
-                                'message': '文件已存在，已跳过',
-                                'task_id': task_id,
-                                'skipped': True
-                            }
+                            logger.warning(f"处理冲突API调用失败: {error_msg}，继续轮询任务状态")
+                            # 注意：不要直接返回，而是继续轮询，让天翼云盘完成剩余文件的转存
                         
                         conflict_handled = True
                         logger.info(f"189转存冲突处理完成（已跳过），继续轮询: task_id={task_id}")
@@ -1772,9 +1947,14 @@ class Cloud189Service(ICloudService):
                     logger.warning(f"189转存任务未知状态: {task_status}")
                     continue
             
+            # 超时但任务可能已提交成功
+            logger.warning(f"189转存任务查询超时（超过120秒），但任务可能已提交成功: task_id={task_id}")
             return {
-                'success': False,
-                'message': '转存任务超时（超过120秒）'
+                'success': True,
+                'message': '转存任务已提交，请稍后在网盘中查看',
+                'task_id': task_id,
+                'total_count': len(items_to_save),
+                'timeout': True
             }
             
         except Exception as e:
@@ -1916,7 +2096,7 @@ class Cloud189Service(ICloudService):
     
     def get_download_url(self, file_ids):
         """
-        获取下载链接
+        获取下载链接(直接使用备用API,支持大文件)
         
         Args:
             file_ids: 文件ID列表
@@ -1932,61 +2112,30 @@ class Cloud189Service(ICloudService):
             download_urls = []
             
             for file_id in file_ids:
-                # 先尝试使用标准API
-                url = "/api/open/file/getFileDownloadUrl.action"
-                params = {'fileId': file_id}
+                # 直接使用备用API(视频播放URL API,支持大文件)
+                url = "/api/portal/getNewVlcVideoPlayUrl.action"
+                params = {
+                    'fileId': file_id,
+                    'type': 2,  # 2=个人文件
+                    'dt': 1
+                }
                 
                 response = self._send_request("GET", url, params=params)
-                logger.info(f"189下载链接响应: status={response.status_code}")
                 
                 if response.status_code == 200:
                     result = response.json()
-                    logger.info(f"189下载链接结果: {result}")
                     
                     if result.get('res_code') == 0:
-                        download_url = result.get('fileDownloadUrl', '')
+                        # 备用API返回的数据结构: {'normal': {'url': '...'}}
+                        normal_info = result.get('normal', {})
+                        download_url = normal_info.get('url', '')
                         if download_url:
                             download_urls.append({
                                 'file_id': file_id,
                                 'download_url': download_url,
                                 'downloadUrl': download_url
                             })
-                            logger.info(f"成功获取文件 {file_id} 的下载链接")
                             continue
-                
-                # 如果标准API失败(如文件太大),尝试使用备用API
-                if response.status_code == 400:
-                    result = response.json()
-                    if result.get('res_code') == 'FileTooLarge':
-                        logger.info(f"文件 {file_id} 太大,尝试使用备用API...")
-                        
-                        # 使用视频播放URL API(支持大文件)
-                        url2 = "/api/portal/getNewVlcVideoPlayUrl.action"
-                        params2 = {
-                            'fileId': file_id,
-                            'type': 2,  # 2=个人文件
-                            'dt': 1
-                        }
-                        
-                        response2 = self._send_request("GET", url2, params=params2)
-                        logger.info(f"189备用API响应: status={response2.status_code}")
-                        
-                        if response2.status_code == 200:
-                            result2 = response2.json()
-                            logger.info(f"189备用API结果: {result2}")
-                            
-                            if result2.get('res_code') == 0:
-                                # 备用API返回的数据结构: {'normal': {'url': '...'}}
-                                normal_info = result2.get('normal', {})
-                                download_url = normal_info.get('url', '')
-                                if download_url:
-                                    download_urls.append({
-                                        'file_id': file_id,
-                                        'download_url': download_url,
-                                        'downloadUrl': download_url
-                                    })
-                                    logger.info(f"使用备用API成功获取文件 {file_id} 的下载链接")
-                                    continue
                 
                 logger.warning(f"文件 {file_id} 的下载链接获取失败")
             

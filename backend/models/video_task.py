@@ -12,12 +12,13 @@ class VideoTask:
     
     def __init__(self, task_id=None, name=None, website_url=None, video_id=None, 
                  clip_id=None, save_directory=None, cron_expression=None,
-                 episodes=None, video_info=None, status='waiting', progress=0,
+                 episodes=None, video_info=None, status='draft', progress=0,
                  downloaded_episodes=0, create_subfolder=0, platform='mango',
                  video_type='电视剧', enable_file_size_check=0, min_file_size=100,
                  enable_retry=0, max_retry_count=3, retry_interval=5,
                  regex_pattern=None, replacement_pattern=None,
-                 created_at=None, updated_at=None):
+                 exclude_keywords=None,
+                 last_episode_update_time=None, created_at=None, updated_at=None):
         self.id = task_id
         self.name = name
         self.website_url = website_url
@@ -43,6 +44,10 @@ class VideoTask:
         # 正则替换配置
         self.regex_pattern = regex_pattern  # 正则表达式
         self.replacement_pattern = replacement_pattern  # 替换表达式
+        # 名称过滤配置
+        self.exclude_keywords = exclude_keywords  # 排除关键词（用|分割）
+        # 自动失效相关字段
+        self.last_episode_update_time = last_episode_update_time  # 最后新增剧集时间
         self.created_at = created_at
         self.updated_at = updated_at
     
@@ -52,7 +57,8 @@ class VideoTask:
                selected_episodes=None, platform='mango', video_type='电视剧',
                enable_file_size_check=0, min_file_size=100,
                enable_retry=0, max_retry_count=3, retry_interval=5,
-               regex_pattern=None, replacement_pattern=None):
+               regex_pattern=None, replacement_pattern=None,
+               exclude_keywords=None):
         """创建任务"""
         with get_db() as conn:
             cursor = conn.cursor()
@@ -61,6 +67,10 @@ class VideoTask:
             if selected_episodes is None:
                 selected_episodes = list(range(len(episodes)))
             
+            # 获取当前时间作为创建时间和初始的last_episode_update_time
+            from datetime import datetime
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
             cursor.execute('''
                 INSERT INTO video_tasks 
                 (name, website_url, video_id, clip_id, save_directory, 
@@ -68,8 +78,9 @@ class VideoTask:
                  progress, downloaded_episodes, create_subfolder, 
                  selected_episodes, last_downloaded_episode, platform, video_type,
                  enable_file_size_check, min_file_size, enable_retry, 
-                 max_retry_count, retry_interval, regex_pattern, replacement_pattern)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 max_retry_count, retry_interval, regex_pattern, replacement_pattern,
+                 exclude_keywords, last_episode_update_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 0, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 name, website_url, video_id, clip_id, save_directory,
                 cron_expression, 
@@ -85,7 +96,9 @@ class VideoTask:
                 max_retry_count,
                 retry_interval,
                 regex_pattern,
-                replacement_pattern
+                replacement_pattern,
+                exclude_keywords,
+                current_time  # 初始化last_episode_update_time为创建时间
             ))
             return cursor.lastrowid
     
@@ -119,7 +132,8 @@ class VideoTask:
             'progress', 'downloaded_episodes', 'create_subfolder',
             'selected_episodes', 'last_downloaded_episode', 'platform', 'video_type',
             'enable_file_size_check', 'min_file_size', 'enable_retry',
-            'max_retry_count', 'retry_interval', 'regex_pattern', 'replacement_pattern'
+            'max_retry_count', 'retry_interval', 'regex_pattern', 'replacement_pattern',
+            'exclude_keywords', 'last_episode_update_time'
         ]
         
         # 处理episodes和video_info的JSON序列化
@@ -208,6 +222,8 @@ class VideoTask:
             retry_interval=row['retry_interval'] if 'retry_interval' in row.keys() else 5,
             regex_pattern=row['regex_pattern'] if 'regex_pattern' in row.keys() else None,
             replacement_pattern=row['replacement_pattern'] if 'replacement_pattern' in row.keys() else None,
+            exclude_keywords=row['exclude_keywords'] if 'exclude_keywords' in row.keys() else None,
+            last_episode_update_time=row['last_episode_update_time'] if 'last_episode_update_time' in row.keys() else None,
             created_at=row['created_at'],
             updated_at=row['updated_at']
         )
@@ -243,6 +259,8 @@ class VideoTask:
             'retry_interval': self.retry_interval,
             'regex_pattern': self.regex_pattern,
             'replacement_pattern': self.replacement_pattern,
+            'exclude_keywords': self.exclude_keywords,
+            'last_episode_update_time': self.last_episode_update_time,
             'created_at': self.created_at,
             'updated_at': self.updated_at
         }

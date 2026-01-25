@@ -5,7 +5,6 @@
 import json
 from flask import Blueprint, request, jsonify
 from models.config import ConfigModel
-from services.email_service import EmailService
 from utils.logger import logger
 from utils.feature_gate import require_pro
 from utils.config_crypto import config_crypto
@@ -46,23 +45,11 @@ def get_config():
             },
             'download': {
                 'default_dir': ConfigModel.get_config('download_default_dir', 'downloads'),
-                'max_concurrent': int(ConfigModel.get_config('download_max_concurrent', 3)),
-                'chunk_size': int(ConfigModel.get_config('download_chunk_size', 2)),
-                'retry_count': int(ConfigModel.get_config('download_retry_count', 3)),
-                'retry_delay': int(ConfigModel.get_config('download_retry_delay', 5)),
                 'timeout': int(ConfigModel.get_config('download_timeout', 30)),
                 # 多线程下载配置
                 'enable_multithread': ConfigModel.get_config('download_enable_multithread', 'true') == 'true',
-                'multithread_threshold': int(ConfigModel.get_config('download_multithread_threshold', 50)),
                 'threads_per_file': int(ConfigModel.get_config('download_threads_per_file', 4)),
                 'multithread_chunk_size': int(ConfigModel.get_config('download_multithread_chunk_size', 10))
-            },
-            'email': {
-                'smtp_server': ConfigModel.get_config('email_smtp_server', ''),
-                'smtp_port': int(ConfigModel.get_config('email_smtp_port', 465)),
-                'sender': ConfigModel.get_config('email_sender', ''),
-                'password': '******' if ConfigModel.get_config('email_password') else '',
-                'receivers': ConfigModel.get_config_list('email_receivers')
             },
             'pansou': {
                 'api_url': ConfigModel.get_config('pansou_api_url', 'http://192.168.0.111:8383/'),
@@ -82,6 +69,10 @@ def get_config():
                 'default_dir': ConfigModel.get_config('video_download_default_dir', '/app/backend/downloads/官网下载'),
                 'temp_dir': ConfigModel.get_config('video_download_temp_dir', '/app/backend/downloads/temp'),
                 'max_threads': int(ConfigModel.get_config('video_download_max_threads', 3))
+            },
+            'video_expiration': {
+                'enabled': ConfigModel.get_config('video_auto_expiration_enabled', '1') == '1',
+                'days': int(ConfigModel.get_config('video_auto_expiration_days', '7'))
             }
         }
         
@@ -95,6 +86,115 @@ def get_config():
         return jsonify({
             'code': 500,
             'message': f'获取配置失败: {str(e)}'
+        }), 500
+
+
+@config_bp.route('/video-expiration', methods=['GET'])
+def get_video_expiration_config():
+    """获取影视任务自动失效配置"""
+    try:
+        # 获取配置，如果不存在则使用默认值
+        enabled_str = ConfigModel.get_config('video_auto_expiration_enabled', '1')
+        days_str = ConfigModel.get_config('video_auto_expiration_days', '7')
+        
+        # 转换为布尔值和整数，添加错误处理
+        try:
+            enabled = enabled_str == '1'
+            days = int(days_str)
+            
+            # 验证days的合法性
+            if days < 1 or days > 365:
+                logger.warning(f"配置的超时天数不合法: {days}，使用默认值7天")
+                days = 7
+                
+        except ValueError as e:
+            logger.error(f"配置值转换失败: enabled_str={enabled_str}, days_str={days_str}, error={e}")
+            # 使用默认值
+            enabled = True
+            days = 7
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'enabled': enabled,
+                'days': days
+            }
+        })
+    except Exception as e:
+        logger.error(f"获取影视任务自动失效配置失败: {e}", exc_info=True)
+        return jsonify({
+            'code': 500,
+            'message': f'获取配置失败: {str(e)}'
+        }), 500
+
+
+@config_bp.route('/video-expiration', methods=['POST'])
+def save_video_expiration_config():
+    """保存影视任务自动失效配置"""
+    try:
+        data = request.get_json()
+        
+        # 验证请求体是否为空
+        if not data:
+            return jsonify({
+                'code': 400,
+                'message': '请求体不能为空'
+            }), 400
+        
+        # 验证必需字段
+        if 'enabled' not in data or 'days' not in data:
+            return jsonify({
+                'code': 400,
+                'message': '缺少必需字段：enabled 和 days'
+            }), 400
+        
+        enabled = data['enabled']
+        days = data['days']
+        
+        # 验证enabled字段类型
+        if not isinstance(enabled, bool):
+            return jsonify({
+                'code': 400,
+                'message': 'enabled 字段必须是布尔值'
+            }), 400
+        
+        # 验证days字段类型和范围
+        if not isinstance(days, int):
+            return jsonify({
+                'code': 400,
+                'message': 'days 字段必须是整数'
+            }), 400
+        
+        if days < 1 or days > 365:
+            return jsonify({
+                'code': 400,
+                'message': '超时天数必须是1-365之间的整数'
+            }), 400
+        
+        # 保存配置
+        try:
+            enabled_str = '1' if enabled else '0'
+            ConfigModel.set_config('video_auto_expiration_enabled', enabled_str, 'video')
+            ConfigModel.set_config('video_auto_expiration_days', str(days), 'video')
+        except Exception as e:
+            logger.error(f"保存配置到数据库失败: enabled={enabled}, days={days}, error={e}", exc_info=True)
+            return jsonify({
+                'code': 500,
+                'message': f'保存配置失败: {str(e)}'
+            }), 500
+        
+        logger.info(f"[AutoExpiration] 配置保存成功: enabled={enabled}, days={days}")
+        
+        return jsonify({
+            'code': 200,
+            'message': '配置保存成功'
+        })
+    except Exception as e:
+        logger.error(f"保存影视任务自动失效配置失败: {e}", exc_info=True)
+        return jsonify({
+            'code': 500,
+            'message': f'保存配置失败: {str(e)}'
         }), 500
 
 
@@ -116,29 +216,11 @@ def save_config():
         if 'download' in data:
             download_config = data['download']
             ConfigModel.set_config('download_default_dir', download_config['default_dir'], 'download')
-            ConfigModel.set_config('download_max_concurrent', str(download_config['max_concurrent']), 'download')
-            ConfigModel.set_config('download_chunk_size', str(download_config['chunk_size']), 'download')
-            ConfigModel.set_config('download_retry_count', str(download_config['retry_count']), 'download')
-            ConfigModel.set_config('download_retry_delay', str(download_config['retry_delay']), 'download')
             ConfigModel.set_config('download_timeout', str(download_config['timeout']), 'download')
             # 多线程下载配置
             ConfigModel.set_config('download_enable_multithread', 'true' if download_config.get('enable_multithread') else 'false', 'download')
-            ConfigModel.set_config('download_multithread_threshold', str(download_config['multithread_threshold']), 'download')
             ConfigModel.set_config('download_threads_per_file', str(download_config['threads_per_file']), 'download')
             ConfigModel.set_config('download_multithread_chunk_size', str(download_config['multithread_chunk_size']), 'download')
-        
-        # 保存邮件配置
-        if 'email' in data:
-            email_config = data['email']
-            ConfigModel.set_config('email_smtp_server', email_config['smtp_server'], 'email')
-            ConfigModel.set_config('email_smtp_port', str(email_config['smtp_port']), 'email')
-            ConfigModel.set_config('email_sender', email_config['sender'], 'email')
-            
-            # 只有提供了新密码才更新
-            if email_config.get('password') and email_config['password'] != '******':
-                ConfigModel.set_config('email_password', email_config['password'], 'email')
-            
-            ConfigModel.set_config_list('email_receivers', email_config.get('receivers', []), 'email')
         
         # 保存盘搜配置
         if 'pansou' in data:
@@ -180,6 +262,26 @@ def save_config():
             ConfigModel.set_config('video_download_temp_dir', video_download_config.get('temp_dir', '/app/backend/downloads/temp'), 'video_download')
             ConfigModel.set_config('video_download_max_threads', str(video_download_config.get('max_threads', 3)), 'video_download')
         
+        # 保存影视任务自动失效配置
+        if 'video_expiration' in data:
+            video_expiration_config = data['video_expiration']
+            
+            # 验证days字段
+            days = video_expiration_config.get('days', 7)
+            if not isinstance(days, int) or days < 1 or days > 365:
+                return jsonify({
+                    'code': 400,
+                    'message': '超时天数必须是1-365之间的整数'
+                }), 400
+            
+            enabled = video_expiration_config.get('enabled', True)
+            enabled_str = '1' if enabled else '0'
+            
+            ConfigModel.set_config('video_auto_expiration_enabled', enabled_str, 'video')
+            ConfigModel.set_config('video_auto_expiration_days', str(days), 'video')
+            
+            logger.info(f"[AutoExpiration] 配置保存成功: enabled={enabled}, days={days}")
+        
         logger.info("系统配置保存成功")
         
         return jsonify({
@@ -191,42 +293,4 @@ def save_config():
         return jsonify({
             'code': 500,
             'message': f'保存配置失败: {str(e)}'
-        }), 500
-
-
-@config_bp.route('/email/test', methods=['POST'])
-def test_email():
-    """测试邮件配置"""
-    try:
-        data = request.get_json()
-        
-        # 验证必填字段
-        required_fields = ['smtp_server', 'smtp_port', 'sender', 'password', 'receiver']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({
-                    'code': 400,
-                    'message': f'{field}不能为空'
-                }), 400
-        
-        # 构建SMTP配置
-        smtp_config = {
-            'server': data['smtp_server'],
-            'port': data['smtp_port'],
-            'sender': data['sender'],
-            'password': data['password']
-        }
-        
-        # 发送测试邮件
-        EmailService.test_smtp_config(smtp_config, data['receiver'])
-        
-        return jsonify({
-            'code': 200,
-            'message': '测试邮件发送成功'
-        })
-    except Exception as e:
-        logger.error(f"测试邮件配置失败: {e}")
-        return jsonify({
-            'code': 500,
-            'message': f'测试失败: {str(e)}'
         }), 500

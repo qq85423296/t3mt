@@ -83,9 +83,9 @@ class DownloadService:
                         name, source_account_id, source_path, source_folder_id, target_path,
                         cron_expression, filter_extensions, include_extensions,
                         only_new_files, keep_structure, delete_after_download,
-                        regex_pattern, replacement_pattern,
+                        regex_pattern, replacement_pattern, exclude_keywords,
                         cloud_type, status, progress, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     task_data['source_account_id'],
@@ -100,8 +100,9 @@ class DownloadService:
                     task_data.get('delete_after_download', 0),
                     task_data.get('regex_pattern'),
                     task_data.get('replacement_pattern'),
+                    task_data.get('exclude_keywords'),  # 新增：排除关键词
                     cloud_type,
-                    'running',
+                    'draft',  # 新建任务默认为草稿状态
                     0,
                     datetime.now(),
                     datetime.now()
@@ -131,7 +132,7 @@ class DownloadService:
                         only_new_files = ?, keep_structure = ?,
                         delete_after_download = ?,
                         regex_pattern = ?, replacement_pattern = ?,
-                        updated_at = ?
+                        exclude_keywords = ?, updated_at = ?
                     WHERE id = ?
                 """, (
                     task_data['name'],
@@ -147,6 +148,7 @@ class DownloadService:
                     task_data.get('delete_after_download', 0),
                     task_data.get('regex_pattern'),
                     task_data.get('replacement_pattern'),
+                    task_data.get('exclude_keywords'),  # 新增：排除关键词
                     datetime.now(),
                     task_id
                 ))
@@ -175,7 +177,7 @@ class DownloadService:
     
     @staticmethod
     def toggle_task_status(task_id):
-        """切换任务状态（运行/暂停）"""
+        """切换任务状态（发布/下线）"""
         try:
             with get_db() as conn:
                 cursor = conn.cursor()
@@ -188,7 +190,18 @@ class DownloadService:
                     raise ValueError(f"任务不存在: ID {task_id}")
                 
                 current_status = result['status']
-                new_status = 'paused' if current_status == 'running' else 'running'
+                
+                # 状态转换逻辑：
+                # draft(新建) -> active(生效)
+                # inactive(失效) -> active(生效)
+                # active(生效) -> inactive(失效)
+                if current_status in ['draft', 'inactive']:
+                    new_status = 'active'
+                elif current_status == 'active':
+                    new_status = 'inactive'
+                else:
+                    # 兼容旧状态
+                    new_status = 'active'
                 
                 cursor.execute("""
                     UPDATE download_tasks SET status = ?, updated_at = ?

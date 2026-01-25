@@ -54,7 +54,7 @@ class DownloadTask:
     @staticmethod
     def create(name, source_account_id, source_path, target_path, cron_expression,
                filter_extensions=None, include_extensions=None, only_new_files=1,
-               keep_structure=1, delete_after_download=0):
+               keep_structure=1, delete_after_download=0, exclude_keywords=None):
         """创建任务"""
         with get_db() as conn:
             cursor = conn.cursor()
@@ -62,11 +62,11 @@ class DownloadTask:
                 INSERT INTO download_tasks 
                 (name, source_account_id, source_path, target_path, cron_expression,
                  filter_extensions, include_extensions, only_new_files,
-                 keep_structure, delete_after_download)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 keep_structure, delete_after_download, exclude_keywords)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (name, source_account_id, source_path, target_path, cron_expression,
                   filter_extensions, include_extensions, only_new_files,
-                  keep_structure, delete_after_download))
+                  keep_structure, delete_after_download, exclude_keywords))
             
             return cursor.lastrowid
     

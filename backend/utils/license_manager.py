@@ -35,8 +35,6 @@ class LicenseManager:
         self.license_server_url = Config.LICENSE_SERVER_URL
         self.heartbeat_interval = 86400
         
-        logger.info(f"许可证管理器初始化完成,服务器: {self.license_server_url}")
-        
         # 执行安全检查
         is_safe, error = protect_execution()
         if not is_safe:
@@ -64,7 +62,6 @@ class LicenseManager:
                 from utils.config_crypto import config_crypto
                 config_crypto.set_decryption_key(self._decryption_key)
                 
-                logger.info("解密密钥获取成功")
                 return True
             else:
                 logger.error(f"获取解密密钥失败: {result.get('message')}")

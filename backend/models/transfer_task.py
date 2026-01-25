@@ -56,14 +56,14 @@ class TransferTask:
     
     @staticmethod
     def get_active_tasks():
-        """获取所有活动任务（用于调度）"""
+        """获取所有活动任务（用于调度）- 只返回生效状态的任务"""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT t.*, a.cookie, a.remark as account_remark
                 FROM transfer_tasks t
                 LEFT JOIN quark_accounts a ON t.target_account_id = a.id
-                WHERE t.status = 'running'
+                WHERE t.status = 'active'
                 AND (t.end_date IS NULL OR t.end_date >= date('now'))
             ''')
             tasks = cursor.fetchall()
@@ -81,7 +81,8 @@ class TransferTask:
     def create(name, share_urls, target_account_id, target_path, cron_expression,
                rules=None, filter_extensions=None, include_extensions=None,
                update_dirs=None, overwrite_mode=0, end_date=None,
-               regex_pattern=None, replacement_pattern=None, check_mode='replaced'):
+               regex_pattern=None, replacement_pattern=None, check_mode='replaced',
+               exclude_keywords=None):
         """创建任务"""
         # 序列化JSON字段
         share_urls_json = json.dumps(share_urls, ensure_ascii=False)
@@ -93,11 +94,11 @@ class TransferTask:
                 INSERT INTO transfer_tasks 
                 (name, share_urls, target_account_id, target_path, cron_expression,
                  rules, filter_extensions, include_extensions, update_dirs,
-                 overwrite_mode, end_date, regex_pattern, replacement_pattern, check_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 overwrite_mode, end_date, regex_pattern, replacement_pattern, check_mode, exclude_keywords)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (name, share_urls_json, target_account_id, target_path, cron_expression,
                   rules_json, filter_extensions, include_extensions, update_dirs,
-                  overwrite_mode, end_date, regex_pattern, replacement_pattern, check_mode))
+                  overwrite_mode, end_date, regex_pattern, replacement_pattern, check_mode, exclude_keywords))
             
             return cursor.lastrowid
     

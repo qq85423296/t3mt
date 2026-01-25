@@ -92,6 +92,7 @@ def get_executions():
         end_date = request.args.get('end_date')
         status = request.args.get('status')
         schedule_date = request.args.get('schedule_date')  # 账期日期筛选 YYYYMMDD
+        schedule_period_start = request.args.get('schedule_period_start')  # 账期开始日期 YYYYMMDD（用于时间范围筛选）
         show_duplicates = request.args.get('show_duplicates', 'false').lower() == 'true'  # 是否查看重复
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 20))
@@ -145,6 +146,11 @@ def get_executions():
                 # 按账期日期筛选（YYYYMMDD）
                 conditions.append('schedule_period LIKE ?')
                 params.append(f'{schedule_date}%')
+            
+            if schedule_period_start:
+                # 按账期开始日期筛选（YYYYMMDD），用于时间范围筛选
+                conditions.append('schedule_period >= ?')
+                params.append(schedule_period_start)
             
             where_clause = ' AND '.join(conditions) if conditions else '1=1'
             
@@ -317,7 +323,7 @@ def get_execution_detail(execution_id):
                 task_status = TaskExecutor.get_task_status(task_id)
                 if task_status and task_status.get('execution_id') == execution_id:
                     real_time_logs = task_status.get('logs', [])
-                    logger.info(f"从内存获取实时日志: execution_id={execution_id}, 日志数量={len(real_time_logs)}")
+                    # logger.info(f"从内存获取实时日志: execution_id={execution_id}, 日志数量={len(real_time_logs)}")
             
             # 如果有实时日志,使用实时日志;否则从数据库解析
             if real_time_logs:
@@ -503,9 +509,8 @@ def stop_execution(execution_id):
                 """, (datetime.now(), new_logs, execution_id))
                 conn.commit()
                 
-                # 更新任务状态
-                from models.video_task import VideoTask
-                VideoTask.update(task_id, status='idle')
+                # 影视下载任务终止时不修改任务状态
+                # 任务状态只能通过"发布/下线"按钮修改
                 
                 logger.info(f"影视下载任务已标记为终止: {task_name}")
                 return jsonify({
@@ -763,6 +768,72 @@ def force_execute(execution_id):
         return jsonify({
             'code': 500,
             'message': f'执行失败: {str(e)}'
+        }), 500
+
+
+@monitor_bp.route('/executions/batch-delete', methods=['POST'])
+def batch_delete_executions():
+    """批量删除非执行中的任务记录"""
+    try:
+        # 获取要删除的任务ID列表
+        data = request.get_json()
+        execution_ids = data.get('execution_ids', [])
+        
+        if not execution_ids:
+            return jsonify({
+                'code': 400,
+                'message': '请选择要删除的任务'
+            }), 400
+        
+        if not isinstance(execution_ids, list):
+            return jsonify({
+                'code': 400,
+                'message': '参数格式错误'
+            }), 400
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # 检查是否有正在执行的任务
+            placeholders = ','.join(['?' for _ in execution_ids])
+            cursor.execute(f'''
+                SELECT id, task_name, status FROM task_execution_history
+                WHERE id IN ({placeholders}) AND status = 'running'
+            ''', execution_ids)
+            
+            running_tasks = cursor.fetchall()
+            
+            if running_tasks:
+                running_names = [task['task_name'] for task in running_tasks]
+                return jsonify({
+                    'code': 400,
+                    'message': f'无法删除正在执行的任务: {", ".join(running_names)}'
+                }), 400
+            
+            # 删除任务记录（包括日志）
+            cursor.execute(f'''
+                DELETE FROM task_execution_history
+                WHERE id IN ({placeholders})
+            ''', execution_ids)
+            
+            deleted_count = cursor.rowcount
+            conn.commit()
+            
+            logger.info(f"批量删除任务记录成功: 删除了 {deleted_count} 条记录")
+            
+            return jsonify({
+                'code': 200,
+                'message': f'成功删除 {deleted_count} 条任务记录',
+                'data': {
+                    'deleted_count': deleted_count
+                }
+            })
+            
+    except Exception as e:
+        logger.error(f"批量删除任务记录失败: {e}", exc_info=True)
+        return jsonify({
+            'code': 500,
+            'message': f'删除失败: {str(e)}'
         }), 500
 
 

@@ -685,10 +685,16 @@ class VideoDownloadService:
             
             # 1. 解析获取真实下载地址
             logger.info(f"开始解析剧集: {episode_name}, URL: {episode_url}")
+            if log_callback:
+                log_callback(f"正在解析: {episode_name}")
+            
             parse_result = video_parse_service.parse_episode(episode_url, episode_name)
             
             if not parse_result.get('success'):
                 error_msg = parse_result.get('message', '未知错误')
+                logger.error(f"解析失败: {episode_name}, 错误: {error_msg}")
+                if log_callback:
+                    log_callback(f"✗ 解析失败: {episode_name} - {error_msg}")
                 return {
                     'success': False,
                     'message': f"解析失败: {error_msg}",
@@ -698,14 +704,20 @@ class VideoDownloadService:
             
             download_url = parse_result.get('download_url')
             if not download_url:
+                error_msg = '解析结果中未找到下载地址'
+                logger.error(f"{error_msg}: {episode_name}")
+                if log_callback:
+                    log_callback(f"✗ {error_msg}: {episode_name}")
                 return {
                     'success': False,
-                    'message': '解析结果中未找到下载地址',
+                    'message': error_msg,
                     'skipped': False,
                     'url': episode_url
                 }
             
-            logger.info(f"解析成功，开始下载: {episode_name} -> {download_url}")
+            logger.info(f"解析成功，开始下载: {episode_name}")
+            if log_callback:
+                log_callback(f"✓ 解析成功: {episode_name}")
             
             # 2. 下载文件
             result = self._download_file(
@@ -1032,7 +1044,8 @@ class VideoDownloadService:
                                progress_callback: Optional[Callable] = None,
                                log_callback: Optional[Callable] = None,
                                regex_pattern: str = None,
-                               replacement_pattern: str = None) -> Dict:
+                               replacement_pattern: str = None,
+                               exclude_keywords: str = None) -> Dict:
         """
         下载任务的所有剧集
         
@@ -1051,6 +1064,7 @@ class VideoDownloadService:
             log_callback: 日志回调
             regex_pattern: 正则表达式（可选）
             replacement_pattern: 替换表达式（可选）
+            exclude_keywords: 排除关键词（可选，用|分割）
             
         Returns:
             下载结果
@@ -1059,10 +1073,20 @@ class VideoDownloadService:
         success_count = 0
         failed_count = 0
         skipped_count = 0
+        filtered_count = 0  # 被过滤的剧集数
         retry_exhausted_count = 0  # 重试耗尽的剧集数
         results = []
         
         logger.info(f"开始下载任务 {task_id} 的剧集，共 {total} 集")
+        
+        # 解析排除关键词
+        exclude_keyword_list = []
+        if exclude_keywords:
+            exclude_keyword_list = [kw.strip() for kw in exclude_keywords.split('|') if kw.strip()]
+            if exclude_keyword_list:
+                logger.info(f"排除关键词已配置: {exclude_keyword_list}")
+                if log_callback:
+                    log_callback(f"排除关键词: {', '.join(exclude_keyword_list)}")
         
         # 如果提供了任务配置，记录配置信息
         if task_config:
@@ -1106,6 +1130,35 @@ class VideoDownloadService:
                 full_name = f"{episode_name} - {episode_title}"
             else:
                 full_name = episode_name
+            
+            # 检查是否包含排除关键词
+            if exclude_keyword_list:
+                should_skip = False
+                matched_keyword = None
+                for keyword in exclude_keyword_list:
+                    if keyword in full_name:
+                        should_skip = True
+                        matched_keyword = keyword
+                        break
+                
+                if should_skip:
+                    filtered_count += 1
+                    logger.info(f"剧集被过滤（包含关键词'{matched_keyword}'）: {full_name}")
+                    if log_callback:
+                        log_callback(f"跳过: {full_name} (包含关键词'{matched_keyword}')")
+                    
+                    results.append({
+                        'name': full_name,
+                        'success': True,
+                        'message': f'已过滤（包含关键词: {matched_keyword}）',
+                        'skipped': True,
+                        'filtered': True
+                    })
+                    
+                    if progress_callback:
+                        progress_callback(index, total, full_name, 'filtered')
+                    
+                    continue
             
             if not episode_url:
                 failed_count += 1
@@ -1291,22 +1344,23 @@ class VideoDownloadService:
             logger.error(f"清理临时目录失败: {str(e)}")
         
         # 输出统计信息
-        logger.info(f"任务 {task_id} 下载完成: 成功 {success_count}/{total}, 跳过 {skipped_count}, 失败 {failed_count}, 重试耗尽 {retry_exhausted_count}")
+        logger.info(f"任务 {task_id} 下载完成: 成功 {success_count}/{total}, 跳过 {skipped_count}, 过滤 {filtered_count}, 失败 {failed_count}, 重试耗尽 {retry_exhausted_count}")
         
         if log_callback:
-            log_callback(f"下载完成: 成功 {success_count}, 跳过 {skipped_count}, 失败 {failed_count}")
+            log_callback(f"下载完成: 成功 {success_count}, 跳过 {skipped_count}, 过滤 {filtered_count}, 失败 {failed_count}")
             if retry_exhausted_count > 0:
                 log_callback(f"重试耗尽: {retry_exhausted_count} 个剧集已达最大重试次数")
         
         # 判断任务是否成功：只有当没有失败的剧集时才算成功
         # 重试耗尽的剧集不计入失败（它们会在下次执行时继续被跳过）
-        is_success = failed_count == 0 and (success_count + skipped_count) > 0
+        is_success = failed_count == 0 and (success_count + skipped_count + filtered_count) > 0
         
         return {
             'success': is_success,
             'total': total,
             'success_count': success_count,
             'skipped_count': skipped_count,
+            'filtered_count': filtered_count,
             'failed_count': failed_count,
             'retry_exhausted_count': retry_exhausted_count,
             'results': results
