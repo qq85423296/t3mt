@@ -140,6 +140,16 @@ class Database:
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN exclude_keywords TEXT")
                 print("✅ transfer_tasks表已添加排除关键词字段")
             
+            # 迁移：为已存在的transfer_tasks表添加最后内容更新时间字段（用于自动失效检查）
+            try:
+                cursor.execute("SELECT last_content_update_time FROM transfer_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN last_content_update_time DATETIME")
+                # 为已存在的记录设置初始值为当前时间（而不是创建时间，避免立即失效）
+                cursor.execute("UPDATE transfer_tasks SET last_content_update_time = datetime('now') WHERE last_content_update_time IS NULL")
+                print("✅ transfer_tasks表已添加最后内容更新时间字段")
+            
             # 创建下载任务表（包含filter_extensions、include_extensions、正则替换字段和cloud_type字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS download_tasks (
@@ -191,6 +201,16 @@ class Database:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN exclude_keywords TEXT")
                 print("✅ download_tasks表已添加排除关键词字段")
+            
+            # 迁移：为已存在的download_tasks表添加最后内容更新时间字段（用于自动失效检查）
+            try:
+                cursor.execute("SELECT last_content_update_time FROM download_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE download_tasks ADD COLUMN last_content_update_time DATETIME")
+                # 为已存在的记录设置初始值为当前时间（而不是创建时间，避免立即失效）
+                cursor.execute("UPDATE download_tasks SET last_content_update_time = datetime('now') WHERE last_content_update_time IS NULL")
+                print("✅ download_tasks表已添加最后内容更新时间字段")
             
             # 创建影视下载任务表（包含create_subfolder、集数选择、影视类型和cloud_type字段）
             cursor.execute('''
@@ -260,8 +280,8 @@ class Database:
             except sqlite3.OperationalError:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN last_episode_update_time DATETIME")
-                # 为已存在的记录设置初始值为创建时间
-                cursor.execute("UPDATE video_tasks SET last_episode_update_time = created_at WHERE last_episode_update_time IS NULL")
+                # 为已存在的记录设置初始值为当前时间（而不是创建时间，避免立即失效）
+                cursor.execute("UPDATE video_tasks SET last_episode_update_time = datetime('now') WHERE last_episode_update_time IS NULL")
                 print("✅ video_tasks表已添加最后新增剧集时间字段")
             
             # 创建任务执行历史表（包含schedule_period字段和唯一约束）

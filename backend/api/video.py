@@ -344,19 +344,36 @@ def execute_task(task_id):
                     WHERE id = ?
                 ''', (start_time, len(task.episodes), history_id))
         else:
-            # 手动执行：不删除历史记录，直接创建新的执行记录
-            # 创建新的执行历史记录
+            # 手动执行：检查当天是否已有执行记录
             start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            schedule_period = datetime.now().strftime('%Y%m%d')  # 设置账期为当天，确保能被筛选到
+            schedule_period = datetime.now().strftime('%Y%m%d')  # 设置账期为当天
             
             with db.get_connection() as conn:
                 cursor = conn.cursor()
+                # 先查询当天是否已有执行记录
                 cursor.execute('''
-                    INSERT INTO task_execution_history 
-                    (task_id, task_type, task_name, start_time, status, total_count, schedule_period)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (task_id, 'video', task.name, start_time, 'running', len(task.episodes), schedule_period))
-                history_id = cursor.lastrowid
+                    SELECT id FROM task_execution_history 
+                    WHERE task_id = ? AND task_type = ? AND schedule_period = ?
+                ''', (task_id, 'video', schedule_period))
+                existing_record = cursor.fetchone()
+                
+                if existing_record:
+                    # 如果已有记录，更新它
+                    history_id = existing_record['id']
+                    cursor.execute('''
+                        UPDATE task_execution_history 
+                        SET status = 'running', start_time = ?, total_count = ?, 
+                            success_count = 0, failed_count = 0, error_message = NULL, logs = NULL
+                        WHERE id = ?
+                    ''', (start_time, len(task.episodes), history_id))
+                else:
+                    # 如果没有记录，创建新的
+                    cursor.execute('''
+                        INSERT INTO task_execution_history 
+                        (task_id, task_type, task_name, start_time, status, total_count, schedule_period)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (task_id, 'video', task.name, start_time, 'running', len(task.episodes), schedule_period))
+                    history_id = cursor.lastrowid
                 conn.commit()  # 立即提交，确保记录可见
         
         # 执行任务时不修改任务状态，只重置进度

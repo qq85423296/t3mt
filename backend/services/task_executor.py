@@ -1487,6 +1487,23 @@ class TaskExecutor:
                 current_file=''
             )
             
+            # 如果有新文件下载成功，更新last_content_update_time（用于自动失效检查）
+            if success_count > 0:
+                try:
+                    from database import get_db
+                    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE download_tasks 
+                            SET last_content_update_time = ?, updated_at = ?
+                            WHERE id = ?
+                        """, (current_time, current_time, task_id))
+                        conn.commit()
+                    logger.info(f"[AutoExpiration] 下载任务有新内容，已更新计时器: task_id={task_id}, last_content_update_time={current_time}")
+                except Exception as e:
+                    logger.error(f"[AutoExpiration] 更新last_content_update_time失败: {e}")
+            
             cls._add_log(task_id, f"\n任务执行完成！", 'success')
             cls._add_log(task_id, f"成功: {success_count} 个，失败: {fail_count} 个", 'info')
             

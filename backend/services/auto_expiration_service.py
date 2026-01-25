@@ -123,12 +123,12 @@ class AutoExpirationService:
                 last_update_time = task_row['last_episode_update_time']
                 
                 try:
-                    # 判断任务是否超时
+                    # 判断任务是否超时（超过配置天数没有新剧集）
                     if not cls._is_task_expired(last_update_time, days):
-                        logger.info(f"[AutoExpiration] 影视任务未超时，跳过: {task_name} (ID: {task_id})")
+                        logger.debug(f"[AutoExpiration] 影视任务未超时，跳过: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 影视任务已超时: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 影视任务已超时: {task_name} (ID: {task_id}), 最后更新时间: {last_update_time}")
                     
                     # 验证所有剧集是否下载成功
                     if not cls._is_all_episodes_downloaded(task_id):
@@ -186,12 +186,12 @@ class AutoExpirationService:
                 last_update_time = task_row['last_content_update_time']
                 
                 try:
-                    # 判断任务是否超时
+                    # 判断任务是否超时（超过配置天数没有新内容）
                     if not cls._is_task_expired(last_update_time, days):
-                        logger.info(f"[AutoExpiration] 转存任务未超时，跳过: {task_name} (ID: {task_id})")
+                        logger.debug(f"[AutoExpiration] 转存任务未超时，跳过: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 转存任务已超时: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 转存任务已超时: {task_name} (ID: {task_id}), 最后更新时间: {last_update_time}")
                     
                     # 验证最近的执行记录是否全部成功
                     if not cls._is_recent_execution_all_success(task_id, 'transfer'):
@@ -249,12 +249,12 @@ class AutoExpirationService:
                 last_update_time = task_row['last_content_update_time']
                 
                 try:
-                    # 判断任务是否超时
+                    # 判断任务是否超时（超过配置天数没有新内容）
                     if not cls._is_task_expired(last_update_time, days):
-                        logger.info(f"[AutoExpiration] 下载任务未超时，跳过: {task_name} (ID: {task_id})")
+                        logger.debug(f"[AutoExpiration] 下载任务未超时，跳过: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 下载任务已超时: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 下载任务已超时: {task_name} (ID: {task_id}), 最后更新时间: {last_update_time}")
                     
                     # 验证最近的执行记录是否全部成功
                     if not cls._is_recent_execution_all_success(task_id, 'download'):
