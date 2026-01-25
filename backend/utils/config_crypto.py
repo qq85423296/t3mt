@@ -55,7 +55,6 @@ class ConfigCrypto:
             key = self._derive_key(decryption_key, salt)
             self._cipher = Fernet(key)
             self._decryption_key = decryption_key
-            logger.info("解密密钥设置成功")
             return True
         except Exception as e:
             logger.error(f"设置解密密钥失败: {e}")
@@ -115,7 +114,6 @@ class ConfigCrypto:
             self._config_cache = config_data
             self._cache_timestamp = time.time()
             
-            logger.info("配置解密成功")
             return config_data
             
         except Exception as e:

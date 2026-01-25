@@ -71,6 +71,15 @@
         background: #F9FAFB;
     }
     
+    .batch-btn-delete {
+        color: #FFFFFF;
+        background: #DC2626;
+    }
+    
+    .batch-btn-delete:hover {
+        background: #B91C1C;
+    }
+    
     /* ========== 筛选栏样式 ========== */
     .filter-bar {
         display: flex;
@@ -526,20 +535,12 @@
     <span class="batch-info">已选择 <span id="selectedCount">0</span> 个任务</span>
     <button class="batch-btn batch-btn-stop" onclick="window.batchStopExecutions()">批量终止</button>
     <button class="batch-btn batch-btn-retry" onclick="window.batchRetryExecutions()">批量重做</button>
+    <button class="batch-btn batch-btn-delete" onclick="window.batchDeleteExecutions()">批量删除</button>
     <button class="batch-btn batch-btn-cancel" onclick="window.cancelBatchSelection()">取消选择</button>
 </div>
 
 <!-- 筛选栏 -->
 <div class="filter-bar">
-    <div class="filter-item">
-        <label class="filter-label">云盘类型</label>
-        <select class="filter-select" id="filterCloudType">
-            <option value="">全部</option>
-            <option value="quark">夸克网盘</option>
-            <option value="cloud189">天翼189云盘</option>
-        </select>
-    </div>
-    
     <div class="filter-item">
         <label class="filter-label">任务类型</label>
         <select class="filter-select" id="filterTaskType">
@@ -568,6 +569,15 @@
             <option value="running">运行中</option>
             <option value="success">成功</option>
             <option value="failed">失败</option>
+        </select>
+    </div>
+    
+    <div class="filter-item">
+        <label class="filter-label">时间范围</label>
+        <select class="filter-select" id="filterDateRange">
+            <option value="3">近3天</option>
+            <option value="7">近7天</option>
+            <option value="all">全部</option>
         </select>
     </div>
     
@@ -888,6 +898,68 @@
         cancelBatchSelection();
         window.loadExecutions();
     };
+    
+    // 批量删除任务
+    window.batchDeleteExecutions = async function() {
+        if (selectedExecutions.size === 0) {
+            Message.warning('请先选择要删除的任务');
+            return;
+        }
+        
+        // 筛选出可以删除的任务（非运行中）
+        const deletableExecutions = currentExecutions.filter(exec => 
+            selectedExecutions.has(exec.id) && exec.status !== 'running'
+        );
+        
+        if (deletableExecutions.length === 0) {
+            Message.warning('所选任务中没有可以删除的任务（运行中的任务无法删除）');
+            return;
+        }
+        
+        // 检查是否有运行中的任务被选中
+        const runningCount = currentExecutions.filter(exec => 
+            selectedExecutions.has(exec.id) && exec.status === 'running'
+        ).length;
+        
+        let confirmMsg = `确定要删除 ${deletableExecutions.length} 个任务记录吗？\n删除后，对应的调度任务信息和日志将全部删除，此操作不可恢复！`;
+        if (runningCount > 0) {
+            confirmMsg = `已选择 ${selectedExecutions.size} 个任务，其中 ${runningCount} 个正在运行无法删除。\n\n确定要删除其余 ${deletableExecutions.length} 个任务记录吗？\n删除后，对应的调度任务信息和日志将全部删除，此操作不可恢复！`;
+        }
+        
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+        
+        try {
+            // 提取可删除任务的ID
+            const executionIds = deletableExecutions.map(exec => exec.id);
+            
+            const response = await fetch(`${API_BASE_URL}/api/monitor/executions/batch-delete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    execution_ids: executionIds
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.code === 200) {
+                Message.success(result.message || `成功删除 ${result.data.deleted_count} 条任务记录`);
+                
+                // 清空选择并刷新列表
+                cancelBatchSelection();
+                window.loadExecutions();
+            } else {
+                Message.error(result.message || '批量删除失败');
+            }
+        } catch (error) {
+            console.error('批量删除任务失败:', error);
+            Message.error('批量删除失败');
+        }
+    };
 
     // 切换状态筛选
         window.toggleStatFilter = function(status) {
@@ -931,20 +1003,31 @@
                 const params = new URLSearchParams();
                 
                 // 应用当前的筛选条件（除了状态）
-                const cloudType = document.getElementById('filterCloudType').value;
                 const taskType = document.getElementById('filterTaskType').value;
                 const taskName = document.getElementById('filterTaskName').value;
                 const scheduleDate = document.getElementById('filterScheduleDate').value;
                 const startDate = document.getElementById('filterStartDate').value;
                 const endDate = document.getElementById('filterEndDate').value;
+                const dateRange = document.getElementById('filterDateRange').value;
                 
-                if (cloudType) params.append('cloud_type', cloudType);
                 if (taskType) params.append('task_type', taskType);
                 if (taskName) params.append('task_name', taskName);
                 if (scheduleDate) {
                     const formattedDate = scheduleDate.replace(/-/g, '');
                     params.append('schedule_date', formattedDate);
                 }
+                
+                // 处理时间范围筛选（基于账期）
+                if (dateRange && dateRange !== 'all') {
+                    const today = new Date();
+                    const daysAgo = new Date(today);
+                    daysAgo.setDate(today.getDate() - parseInt(dateRange));
+                    
+                    // 转换为YYYYMMDD格式
+                    const rangeStartDate = daysAgo.toISOString().split('T')[0].replace(/-/g, '');
+                    params.append('schedule_period_start', rangeStartDate);
+                }
+                
                 if (startDate) params.append('start_date', startDate);
                 if (endDate) params.append('end_date', endDate);
                 
@@ -980,13 +1063,13 @@
         tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
 
         try {
-            const cloudType = document.getElementById('filterCloudType').value;
             const taskType = document.getElementById('filterTaskType').value;
             const taskName = document.getElementById('filterTaskName').value;
             const scheduleDate = document.getElementById('filterScheduleDate').value;
             const startDate = document.getElementById('filterStartDate').value;
             const endDate = document.getElementById('filterEndDate').value;
             const showDuplicates = document.getElementById('filterShowDuplicates').value;
+            const dateRange = document.getElementById('filterDateRange').value;
             
             // 状态筛选：优先使用统计卡片的多选，其次使用下拉框
             let statusFilter = '';
@@ -1004,7 +1087,6 @@
                 show_duplicates: showDuplicates
             });
 
-            if (cloudType) params.append('cloud_type', cloudType);
             if (taskType) params.append('task_type', taskType);
             if (taskName) params.append('task_name', taskName);
             if (scheduleDate) {
@@ -1012,6 +1094,18 @@
                 const formattedDate = scheduleDate.replace(/-/g, '');
                 params.append('schedule_date', formattedDate);
             }
+            
+            // 处理时间范围筛选（基于账期）
+            if (dateRange && dateRange !== 'all') {
+                const today = new Date();
+                const daysAgo = new Date(today);
+                daysAgo.setDate(today.getDate() - parseInt(dateRange));
+                
+                // 转换为YYYYMMDD格式
+                const rangeStartDate = daysAgo.toISOString().split('T')[0].replace(/-/g, '');
+                params.append('schedule_period_start', rangeStartDate);
+            }
+            
             if (startDate) params.append('start_date', startDate);
             if (endDate) params.append('end_date', endDate);
             if (statusFilter) params.append('status', statusFilter);
@@ -1220,7 +1314,6 @@
 
     // 重置筛选条件
     window.resetFilters = function() {
-        document.getElementById('filterCloudType').value = '';
         document.getElementById('filterTaskType').value = '';
         document.getElementById('filterTaskName').value = '';
         document.getElementById('filterScheduleDate').value = '';
@@ -1228,6 +1321,7 @@
         document.getElementById('filterEndDate').value = '';
         document.getElementById('filterStatus').value = '';
         document.getElementById('filterShowDuplicates').value = 'false';
+        document.getElementById('filterDateRange').value = '3'; // 重置为近3天
         
         // 清空统计卡片的选中状态
         selectedStatuses.clear();

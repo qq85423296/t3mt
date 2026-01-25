@@ -69,6 +69,10 @@ def get_config():
                 'default_dir': ConfigModel.get_config('video_download_default_dir', '/app/backend/downloads/官网下载'),
                 'temp_dir': ConfigModel.get_config('video_download_temp_dir', '/app/backend/downloads/temp'),
                 'max_threads': int(ConfigModel.get_config('video_download_max_threads', 3))
+            },
+            'video_expiration': {
+                'enabled': ConfigModel.get_config('video_auto_expiration_enabled', '1') == '1',
+                'days': int(ConfigModel.get_config('video_auto_expiration_days', '7'))
             }
         }
         
@@ -82,6 +86,115 @@ def get_config():
         return jsonify({
             'code': 500,
             'message': f'获取配置失败: {str(e)}'
+        }), 500
+
+
+@config_bp.route('/video-expiration', methods=['GET'])
+def get_video_expiration_config():
+    """获取影视任务自动失效配置"""
+    try:
+        # 获取配置，如果不存在则使用默认值
+        enabled_str = ConfigModel.get_config('video_auto_expiration_enabled', '1')
+        days_str = ConfigModel.get_config('video_auto_expiration_days', '7')
+        
+        # 转换为布尔值和整数，添加错误处理
+        try:
+            enabled = enabled_str == '1'
+            days = int(days_str)
+            
+            # 验证days的合法性
+            if days < 1 or days > 365:
+                logger.warning(f"配置的超时天数不合法: {days}，使用默认值7天")
+                days = 7
+                
+        except ValueError as e:
+            logger.error(f"配置值转换失败: enabled_str={enabled_str}, days_str={days_str}, error={e}")
+            # 使用默认值
+            enabled = True
+            days = 7
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'enabled': enabled,
+                'days': days
+            }
+        })
+    except Exception as e:
+        logger.error(f"获取影视任务自动失效配置失败: {e}", exc_info=True)
+        return jsonify({
+            'code': 500,
+            'message': f'获取配置失败: {str(e)}'
+        }), 500
+
+
+@config_bp.route('/video-expiration', methods=['POST'])
+def save_video_expiration_config():
+    """保存影视任务自动失效配置"""
+    try:
+        data = request.get_json()
+        
+        # 验证请求体是否为空
+        if not data:
+            return jsonify({
+                'code': 400,
+                'message': '请求体不能为空'
+            }), 400
+        
+        # 验证必需字段
+        if 'enabled' not in data or 'days' not in data:
+            return jsonify({
+                'code': 400,
+                'message': '缺少必需字段：enabled 和 days'
+            }), 400
+        
+        enabled = data['enabled']
+        days = data['days']
+        
+        # 验证enabled字段类型
+        if not isinstance(enabled, bool):
+            return jsonify({
+                'code': 400,
+                'message': 'enabled 字段必须是布尔值'
+            }), 400
+        
+        # 验证days字段类型和范围
+        if not isinstance(days, int):
+            return jsonify({
+                'code': 400,
+                'message': 'days 字段必须是整数'
+            }), 400
+        
+        if days < 1 or days > 365:
+            return jsonify({
+                'code': 400,
+                'message': '超时天数必须是1-365之间的整数'
+            }), 400
+        
+        # 保存配置
+        try:
+            enabled_str = '1' if enabled else '0'
+            ConfigModel.set_config('video_auto_expiration_enabled', enabled_str, 'video')
+            ConfigModel.set_config('video_auto_expiration_days', str(days), 'video')
+        except Exception as e:
+            logger.error(f"保存配置到数据库失败: enabled={enabled}, days={days}, error={e}", exc_info=True)
+            return jsonify({
+                'code': 500,
+                'message': f'保存配置失败: {str(e)}'
+            }), 500
+        
+        logger.info(f"[AutoExpiration] 配置保存成功: enabled={enabled}, days={days}")
+        
+        return jsonify({
+            'code': 200,
+            'message': '配置保存成功'
+        })
+    except Exception as e:
+        logger.error(f"保存影视任务自动失效配置失败: {e}", exc_info=True)
+        return jsonify({
+            'code': 500,
+            'message': f'保存配置失败: {str(e)}'
         }), 500
 
 
@@ -148,6 +261,26 @@ def save_config():
             ConfigModel.set_config('video_download_default_dir', video_download_config.get('default_dir', '/app/backend/downloads/官网下载'), 'video_download')
             ConfigModel.set_config('video_download_temp_dir', video_download_config.get('temp_dir', '/app/backend/downloads/temp'), 'video_download')
             ConfigModel.set_config('video_download_max_threads', str(video_download_config.get('max_threads', 3)), 'video_download')
+        
+        # 保存影视任务自动失效配置
+        if 'video_expiration' in data:
+            video_expiration_config = data['video_expiration']
+            
+            # 验证days字段
+            days = video_expiration_config.get('days', 7)
+            if not isinstance(days, int) or days < 1 or days > 365:
+                return jsonify({
+                    'code': 400,
+                    'message': '超时天数必须是1-365之间的整数'
+                }), 400
+            
+            enabled = video_expiration_config.get('enabled', True)
+            enabled_str = '1' if enabled else '0'
+            
+            ConfigModel.set_config('video_auto_expiration_enabled', enabled_str, 'video')
+            ConfigModel.set_config('video_auto_expiration_days', str(days), 'video')
+            
+            logger.info(f"[AutoExpiration] 配置保存成功: enabled={enabled}, days={days}")
         
         logger.info("系统配置保存成功")
         

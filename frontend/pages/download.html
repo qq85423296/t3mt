@@ -1,6 +1,31 @@
 <!-- 定时下载页面 -->
 <link rel="stylesheet" href="../css/task-list-optimize.css">
 <style>
+    /* ========== 状态标签样式 ========== */
+    .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 12px;
+        font-weight: 500;
+        border-radius: 4px;
+        white-space: nowrap;
+    }
+    
+    .badge-success {
+        background: #E8F5E9;
+        color: #2E7D32;
+    }
+    
+    .badge-warning {
+        background: #FFF3E0;
+        color: #E65100;
+    }
+    
+    .badge-error {
+        background: #FFEBEE;
+        color: #C62828;
+    }
+    
     /* ========== 进度条样式 ========== */
     .progress-bar {
         width: 100%;
@@ -308,13 +333,14 @@
             <th>网盘目录</th>
             <th>本地目录</th>
             <th>执行表达式</th>
+            <th width="80">状态</th>
             <th width="150">进度</th>
             <th width="240">操作</th>
         </tr>
     </thead>
     <tbody id="taskList">
         <tr>
-            <td colspan="7" style="text-align: center; padding: 40px;">
+            <td colspan="8" style="text-align: center; padding: 40px;">
                 <div class="loading">加载中...</div>
             </td>
         </tr>
@@ -647,7 +673,7 @@
     // 加载任务列表
     async function loadTasks(cloudType = '') {
         const tbody = document.getElementById('taskList');
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
 
         try {
             // 构建查询参数
@@ -657,11 +683,11 @@
             if (result.code === 200 && result.data) {
                 displayTasks(result.data);
             } else {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
             }
         } catch (error) {
             console.error('加载任务列表失败:', error);
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
         }
     }
 
@@ -670,14 +696,29 @@
         const tbody = document.getElementById('taskList');
         
         if (!tasks || tasks.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
             return;
         }
 
         tbody.innerHTML = tasks.map(task => {
             const progress = task.progress || 0;
-            const statusText = task.status === 'running' ? '运行中' : 
-                             task.status === 'paused' ? '已暂停' : '等待中';
+            
+            // 状态显示和按钮文本逻辑
+            // draft(新建) -> 显示"新建"，按钮为"发布"
+            // active(生效) -> 显示"生效"，按钮为"下线"
+            // inactive(失效) -> 显示"失效"，按钮为"发布"
+            // 兼容旧状态：running -> active, paused -> inactive
+            let normalizedStatus = task.status;
+            if (task.status === 'running') normalizedStatus = 'active';
+            if (task.status === 'paused') normalizedStatus = 'inactive';
+            
+            const statusClass = normalizedStatus === 'active' ? 'badge-success' : 
+                              normalizedStatus === 'draft' ? 'badge-warning' : 'badge-error';
+            const statusText = normalizedStatus === 'active' ? '生效' : 
+                             normalizedStatus === 'draft' ? '新建' : '失效';
+            
+            // 按钮文本：新建和失效状态显示"发布"，生效状态显示"下线"
+            const toggleButtonText = (normalizedStatus === 'draft' || normalizedStatus === 'inactive') ? '发布' : '下线';
             
             // 云盘类型标签
             const cloudTypeBadge = task.cloud_type === 'cloud189' 
@@ -691,19 +732,19 @@
                     <td>${task.account_remark || '-'} - ${task.source_path}</td>
                     <td>${task.target_path}</td>
                     <td>${CronConfig.parseCronExpression(task.cron_expression)}</td>
+                    <td><span class="badge ${statusClass}">${statusText}</span></td>
                     <td>
                         <div class="progress-bar">
                             <div class="progress-fill" style="width: ${progress}%">
                                 ${progress}%
                             </div>
                         </div>
-                        <div style="font-size: 12px; color: #999; margin-top: 4px;">${statusText}</div>
                     </td>
                     <td>
                         <div class="action-buttons">
                             <button class="btn btn-small btn-execute" onclick="executeTask(${task.id})" title="立即执行一次">▶️ 执行</button>
                             <button class="btn btn-small btn-edit" onclick="editTask(${task.id})" title="编辑任务">✏️ 编辑</button>
-                            <button class="btn btn-small ${task.status === 'running' ? 'btn-stop' : 'btn-start'}" onclick="toggleTask(${task.id})" title="${task.status === 'running' ? '停止定时任务' : '启动定时任务'}">${task.status === 'running' ? '⏸️ 停止' : '▶️ 启动'}</button>
+                            <button class="btn btn-small" onclick="toggleTask(${task.id})" title="${toggleButtonText}任务">${toggleButtonText}</button>
                             <button class="btn btn-small btn-delete icon-only" onclick="deleteTask(${task.id})" title="删除任务">删除</button>
                         </div>
                     </td>
@@ -1204,7 +1245,29 @@
             if (progressResult.code === 200 && progressResult.data && progressResult.data.status === 'running') {
                 // 检查是否是"僵尸"任务（状态是running但没有实际执行）
                 const data = progressResult.data;
-                const isZombieTask = data.logs.length === 0 && data.total_files === 0 && !data.start_time;
+                
+                // 优化僵尸任务检测逻辑：
+                // 1. 必须没有任何日志（完全没有初始化）
+                // 2. 必须没有开始时间
+                // 3. 给任务至少30秒的初始化时间（天翼云需要扫描文件，可能较慢）
+                const hasNoLogs = !data.logs || data.logs.length === 0;
+                const hasNoStartTime = !data.start_time;
+                
+                // 计算任务运行时长（如果有start_time）
+                let runningSeconds = 0;
+                if (data.start_time) {
+                    try {
+                        const startTime = new Date(data.start_time.replace(/-/g, '/'));
+                        runningSeconds = Math.floor((new Date() - startTime) / 1000);
+                    } catch (e) {
+                        console.error('[调试] 解析start_time失败:', e);
+                    }
+                }
+                
+                // 只有在完全没有初始化迹象，且没有开始时间的情况下才判定为僵尸任务
+                // 如果有开始时间但运行超过5分钟仍无日志，也可能是僵尸任务
+                const isZombieTask = (hasNoLogs && hasNoStartTime) || 
+                                    (hasNoLogs && runningSeconds > 300);
                 
                 if (isZombieTask) {
                     console.log('[调试] 检测到僵尸任务，重新启动');
@@ -1411,13 +1474,15 @@
         logContent.scrollTop = logContent.scrollHeight;
     }
 
-    // 切换任务状态
+    // 切换任务状态（发布/下线）
     async function toggleTask(taskId) {
         try {
             const result = await DownloadAPI.toggle(taskId);
             
             if (result.code === 200) {
-                Message.success('操作成功');
+                const newStatus = result.data?.status || result.data;
+                const statusText = newStatus === 'active' ? '已发布' : '已下线';
+                Message.success(`任务${statusText}`);
                 loadTasks();
             } else {
                 Message.error(result.message || '操作失败');

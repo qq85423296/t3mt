@@ -1077,21 +1077,38 @@ class Cloud189Service(ICloudService):
             if result.get('res_code') == 0:
                 task_id = result.get('taskId')
                 
-                # 等待任务完成
-                for _ in range(30):
+                # 等待任务完成（最多15秒）
+                for i in range(30):
                     time.sleep(0.5)
                     status = self.check_task_status(task_id, 'DELETE')
-                    if status.get('taskStatus') == 4:  # 完成
+                    
+                    # 添加详细日志
+                    logger.info(f"189删除任务状态查询 [{i+1}/30]: {status}")
+                    
+                    # 检查返回结果
+                    if status.get('res_code') != 0:
+                        logger.warning(f"查询任务状态失败: {status.get('res_message')}")
+                        continue
+                    
+                    # 获取任务状态（天翼云盘的字段可能是taskStatus）
+                    task_status = status.get('taskStatus')
+                    
+                    if task_status == 4:  # 完成
+                        logger.info(f"189删除任务完成: task_id={task_id}")
                         return {
                             'code': 0,
                             'message': '删除成功'
                         }
-                    elif status.get('taskStatus') == 3:  # 失败
+                    elif task_status == 3:  # 失败
+                        logger.error(f"189删除任务失败: task_id={task_id}, status={status}")
                         return {
                             'code': -1,
-                            'message': '删除任务失败'
+                            'message': status.get('res_message', '删除任务失败')
                         }
+                    # 其他状态（0=等待, 1=进行中, 2=暂停）继续等待
                 
+                # 超时但任务可能已提交成功
+                logger.warning(f"189删除任务查询超时，但任务可能已提交: task_id={task_id}")
                 return {
                     'code': 0,
                     'message': '删除任务已提交'
@@ -1786,7 +1803,12 @@ class Cloud189Service(ICloudService):
                 
                 task_status = status_result.get('taskStatus')
                 error_code = status_result.get('errorCode', '')
-                logger.info(f"任务状态: {task_status}, errorCode: {error_code}")
+                successed_count = status_result.get('successedCount', 0)
+                failed_count = status_result.get('failedCount', 0)
+                sub_task_count = status_result.get('subTaskCount', 0)
+                
+                logger.info(f"任务状态: taskStatus={task_status}, errorCode={error_code}, "
+                           f"成功={successed_count}/{sub_task_count}, 失败={failed_count}")
                 
                 if task_status == 4:  # 完成
                     logger.info(f"189转存任务完成: task_id={task_id}")
@@ -1794,15 +1816,51 @@ class Cloud189Service(ICloudService):
                         'success': True,
                         'message': '转存成功',
                         'task_id': task_id,
-                        'total_count': len(items_to_save)
+                        'total_count': sub_task_count,  # 使用实际的子任务数
+                        'success_count': successed_count
                     }
-                elif task_status == 3:  # 失败
-                    error_msg = f"转存任务失败: {error_code}" if error_code else "转存任务失败"
-                    logger.error(f"189转存任务失败: {error_msg}")
-                    return {
-                        'success': False,
-                        'message': error_msg
-                    }
+                elif task_status == 3:  # 状态3需要根据成功/失败数量判断
+                    # 如果有成功的文件，且失败数为0，视为成功
+                    if successed_count > 0 and failed_count == 0:
+                        logger.info(f"189转存任务完成（状态3但全部成功）: task_id={task_id}, "
+                                   f"成功={successed_count}/{sub_task_count}")
+                        return {
+                            'success': True,
+                            'message': f'转存成功（{successed_count}/{sub_task_count}个文件）',
+                            'task_id': task_id,
+                            'total_count': sub_task_count,
+                            'success_count': successed_count
+                        }
+                    # 如果全部失败，返回失败
+                    elif failed_count > 0 and successed_count == 0:
+                        error_msg = f"转存任务失败: {error_code}" if error_code else "转存任务失败"
+                        logger.error(f"189转存任务失败: {error_msg}")
+                        return {
+                            'success': False,
+                            'message': error_msg,
+                            'total_count': sub_task_count,
+                            'failed_count': failed_count
+                        }
+                    # 部分成功部分失败
+                    elif successed_count > 0 and failed_count > 0:
+                        logger.warning(f"189转存任务部分成功: 成功={successed_count}, 失败={failed_count}")
+                        return {
+                            'success': True,
+                            'message': f'部分转存成功（成功{successed_count}个，失败{failed_count}个）',
+                            'task_id': task_id,
+                            'total_count': sub_task_count,
+                            'success_count': successed_count,
+                            'failed_count': failed_count,
+                            'partial': True
+                        }
+                    # 状态3但还在处理中（成功数未达到总数）
+                    elif successed_count < sub_task_count:
+                        logger.info(f"189转存任务处理中（状态3）: 已完成={successed_count}/{sub_task_count}")
+                        continue
+                    else:
+                        # 其他情况，继续等待
+                        logger.warning(f"189转存任务状态3，继续等待: {status_result}")
+                        continue
                 elif task_status == 1:  # 处理中
                     # 重置无效状态计数
                     invalid_status_count = 0
@@ -1889,9 +1947,14 @@ class Cloud189Service(ICloudService):
                     logger.warning(f"189转存任务未知状态: {task_status}")
                     continue
             
+            # 超时但任务可能已提交成功
+            logger.warning(f"189转存任务查询超时（超过120秒），但任务可能已提交成功: task_id={task_id}")
             return {
-                'success': False,
-                'message': '转存任务超时（超过120秒）'
+                'success': True,
+                'message': '转存任务已提交，请稍后在网盘中查看',
+                'task_id': task_id,
+                'total_count': len(items_to_save),
+                'timeout': True
             }
             
         except Exception as e:

@@ -771,6 +771,29 @@
     </div>
 </div>
 
+<div class="config-section">
+    <h3 class="section-title">任务自动失效配置</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">启用自动失效</div>
+            <div class="form-row-content">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="autoExpirationEnabled" style="width: auto; height: auto;" />
+                    <span style="font-size: 13px;">启用任务自动失效功能</span>
+                </label>
+                <div class="form-hint">当任务超过指定天数未新增剧集且所有剧集下载成功时，自动将任务状态设置为失效</div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-row-label">超时天数</div>
+            <div class="form-row-content">
+                <input type="number" class="form-input" id="autoExpirationDays" min="1" max="365" value="7" />
+                <span class="form-hint">任务超过多少天未新增剧集将被自动失效（默认7天，范围1-365天）</span>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="save-button-container">
     <button class="btn btn-primary" onclick="saveAllConfig()">保存所有配置</button>
 </div>
@@ -990,6 +1013,10 @@
         document.getElementById('videoDownloadMaxThreads').value = data.video_download?.max_threads || 3;
         document.getElementById('videoEnableMultithreadDownload').checked = data.video_download?.enable_multithread !== false;
         document.getElementById('videoThreadsCount').value = data.video_download?.threads_count || 4;
+        
+        // 任务自动失效配置
+        document.getElementById('autoExpirationEnabled').checked = data.video_expiration?.enabled !== false;
+        document.getElementById('autoExpirationDays').value = data.video_expiration?.days || 7;
     }
 
     // 加载账号列表
@@ -1673,12 +1700,18 @@
 
     // 保存所有配置
     async function saveAllConfig() {
+        // 验证自动失效配置
+        const autoExpirationDays = parseInt(document.getElementById('autoExpirationDays').value);
+        if (isNaN(autoExpirationDays) || autoExpirationDays < 1 || autoExpirationDays > 365) {
+            Message.error('超时天数必须是1-365之间的整数');
+            return;
+        }
+        
         const data = {
             log: {
                 retention_days: parseInt(document.getElementById('logRetentionDays').value)
             },
             download: {
-                default_dir: document.getElementById('downloadDefaultDir').value,
                 default_dir: document.getElementById('downloadDefaultDir').value,
                 timeout: parseInt(document.getElementById('downloadTimeout').value),
                 enable_multithread: document.getElementById('enableMultithreadDownload').checked,
@@ -1700,6 +1733,10 @@
                 max_threads: parseInt(document.getElementById('videoDownloadMaxThreads').value),
                 enable_multithread: document.getElementById('videoEnableMultithreadDownload').checked,
                 threads_count: parseInt(document.getElementById('videoThreadsCount').value)
+            },
+            video_expiration: {
+                enabled: document.getElementById('autoExpirationEnabled').checked,
+                days: parseInt(document.getElementById('autoExpirationDays').value)
             }
         };
 

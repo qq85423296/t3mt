@@ -230,17 +230,29 @@ class MigrationRunner:
         
         return True
     
+    def _check_daily_usage_stats_migration_needed(self):
+        """检查是否需要执行每日使用统计表的迁移"""
+        migration_name = 'add_daily_usage_stats'
+        applied_migrations = self._get_applied_migrations()
+        
+        if migration_name in applied_migrations:
+            return False
+        
+        # 检查表是否已存在
+        if self._check_table_exists('daily_usage_stats'):
+            # 表已存在，记录迁移但不执行
+            print(f"  迁移 {migration_name} 的表已存在，跳过执行")
+            self._record_migration(migration_name)
+            return False
+        
+        return True
+    
     def run_migrations(self):
         """执行所有待执行的迁移"""
         from utils.logger import logger
         
-        logger.info("=" * 80)
-        logger.info("开始检查数据库迁移...")
-        logger.info("=" * 80)
-        
         # 检查数据库是否存在
         if not os.path.exists(self.db_path):
-            logger.info("数据库文件不存在，将在应用启动时自动创建")
             return True
         
         logger.info(f"数据库路径: {self.db_path}")
@@ -342,6 +354,19 @@ class MigrationRunner:
                 self._record_migration('add_folder_id_fields')
                 logger.info("✅ 迁移 add_folder_id_fields 执行成功")
                 migrations_executed = True
+            
+            # 迁移8：每日使用统计表
+            if self._check_daily_usage_stats_migration_needed():
+                logger.info("检测到需要执行迁移: add_daily_usage_stats")
+                logger.info("正在执行迁移...")
+                
+                from migrations.add_daily_usage_stats import migrate
+                if migrate():
+                    self._record_migration('add_daily_usage_stats')
+                    logger.info("✅ 迁移 add_daily_usage_stats 执行成功")
+                    migrations_executed = True
+                else:
+                    logger.error("❌ 迁移 add_daily_usage_stats 执行失败")
             
             if not migrations_executed:
                 logger.info("✅ 所有迁移已是最新状态")

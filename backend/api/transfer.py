@@ -183,6 +183,7 @@ def delete_task(task_id):
     """删除转存任务"""
     try:
         from database import db
+        from tasks.scheduler import task_scheduler
         
         # 验证任务是否存在
         task = TransferService.get_task_by_id(task_id)
@@ -191,6 +192,13 @@ def delete_task(task_id):
                 'code': 404,
                 'message': '任务不存在'
             }), 404
+        
+        # 从调度器中移除任务
+        try:
+            task_scheduler.remove_task(task_id, 'transfer')
+            logger.info(f"从调度器移除转存任务: {task_id}")
+        except Exception as e:
+            logger.warning(f"从调度器移除任务失败: {str(e)}")
         
         # 删除任务
         TransferService.delete_task(task_id)
@@ -208,8 +216,6 @@ def delete_task(task_id):
         except Exception as e:
             logger.warning(f"删除执行历史记录失败: {str(e)}")
         
-        # TODO: 从任务调度器移除
-        
         return jsonify({
             'code': 200,
             'message': '任务删除成功'
@@ -224,7 +230,7 @@ def delete_task(task_id):
 
 @transfer_bp.route('/task/<int:task_id>/toggle', methods=['POST'])
 def toggle_task(task_id):
-    """暂停/启动任务"""
+    """发布/下线任务"""
     try:
         # 验证任务是否存在
         task = TransferService.get_task_by_id(task_id)
@@ -446,6 +452,22 @@ def execute_task(task_id):
                     """, (final_status, datetime.now(), json.dumps(logs, ensure_ascii=False),
                           success_count, fail_count, total_files, execution_id))
                     conn.commit()
+                
+                # 如果有新内容转存成功，更新last_content_update_time
+                if success_count > 0:
+                    try:
+                        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        with get_db() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE transfer_tasks 
+                                SET last_content_update_time = ?, updated_at = ?
+                                WHERE id = ?
+                            """, (current_time, current_time, task_id))
+                            conn.commit()
+                        logger.info(f"[AutoExpiration] 转存任务有新内容，已重置计时器: task_id={task_id}, last_content_update_time={current_time}")
+                    except Exception as e:
+                        logger.error(f"[AutoExpiration] 更新last_content_update_time失败: {e}")
                 
                 # 执行关联的插件
                 try:
@@ -1108,6 +1130,22 @@ def execute_task(task_id):
                         WHERE id = ?
                     """, ('success', datetime.now(), logs_json, success_count, fail_count, execution_id))
                     conn.commit()
+                
+                # 如果有新内容转存成功，更新last_content_update_time
+                if success_count > 0:
+                    try:
+                        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        with get_db() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE transfer_tasks 
+                                SET last_content_update_time = ?, updated_at = ?
+                                WHERE id = ?
+                            """, (current_time, current_time, task_id))
+                            conn.commit()
+                        logger.info(f"[AutoExpiration] 转存任务有新内容，已重置计时器: task_id={task_id}, last_content_update_time={current_time}")
+                    except Exception as e:
+                        logger.error(f"[AutoExpiration] 更新last_content_update_time失败: {e}")
                 
                 # 执行关联的插件
                 try:

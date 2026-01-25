@@ -738,8 +738,73 @@
     let searchData = null;
     let hotVideosData = {}; // 存储热门影视数据
 
-    // 页面加载时获取热门影视
-    loadHotVideos();
+    // 页面加载时检查是否需要恢复搜索状态
+    const savedSearchState = sessionStorage.getItem('searchState');
+    
+    if (savedSearchState) {
+        try {
+            const state = JSON.parse(savedSearchState);
+            
+            // 检查状态是否在24小时内（与缓存时间一致）
+            const stateAge = Date.now() - state.timestamp;
+            const maxAge = 24 * 60 * 60 * 1000; // 24小时
+            
+            if (stateAge < maxAge && state.searchData) {
+                // 恢复搜索状态
+                currentKeyword = state.keyword;
+                currentSearchType = state.searchType;
+                currentSource = state.source;
+                searchData = state.searchData;
+                
+                // 恢复搜索框内容
+                document.getElementById('searchInput').value = currentKeyword;
+                
+                // 恢复搜索类型选择
+                document.querySelectorAll('input[name="searchType"]').forEach(radio => {
+                    if (radio.value === currentSearchType) {
+                        radio.checked = true;
+                        radio.closest('.search-type-radio').classList.add('active');
+                    } else {
+                        radio.checked = false;
+                        radio.closest('.search-type-radio').classList.remove('active');
+                    }
+                });
+                
+                // 恢复数据源选择
+                document.querySelectorAll('.platform-tab').forEach(tab => {
+                    if (tab.dataset.source === currentSource) {
+                        tab.classList.add('active');
+                    } else {
+                        tab.classList.remove('active');
+                    }
+                });
+                
+                // 显示搜索结果
+                document.getElementById('hotVideosContainer').style.display = 'none';
+                document.getElementById('searchResults').style.display = 'block';
+                
+                if (currentSearchType === 'netdisk') {
+                    displayNetdiskResults(state.searchData);
+                } else {
+                    // 官方资源恢复
+                    if (state.searchData && state.searchData.longData) {
+                        displayOfficialResults(state.searchData.longData);
+                    }
+                }
+            } else {
+                // 状态过期，清除并加载热门影视
+                sessionStorage.removeItem('searchState');
+                loadHotVideos();
+            }
+        } catch (error) {
+            console.error('恢复搜索状态失败:', error);
+            sessionStorage.removeItem('searchState');
+            loadHotVideos();
+        }
+    } else {
+        // 没有保存的状态，正常加载热门影视
+        loadHotVideos();
+    }
 
     // 监听搜索类型切换
     document.querySelectorAll('input[name="searchType"]').forEach(radio => {
@@ -1148,6 +1213,11 @@
             const result = await response.json();
 
             if (result.code === 0 && result.data && result.data.longData) {
+                // 保存官方搜索数据到searchData
+                searchData = {
+                    type: 'official',
+                    longData: result.data.longData
+                };
                 displayOfficialResults(result.data.longData);
             } else {
                 resultsContainer.innerHTML = `
@@ -1452,6 +1522,20 @@
             platform: platform
         }));
         
+        // 保存当前搜索状态，以便返回时恢复
+        const searchState = {
+            keyword: currentKeyword,
+            searchType: currentSearchType,
+            source: currentSource,
+            searchData: searchData,
+            timestamp: Date.now()
+        };
+        
+        sessionStorage.setItem('searchState', JSON.stringify(searchState));
+        
+        // 设置来源标记，表示是从搜索页面跳转的
+        sessionStorage.setItem('fromSearchPage', 'true');
+        
         // 跳转到影视下载页面
         const videoMenuItem = document.querySelector('.menu-item[data-page="video"]');
         if (videoMenuItem) {
@@ -1577,11 +1661,27 @@
 
     // 创建转存任务
     function createTransferTask(url, title) {
+        // 保存待创建的转存任务信息
         sessionStorage.setItem('pendingTransferTask', JSON.stringify({
             shareUrl: url,
             taskName: title
         }));
         
+        // 保存当前搜索状态，以便返回时恢复
+        const searchState = {
+            keyword: currentKeyword,
+            searchType: currentSearchType,
+            source: currentSource,
+            searchData: searchData,
+            timestamp: Date.now()
+        };
+        
+        sessionStorage.setItem('searchState', JSON.stringify(searchState));
+        
+        // 设置来源标记，表示是从搜索页面跳转的
+        sessionStorage.setItem('fromSearchPage', 'true');
+        
+        // 跳转到定时转存页面
         const transferMenuItem = document.querySelector('.menu-item[data-page="transfer"]');
         if (transferMenuItem) {
             transferMenuItem.click();

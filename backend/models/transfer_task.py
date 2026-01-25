@@ -56,14 +56,14 @@ class TransferTask:
     
     @staticmethod
     def get_active_tasks():
-        """获取所有活动任务（用于调度）"""
+        """获取所有活动任务（用于调度）- 只返回生效状态的任务"""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT t.*, a.cookie, a.remark as account_remark
                 FROM transfer_tasks t
                 LEFT JOIN quark_accounts a ON t.target_account_id = a.id
-                WHERE t.status = 'running'
+                WHERE t.status = 'active'
                 AND (t.end_date IS NULL OR t.end_date >= date('now'))
             ''')
             tasks = cursor.fetchall()

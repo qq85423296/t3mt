@@ -451,11 +451,28 @@
     .cron-display:hover {
         background: #F3F4F6;
     }
+    
+    /* 返回搜索按钮高亮样式 */
+    #backToSearchBtnModal:hover {
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%) !important;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.6) !important;
+        transform: translateY(-1px);
+        transition: all 0.2s ease;
+    }
+    
+    #backToSearchBtnModal:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 6px rgba(102, 126, 234, 0.4) !important;
+    }
 </style>
 
 <div class="toolbar">
     <div class="toolbar-title">定时转存任务</div>
     <div style="display: flex; align-items: center; gap: 10px;">
+        <!-- 返回搜索结果按钮（从搜索页面跳转过来时显示） -->
+        <button id="backToSearchBtn" class="btn btn-secondary" onclick="backToSearchResults()" style="display: none;">
+            ← 返回搜索结果
+        </button>
         <!-- 云盘类型筛选 -->
         <select id="transferCloudTypeFilter" class="form-select" style="height: 32px; padding: 0 10px; font-size: 13px; min-width: 120px;">
             <option value="">全部类型</option>
@@ -492,6 +509,10 @@
     <div class="modal-content">
         <div class="modal-header">
             <div class="modal-title" id="modalTitle">新建转存任务</div>
+            <!-- 返回搜索结果按钮（从搜索页面跳转过来时显示，在关闭按钮左侧） -->
+            <button id="backToSearchBtnModal" class="btn btn-small" onclick="backToSearchResults()" style="display: none; height: 28px; padding: 0 12px; font-size: 13px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4); font-weight: 500; margin-right: 8px;">
+                ← 返回搜索
+            </button>
             <button class="modal-close" onclick="hideTaskModal()">×</button>
         </div>
         <div class="modal-body">
@@ -898,10 +919,22 @@
             }).join('');
             const moreUrls = urls.length > 2 ? `<div style="font-size: 12px; color: #9CA3AF; margin-top: 4px;">...等${urls.length}个链接</div>` : '';
             
-            const statusClass = task.status === 'running' ? 'badge-success' : 
-                              task.status === 'paused' ? 'badge-warning' : 'badge-error';
-            const statusText = task.status === 'running' ? '运行中' : 
-                             task.status === 'paused' ? '已暂停' : '已失效';
+            // 状态显示和按钮文本逻辑
+            // draft(新建) -> 显示"新建"，按钮为"发布"
+            // active(生效) -> 显示"生效"，按钮为"下线"
+            // inactive(失效) -> 显示"失效"，按钮为"发布"
+            // 兼容旧状态：running -> active, paused -> inactive
+            let normalizedStatus = task.status;
+            if (task.status === 'running') normalizedStatus = 'active';
+            if (task.status === 'paused') normalizedStatus = 'inactive';
+            
+            const statusClass = normalizedStatus === 'active' ? 'badge-success' : 
+                              normalizedStatus === 'draft' ? 'badge-warning' : 'badge-error';
+            const statusText = normalizedStatus === 'active' ? '生效' : 
+                             normalizedStatus === 'draft' ? '新建' : '失效';
+            
+            // 按钮文本：新建和失效状态显示"发布"，生效状态显示"下线"
+            const toggleButtonText = (normalizedStatus === 'draft' || normalizedStatus === 'inactive') ? '发布' : '下线';
             
             // 构建完整的转存路径
             let fullTargetPath = task.target_path;
@@ -932,10 +965,10 @@
                             <button class="btn-small" onclick="checkShareStatus(${task.id})">检查</button>
                             <button class="btn-small" onclick="executeTask(${task.id})">执行</button>
                             <button class="btn-small" onclick="editTask(${task.id})">编辑</button>
+                            <button class="btn-small" onclick="toggleTask(${task.id})">${toggleButtonText}</button>
                             <div class="more-actions">
                                 <button class="more-actions-btn" onclick="toggleMoreActions(event, ${task.id})">⋯</button>
                                 <div class="more-actions-menu" id="moreMenu${task.id}">
-                                    <button onclick="toggleTask(${task.id})">${task.status === 'running' ? '暂停任务' : '启动任务'}</button>
                                     <button class="danger" onclick="deleteTask(${task.id})">删除任务</button>
                                 </div>
                             </div>
@@ -1020,8 +1053,58 @@
         document.getElementById('taskModal').classList.add('show');
     }
     
-    // 页面加载时检查是否有待创建的任务
+    // 页面加载时检查是否有待创建的任务和搜索状态
     (function checkPendingTask() {
+        console.log('[调试-转存] 页面加载，检查搜索状态...');
+        
+        // 检查是否有搜索状态（从搜索页面跳转过来）
+        const searchState = sessionStorage.getItem('searchState');
+        const fromSearchPage = sessionStorage.getItem('fromSearchPage');
+        console.log('[调试-转存] searchState:', searchState);
+        console.log('[调试-转存] fromSearchPage:', fromSearchPage);
+        
+        if (searchState && fromSearchPage === 'true') {
+            try {
+                const state = JSON.parse(searchState);
+                console.log('[调试-转存] 解析的状态:', state);
+                
+                // 检查状态是否在24小时内
+                const stateAge = Date.now() - state.timestamp;
+                const maxAge = 24 * 60 * 60 * 1000; // 24小时
+                
+                console.log('[调试-转存] 状态年龄:', stateAge, '最大年龄:', maxAge);
+                
+                if (stateAge < maxAge) {
+                    // 显示弹窗内的返回按钮
+                    const backBtnModal = document.getElementById('backToSearchBtnModal');
+                    console.log('[调试-转存] 弹窗返回按钮元素:', backBtnModal);
+                    
+                    if (backBtnModal) {
+                        backBtnModal.style.display = 'inline-block';
+                        console.log('[调试-转存] ✅ 弹窗返回按钮已显示');
+                    } else {
+                        console.error('[调试-转存] ❌ 未找到弹窗返回按钮元素');
+                    }
+                    
+                    // 同时显示工具栏的返回按钮（保留）
+                    const backBtn = document.getElementById('backToSearchBtn');
+                    if (backBtn) {
+                        backBtn.style.display = 'inline-block';
+                    }
+                } else {
+                    console.log('[调试-转存] 搜索状态已过期');
+                }
+            } catch (e) {
+                console.error('[调试-转存] 解析搜索状态失败:', e);
+            }
+        } else {
+            console.log('[调试-转存] 没有搜索状态或不是从搜索页面跳转');
+        }
+        
+        // 清除来源标记（只在首次加载时显示按钮）
+        sessionStorage.removeItem('fromSearchPage');
+        
+        // 检查是否有待创建的任务
         const pendingTask = sessionStorage.getItem('pendingTransferTask');
         if (pendingTask) {
             try {
@@ -2438,13 +2521,15 @@
         modal.classList.remove('show');
     }
 
-    // 切换任务状态
+    // 切换任务状态（发布/下线）
     async function toggleTask(taskId) {
         try {
             const result = await TransferAPI.toggle(taskId);
             
             if (result.code === 200) {
-                Message.success('操作成功');
+                const newStatus = result.data?.status || result.data;
+                const statusText = newStatus === 'active' ? '已发布' : '已下线';
+                Message.success(`任务${statusText}`);
                 loadTasks();
             } else {
                 Message.error(result.message || '操作失败');
@@ -2586,6 +2671,18 @@
         hideFolderSelector();
     }
 
+    // 返回搜索结果页面
+    function backToSearchResults() {
+        // 跳转到搜索页面（搜索页面会自动恢复状态）
+        const searchMenuItem = document.querySelector('.menu-item[data-page="search"]');
+        if (searchMenuItem) {
+            searchMenuItem.click();
+        }
+        
+        // 不需要设置 clearSearchStateAfterRestore，因为 searchState 需要保留以便恢复搜索结果
+        // fromSearchPage 标记已经在页面加载时被清除了
+    }
+
     // 暴露需要在HTML中调用的函数到window对象
     window.showCreateTaskModal = showCreateTaskModal;
     window.hideTaskModal = hideTaskModal;
@@ -2619,6 +2716,7 @@
     window.loadFolderList = loadFolderList;
     window.hideFolderSelector = hideFolderSelector;
     window.confirmFolderSelection = confirmFolderSelection;
+    window.backToSearchResults = backToSearchResults;
 
     // 云盘类型筛选事件监听
     const transferCloudTypeFilter = document.getElementById('transferCloudTypeFilter');

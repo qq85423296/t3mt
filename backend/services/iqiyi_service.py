@@ -30,6 +30,7 @@ class IqiyiService:
             
             self.base_url = self.config.get('base_url')
             self.miniapp_api = self.config.get('miniapp_api')
+            self.pcw_api = self.config.get('pcw_api')  # 新增PCW API配置
             self.accelerator_js = self.config.get('accelerator_js')
             self._config_checked = True
         else:
@@ -37,6 +38,7 @@ class IqiyiService:
             self.headers = None
             self.base_url = None
             self.miniapp_api = None
+            self.pcw_api = None  # 新增PCW API配置
             self.accelerator_js = None
     
     def _check_config(self):
@@ -274,7 +276,19 @@ class IqiyiService:
         # 检查配置
         self._check_config()
         
-        # 方案A: 尝试使用API获取（支持分页）
+        # 如果是动漫类型，优先使用PCW API（支持大量集数的分页获取）
+        if video_type == '动漫':
+            logger.info("检测到动漫类型，使用PCW API获取剧集")
+            result = self._get_anime_episode_list_from_pcw_api(tvid, url, video_type)
+            
+            # 如果PCW API成功，直接返回
+            if result.get('success'):
+                return result
+            
+            # 如果PCW API失败，降级到原有API
+            logger.warning("PCW API获取失败，降级到miniapp API")
+        
+        # 方案A: 使用原有的miniapp API获取（支持按月份获取综艺）
         result = self._get_episode_list_from_api(tvid, url, video_type)
         
         # 检查数据完整性
@@ -396,6 +410,185 @@ class IqiyiService:
                 'success': False,
                 'error': f'请求失败: {str(e)}'
             }
+    
+    def _get_anime_episode_list_from_pcw_api(self, tvid: str, url: str = None, video_type: str = None) -> Dict:
+        """
+        从PCW API获取动漫剧集列表（支持大量集数的分页获取）
+        
+        Args:
+            tvid: 视频ID（这里实际是albumId）
+            url: 原始URL
+            video_type: 视频类型
+            
+        Returns:
+            包含剧集列表的字典
+        """
+        try:
+            # 首先需要从移动版页面获取albumId
+            # 因为tvid可能是qipuId，需要转换为albumId
+            album_id = None
+            
+            if url:
+                try:
+                    mobile_url = url.replace('www.iqiyi.com', 'm.iqiyi.com')
+                    mobile_headers = {
+                        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
+                        'Referer': self.base_url + '/'
+                    }
+                    
+                    response = requests.get(mobile_url, headers=mobile_headers, timeout=15)
+                    response.raise_for_status()
+                    page_content = response.text
+                    
+                    # 提取albumId
+                    match = re.search(r'"albumId"\s*:\s*"?(\d+)"?', page_content)
+                    if match:
+                        album_id = match.group(1)
+                        logger.info(f"从移动版页面提取到albumId: {album_id}")
+                    
+                except Exception as e:
+                    logger.warning(f"从移动版页面提取albumId失败: {str(e)}")
+            
+            # 如果没有获取到albumId，尝试使用tvid
+            if not album_id:
+                album_id = tvid
+                logger.info(f"使用tvid作为albumId: {album_id}")
+            
+            # 使用PCW API获取剧集列表
+            # 第一页
+            api_url = f"{self.pcw_api}?aid={album_id}&size=200&page=1"
+            
+            logger.info(f"使用PCW API获取动漫剧集: {api_url}")
+            
+            response = requests.get(api_url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get('code') != 'A00000':
+                logger.error(f"PCW API返回错误: {data.get('data')}")
+                return {
+                    'success': False,
+                    'error': f"PCW API返回错误: {data.get('data')}"
+                }
+            
+            # 获取第一页的剧集列表
+            api_data = data.get('data', {})
+            episodes_data = api_data.get('epsodelist', [])
+            
+            logger.info(f"第1页获取到 {len(episodes_data)} 集")
+            
+            all_episodes = episodes_data.copy()
+            
+            # 如果第一页返回200集，说明可能还有更多，需要分页获取
+            if len(episodes_data) == 200:
+                logger.info("检测到可能有更多集数，开始分页获取")
+                
+                page = 2
+                max_pages = 20  # 最多20页，支持4000集
+                
+                while page <= max_pages:
+                    page_url = f"{self.pcw_api}?aid={album_id}&size=200&page={page}"
+                    
+                    try:
+                        resp = requests.get(page_url, headers=self.headers, timeout=10)
+                        resp.raise_for_status()
+                        page_data = resp.json()
+                        
+                        if page_data.get('code') == 'A00000':
+                            page_episodes = page_data.get('data', {}).get('epsodelist', [])
+                            
+                            if page_episodes:
+                                logger.info(f"第{page}页获取到 {len(page_episodes)} 集，累计 {len(all_episodes) + len(page_episodes)} 集")
+                                all_episodes.extend(page_episodes)
+                                
+                                # 如果这页少于200集，说明是最后一页
+                                if len(page_episodes) < 200:
+                                    logger.info(f"第{page}页是最后一页")
+                                    break
+                                
+                                page += 1
+                            else:
+                                logger.info(f"第{page}页无数据，已到最后一页")
+                                break
+                        else:
+                            logger.warning(f"第{page}页返回错误: {page_data.get('data')}")
+                            break
+                            
+                    except Exception as e:
+                        logger.warning(f"第{page}页请求失败: {str(e)}")
+                        break
+            
+            logger.info(f"PCW API获取完成，共 {len(all_episodes)} 集")
+            
+            # 解析剧集信息
+            episodes = self._parse_pcw_episodes(all_episodes, video_type)
+            
+            return {
+                'success': True,
+                'episodes': episodes,
+                'total': len(episodes),
+                'expected_count': len(all_episodes),
+                'source': 'pcw_api'
+            }
+            
+        except Exception as e:
+            logger.error(f"PCW API获取剧集列表失败: {str(e)}", exc_info=True)
+            return {
+                'success': False,
+                'error': f'PCW API请求失败: {str(e)}'
+            }
+    
+    def _parse_pcw_episodes(self, episodes_data: List, video_type: str = None) -> List[Dict]:
+        """
+        解析PCW API返回的剧集数据
+        
+        Args:
+            episodes_data: PCW API返回的剧集列表
+            video_type: 视频类型
+            
+        Returns:
+            解析后的剧集列表
+        """
+        episodes = []
+        
+        for idx, ep_data in enumerate(episodes_data, 1):
+            # PCW API的数据结构与miniapp API不同
+            # 需要适配字段名称
+            
+            # 提取集数信息
+            name = ep_data.get('name', f'第{idx}集')
+            subtitle = ep_data.get('subtitle', '')
+            play_url = ep_data.get('playUrl', '')
+            
+            # 根据视频类型决定剧集名称格式
+            if video_type == '综艺':
+                # 综艺使用日期或期数
+                episode_name = name
+            else:
+                # 动漫/电视剧使用集数
+                # 从name中提取集数，如"航海王 第1集" -> "第1集"
+                match = re.search(r'第(\d+)集', name)
+                if match:
+                    episode_name = f"第{match.group(1)}集"
+                else:
+                    episode_name = name
+            
+            episodes.append({
+                'name': episode_name,
+                'title': subtitle,
+                'url': play_url.replace('www.iqiyi.com', 'm.iqiyi.com') if play_url else '',
+                'video_id': str(ep_data.get('tvId', '')),
+                'qipu_id': str(ep_data.get('tvId', '')),
+                'vid': ep_data.get('vid', ''),
+                'duration': ep_data.get('duration', ''),
+                'time_length': 0,  # PCW API没有提供timeLength
+                'is_vip': ep_data.get('payMark', 0) == 1,
+                'image': ep_data.get('imageUrl', ''),
+                'period': '',  # PCW API没有提供period
+                'pd': idx  # 使用索引作为集数序号
+            })
+        
+        return episodes
     
     def _fetch_all_episodes_by_month(self, tvid: str, summary: List, initial_videos: List, expected_count: int) -> List:
         """
@@ -785,6 +978,30 @@ class IqiyiService:
             }
             video_type = type_mapping.get(channel_id)
             logger.info(f"识别视频类型: {video_type}")
+        else:
+            # 备用方案：如果channelId提取失败，尝试从video_info中判断
+            # 或者根据集数和标题特征判断
+            logger.warning("channelId提取失败，使用备用方案识别视频类型")
+            
+            # 方案1: 根据集数判断（动漫通常集数很多）
+            video_count = video_info.get('video_count', 0)
+            title = video_info.get('title', '')
+            
+            # 如果集数超过100，且标题不包含"综艺"关键词，很可能是动漫
+            if video_count > 100:
+                if any(keyword in title for keyword in ['综艺', '真人秀', '访谈']):
+                    video_type = '综艺'
+                else:
+                    # 大概率是动漫
+                    video_type = '动漫'
+                logger.info(f"根据集数({video_count})判断视频类型: {video_type}")
+            elif video_count == 1:
+                video_type = '电影'
+                logger.info(f"根据集数({video_count})判断视频类型: {video_type}")
+            else:
+                # 默认为电视剧
+                video_type = '电视剧'
+                logger.info(f"默认视频类型: {video_type}")
         
         # 获取剧集列表(传递URL和视频类型)
         episodes_result = self.get_episode_list(tvid, url, video_type)

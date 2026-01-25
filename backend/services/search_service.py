@@ -384,23 +384,36 @@ class SearchService:
             # 调用夸克服务检测链接
             result = quark_service.check_share_link(share_url)
             
+            logger.info(f"夸克链接检测结果: {result}")
+            
             if result['is_valid']:
                 logger.info(f"链接有效: {share_url}")
+                # 返回兼容前端的数据结构,同时包含is_valid、valid和status字段
                 return {
                     'is_valid': True,
+                    'valid': True,  # 兼容前端的valid字段
+                    'status': result.get('status', '正常'),
                     'message': '链接有效',
+                    'title': result.get('share_title', ''),  # 添加title字段
                     'file_count': result.get('file_count'),
                     'total_size': result.get('total_size')
                 }
             else:
                 logger.warning(f"链接失效: {share_url}")
+                # 返回兼容前端的数据结构
                 return {
                     'is_valid': False,
-                    'message': '链接已失效或不存在'
+                    'valid': False,  # 兼容前端的valid字段
+                    'status': result.get('status', '已失效'),
+                    'message': result.get('message', '链接已失效或不存在'),
+                    'error': result.get('message', '链接已失效或不存在')  # 添加error字段
                 }
         except Exception as e:
             logger.error(f"检测链接有效性失败: {e}")
             return {
                 'is_valid': False,
-                'message': f'检测失败: {str(e)}'
+                'valid': False,
+                'status': '检查失败',
+                'message': f'检测失败: {str(e)}',
+                'error': f'检测失败: {str(e)}'
             }

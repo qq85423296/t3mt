@@ -22,7 +22,7 @@ class TaskExecutor:
     
     # 存储正在执行的任务状态
     _running_tasks: Dict[int, Dict] = {}
-    _lock = threading.Lock()
+    _lock = threading.RLock()  # 使用可重入锁，避免嵌套调用时死锁
     _download_url_lock = threading.Lock()  # 新增：下载链接获取锁
     
     @classmethod
@@ -57,15 +57,19 @@ class TaskExecutor:
         Returns:
             是否成功停止
         """
+        logger.info(f"[TaskExecutor] stop_task 被调用: task_id={task_id}")
+        logger.info(f"[TaskExecutor] 当前运行中的任务: {list(cls._running_tasks.keys())}")
+        
         with cls._lock:
             if task_id not in cls._running_tasks:
+                logger.warning(f"[TaskExecutor] 任务 {task_id} 不在运行列表中")
                 return False
             
             # 标记任务为已停止
             cls._running_tasks[task_id]['status'] = 'stopped'
             cls._add_log(task_id, '任务已被手动终止', 'warning')
             
-            logger.info(f"任务 {task_id} 已标记为停止")
+            logger.info(f"[TaskExecutor] 任务 {task_id} 已标记为停止")
             return True
     
     @classmethod
@@ -264,7 +268,7 @@ class TaskExecutor:
             return False
     
     @classmethod
-    def _download_file_multithread(cls, task_id: int, file_info: dict, cloud_service, file_fid: str,
+    def _download_file_multithread(cls, task_id: int, file_info: dict, download_url: str,
                                    headers: dict, local_file_path: str) -> bool:
         """
         多线程分块下载单个文件（共享下载链接：所有线程使用同一个下载链接）
@@ -272,8 +276,7 @@ class TaskExecutor:
         Args:
             task_id: 任务ID
             file_info: 文件信息
-            cloud_service: 云盘服务实例
-            file_fid: 文件ID
+            download_url: 下载链接（所有分块共用）
             headers: 请求头
             local_file_path: 本地文件路径
         """
@@ -290,30 +293,6 @@ class TaskExecutor:
         cls._add_log(task_id, f"   配置: {threads_per_file} 个线程，每块 {cls._format_size(multithread_chunk_size)}", 'info')
         
         try:
-            # 【智能代理方案】生成代理URL，每次请求自动302到最新链接
-            cls._add_log(task_id, f"   正在生成代理下载URL...", 'info')
-            
-            # 检查cloud_service是否有account_id
-            if not hasattr(cloud_service, 'account_id') or not cloud_service.account_id:
-                raise Exception("云盘服务缺少account_id，无法生成代理URL")
-            
-            # 生成代理URL
-            from config import Config
-            import hashlib
-            
-            account_id = cloud_service.account_id
-            timestamp = int(time.time())
-            secret = Config.SECRET_KEY
-            data = f"{account_id}:{file_fid}:{timestamp}:{secret}"
-            token = hashlib.sha256(data.encode()).hexdigest()
-            
-            # 构建代理URL（通过本地API，每次请求自动获取最新下载链接）
-            # 注意：这里使用127.0.0.1而不是localhost，避免IPv6问题
-            proxy_url = f"http://127.0.0.1:8520/api/download-proxy/{account_id}/{file_fid}?token={token}&ts={timestamp}"
-            
-            cls._add_log(task_id, f"   ✓ 代理URL生成成功", 'success')
-            cls._add_log(task_id, f"   每个线程通过代理自动获取最新下载链接", 'info')
-            
             # 计算分块
             num_chunks = (file_size + multithread_chunk_size - 1) // multithread_chunk_size
             chunks = []
@@ -331,7 +310,7 @@ class TaskExecutor:
             
             cls._add_log(task_id, f"   分块数量: {num_chunks}", 'info')
             
-            # 并行下载所有分块（使用代理URL）
+            # 并行下载所有分块（使用共享的下载URL）
             start_time = time.time()
             failed_chunks = []
             chunk_results = {}
@@ -341,7 +320,7 @@ class TaskExecutor:
                     executor.submit(
                         cls._download_chunk_with_shared_url,
                         task_id,
-                        proxy_url,  # 使用代理URL
+                        download_url,  # 使用共享的下载URL
                         headers,
                         chunk['start'],
                         chunk['end'],
@@ -353,11 +332,257 @@ class TaskExecutor:
                 }
                 
                 for future in as_completed(future_to_chunk):
+                    # 检查任务是否被停止
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, '   检测到任务已停止，取消所有下载线程', 'warning')
+                            # 取消所有未完成的future
+                            for f in future_to_chunk:
+                                f.cancel()
+                            # 清理分块文件
+                            for chunk in chunks:
+                                if chunk['file'].exists():
+                                    try:
+                                        chunk['file'].unlink()
+                                    except:
+                                        pass
+                            return False
+                    
                     chunk = future_to_chunk[future]
                     try:
                         result = future.result()
                         chunk_results[chunk['index']] = result
                         if not result['success']:
+                            # 检查是否是因为任务停止
+                            if result.get('message') == '任务已停止':
+                                cls._add_log(task_id, '   检测到任务已停止，取消所有下载线程', 'warning')
+                                # 取消所有未完成的future
+                                for f in future_to_chunk:
+                                    f.cancel()
+                                # 清理分块文件
+                                for chunk in chunks:
+                                    if chunk['file'].exists():
+                                        try:
+                                            chunk['file'].unlink()
+                                        except:
+                                            pass
+                                return False
+                            
+                            failed_chunks.append({
+                                'index': chunk['index'],
+                                'reason': result.get('message', '未知错误'),
+                                'range': f"{cls._format_size(chunk['start'])}-{cls._format_size(chunk['end'])}"
+                            })
+                    except Exception as e:
+                        error_msg = f"{type(e).__name__}: {str(e)}"
+                        failed_chunks.append({
+                            'index': chunk['index'],
+                            'reason': error_msg,
+                            'range': f"{cls._format_size(chunk['start'])}-{cls._format_size(chunk['end'])}"
+                        })
+                        logger.error(f"分块 {chunk['index']} 异常: {e}")
+            
+            # 检查是否有失败的分块
+            if failed_chunks:
+                cls._add_log(task_id, f"   ❌ {len(failed_chunks)} 个分块下载失败:", 'error')
+                # 只显示前10个失败的分块
+                for failed in failed_chunks[:10]:
+                    cls._add_log(task_id, 
+                        f"      分块 {failed['index'] + 1}/{num_chunks} ({failed['range']}): {failed['reason']}", 
+                        'error')
+                if len(failed_chunks) > 10:
+                    cls._add_log(task_id, f"      ... 还有 {len(failed_chunks) - 10} 个分块失败", 'error')
+                
+                # 清理所有分块文件
+                for chunk in chunks:
+                    if chunk['file'].exists():
+                        try:
+                            chunk['file'].unlink()
+                        except Exception as e:
+                            logger.error(f"清理分块文件失败: {chunk['file']}, {e}")
+                
+                return False
+            
+            # 验证所有分块文件都存在且大小正确
+            cls._add_log(task_id, f"   验证 {num_chunks} 个分块完整性...", 'info')
+            missing_chunks = []
+            invalid_chunks = []
+            
+            for chunk in chunks:
+                if not chunk['file'].exists():
+                    missing_chunks.append(chunk['index'])
+                else:
+                    actual_size = chunk['file'].stat().st_size
+                    expected_size = chunk['end'] - chunk['start'] + 1
+                    if actual_size != expected_size:
+                        invalid_chunks.append({
+                            'index': chunk['index'],
+                            'expected': expected_size,
+                            'actual': actual_size
+                        })
+            
+            # 如果有缺失或无效的分块,清理并返回失败
+            if missing_chunks or invalid_chunks:
+                if missing_chunks:
+                    cls._add_log(task_id, f"   ❌ 缺失分块: {[i+1 for i in missing_chunks[:10]]}", 'error')
+                    if len(missing_chunks) > 10:
+                        cls._add_log(task_id, f"      ... 还有 {len(missing_chunks) - 10} 个分块缺失", 'error')
+                if invalid_chunks:
+                    cls._add_log(task_id, f"   ❌ 分块大小不匹配:", 'error')
+                    for invalid in invalid_chunks[:10]:
+                        cls._add_log(task_id, 
+                            f"      分块 {invalid['index'] + 1}: 期望 {cls._format_size(invalid['expected'])}, "
+                            f"实际 {cls._format_size(invalid['actual'])}", 
+                            'error')
+                    if len(invalid_chunks) > 10:
+                        cls._add_log(task_id, f"      ... 还有 {len(invalid_chunks) - 10} 个分块大小不匹配", 'error')
+                
+                # 清理所有分块文件
+                for chunk in chunks:
+                    if chunk['file'].exists():
+                        try:
+                            chunk['file'].unlink()
+                        except Exception as e:
+                            logger.error(f"清理分块文件失败: {chunk['file']}, {e}")
+                
+                return False
+            
+            cls._add_log(task_id, f"   ✅ 所有分块验证通过", 'success')
+            
+            # 合并分块
+            cls._add_log(task_id, f"   合并 {num_chunks} 个分块...", 'info')
+            chunk_files = [chunk['file'] for chunk in chunks]
+            
+            if not cls._merge_chunks(target_file, chunk_files):
+                return False
+            
+            # 验证文件大小
+            actual_size = target_file.stat().st_size
+            if actual_size != file_size:
+                target_file.unlink()
+                cls._add_log(task_id, f"   文件大小不匹配: {actual_size}/{file_size}", 'error')
+                return False
+            
+            elapsed_time = time.time() - start_time
+            speed = file_size / elapsed_time if elapsed_time > 0 else 0
+            
+            cls._add_log(task_id, f"✅ 多线程下载完成: {file_name}", 'success')
+            cls._add_log(task_id, f"   耗时: {elapsed_time:.1f}秒，平均速度: {cls._format_size(speed)}/s", 'info')
+            return True
+            
+        except Exception as e:
+            # 清理分块文件
+            for chunk in chunks:
+                if chunk['file'].exists():
+                    chunk['file'].unlink()
+            cls._add_log(task_id, f"多线程下载失败: {file_name} - {str(e)}", 'error')
+            return False
+    
+    @classmethod
+    def _download_file_multithread_with_proxy(cls, task_id: int, file_info: dict, cloud_service, file_fid: str,
+                                              headers: dict, local_file_path: str, account_id: int) -> bool:
+        """
+        多线程分块下载单个文件（天翼云专用：使用代理机制，每个线程通过代理URL动态获取下载链接）
+        
+        Args:
+            task_id: 任务ID
+            file_info: 文件信息
+            cloud_service: 云盘服务实例
+            file_fid: 文件ID
+            headers: 请求头
+            local_file_path: 本地文件路径
+            account_id: 账号ID(用于生成代理URL)
+        """
+        file_name = file_info['file_name']
+        file_size = file_info['size']
+        
+        target_file = Path(local_file_path)
+        
+        # 从配置读取参数
+        threads_per_file = cls._get_config('download_threads_per_file', 4)
+        multithread_chunk_size = cls._get_config('download_multithread_chunk_size', 10) * 1024 * 1024
+        
+        cls._add_log(task_id, f"🚀 使用多线程下载(动态链接): {file_name} ({cls._format_size(file_size)})", 'info')
+        cls._add_log(task_id, f"   配置: {threads_per_file} 个线程，每块 {cls._format_size(multithread_chunk_size)}", 'info')
+        cls._add_log(task_id, f"   每个线程使用独立源端口(60001-61000)动态获取下载链接", 'info')
+        
+        try:
+            # 计算分块
+            num_chunks = (file_size + multithread_chunk_size - 1) // multithread_chunk_size
+            chunks = []
+            
+            for i in range(num_chunks):
+                start = i * multithread_chunk_size
+                end = min(start + multithread_chunk_size - 1, file_size - 1)
+                chunk_file = target_file.with_suffix(f'.part{i}')
+                chunks.append({
+                    'start': start,
+                    'end': end,
+                    'file': chunk_file,
+                    'index': i
+                })
+            
+            cls._add_log(task_id, f"   分块数量: {num_chunks}", 'info')
+            
+            # 并行下载所有分块（使用动态链接获取）
+            start_time = time.time()
+            failed_chunks = []
+            chunk_results = {}
+            
+            with ThreadPoolExecutor(max_workers=threads_per_file) as executor:
+                future_to_chunk = {
+                    executor.submit(
+                        cls._download_chunk_with_dynamic_url,
+                        task_id,
+                        file_fid,
+                        headers,
+                        chunk['start'],
+                        chunk['end'],
+                        chunk['file'],
+                        chunk['index'],
+                        num_chunks,
+                        account_id  # 传递account_id用于生成代理URL
+                    ): chunk
+                    for chunk in chunks
+                }
+                
+                for future in as_completed(future_to_chunk):
+                    # 检查任务是否被停止
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, '   检测到任务已停止，取消所有下载线程', 'warning')
+                            # 取消所有未完成的future
+                            for f in future_to_chunk:
+                                f.cancel()
+                            # 清理分块文件
+                            for chunk in chunks:
+                                if chunk['file'].exists():
+                                    try:
+                                        chunk['file'].unlink()
+                                    except:
+                                        pass
+                            return False
+                    
+                    chunk = future_to_chunk[future]
+                    try:
+                        result = future.result()
+                        chunk_results[chunk['index']] = result
+                        if not result['success']:
+                            # 检查是否是因为任务停止
+                            if result.get('message') == '任务已停止':
+                                cls._add_log(task_id, '   检测到任务已停止，取消所有下载线程', 'warning')
+                                # 取消所有未完成的future
+                                for f in future_to_chunk:
+                                    f.cancel()
+                                # 清理分块文件
+                                for chunk in chunks:
+                                    if chunk['file'].exists():
+                                        try:
+                                            chunk['file'].unlink()
+                                        except:
+                                            pass
+                                return False
+                            
                             failed_chunks.append({
                                 'index': chunk['index'],
                                 'reason': result.get('message', '未知错误'),
@@ -490,44 +715,22 @@ class TaskExecutor:
         """
         max_retry = 5  # 最大重试次数
         response = None
-        session = None
         
         try:
-            # 为每个线程创建独立的Session
-            # 每个Session会使用不同的TCP连接和源端口（系统自动分配）
-            session = requests.Session()
-            
-            # 禁用系统代理，直连下载
-            session.trust_env = False
-            session.proxies = {}
-            
-            # 禁用连接池复用，强制每次创建新连接
-            # 这样每个线程会使用不同的源端口（系统自动分配）
-            adapter = requests.adapters.HTTPAdapter(
-                pool_connections=1,
-                pool_maxsize=1,
-                max_retries=0
-            )
-            session.mount('http://', adapter)
-            session.mount('https://', adapter)
-            
             # 设置Range请求头
             chunk_headers = headers.copy()
             chunk_headers['Range'] = f'bytes={start}-{end}'
-            # 添加Connection: close，确保不复用连接
-            chunk_headers['Connection'] = 'close'
             
             timeout = cls._get_config('download_timeout', 60)
             
             cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 开始下载 ({cls._format_size(start)}-{cls._format_size(end)})", 'info')
             
-            response = session.get(
+            response = requests.get(
                 download_url,
                 headers=chunk_headers,
                 stream=True,
                 timeout=timeout,
-                verify=False,
-                allow_redirects=True  # 允许302重定向
+                verify=False
             )
             
             if response.status_code not in [200, 206]:
@@ -559,8 +762,6 @@ class TaskExecutor:
                         downloaded += len(chunk)
             
             response.close()
-            if session:
-                session.close()
             
             # 验证下载的大小
             expected_size = end - start + 1
@@ -584,17 +785,20 @@ class TaskExecutor:
                     response.close()
                 except:
                     pass
-            if session:
-                try:
-                    session.close()
-                except:
-                    pass
             
             error_detail = f"{type(e).__name__}: {str(e)}"
             if retry < max_retry:
                 delay = 2 ** retry  # 指数退避：1s, 2s, 4s, 8s, 16s
                 cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 网络错误，{delay}秒后重试 ({retry + 1}/{max_retry}): {error_detail}", 'warning')
-                time.sleep(delay)
+                
+                # 可中断的等待：每0.5秒检查一次是否被停止
+                for _ in range(int(delay * 2)):
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 在重试等待中被停止", 'warning')
+                            return {'success': False, 'message': '任务已停止'}
+                    time.sleep(0.5)
+                
                 return cls._download_chunk_with_shared_url(task_id, download_url, headers, start, end, 
                                                            chunk_file, chunk_index, total_chunks, retry + 1)
             else:
@@ -608,11 +812,6 @@ class TaskExecutor:
                     response.close()
                 except:
                     pass
-            if session:
-                try:
-                    session.close()
-                except:
-                    pass
             
             # 记录详细的异常信息
             import traceback
@@ -624,7 +823,15 @@ class TaskExecutor:
             if retry < max_retry:
                 delay = 2 ** retry
                 cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 异常，{delay}秒后重试 ({retry + 1}/{max_retry}): {error_detail}", 'warning')
-                time.sleep(delay)
+                
+                # 可中断的等待：每0.5秒检查一次是否被停止
+                for _ in range(int(delay * 2)):
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 在重试等待中被停止", 'warning')
+                            return {'success': False, 'message': '任务已停止'}
+                    time.sleep(0.5)
+                
                 return cls._download_chunk_with_shared_url(task_id, download_url, headers, start, end, 
                                                            chunk_file, chunk_index, total_chunks, retry + 1)
             else:
@@ -632,15 +839,14 @@ class TaskExecutor:
                 return {'success': False, 'message': error_detail}
     
     @classmethod
-    def _download_chunk_with_dynamic_url(cls, task_id: int, cloud_service, file_fid: str, headers: dict, 
+    def _download_chunk_with_dynamic_url(cls, task_id: int, file_fid: str, headers: dict, 
                                          start: int, end: int, chunk_file: Path, chunk_index: int, 
-                                         total_chunks: int, retry: int = 0, network_retry: int = 0) -> Dict:
+                                         total_chunks: int, account_id: int, retry: int = 0, network_retry: int = 0) -> Dict:
         """
-        下载文件的一个分块（动态按需获取下载链接）
+        下载文件的一个分块（天翼云专用：使用代理URL，每次请求302重定向到最新真实地址）
         
         Args:
             task_id: 任务ID
-            cloud_service: 云盘服务实例（用于动态获取下载链接）
             file_fid: 文件ID
             headers: 请求头
             start: 起始字节
@@ -648,6 +854,7 @@ class TaskExecutor:
             chunk_file: 分块文件保存路径
             chunk_index: 分块索引
             total_chunks: 总分块数
+            account_id: 账号ID(用于生成代理URL)
             retry: 当前重试次数（403链接失效重试）
             network_retry: 网络错误重试次数
         """
@@ -655,49 +862,76 @@ class TaskExecutor:
         max_network_retry = 5  # 网络错误最大重试次数
         max_general_retry = 2  # 通用异常最大重试次数
         
+        session = None
+        response = None
+        
         try:
-            # 动态获取下载链接（每次下载前实时获取）
-            download_result, download_cookie = cloud_service.get_download_url([file_fid])
+            # 检查分块文件是否已存在且大小正确(断点续传)
+            expected_size = end - start + 1
+            if chunk_file.exists():
+                actual_size = chunk_file.stat().st_size
+                if actual_size == expected_size:
+                    cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 分块已存在，跳过 ({cls._format_size(actual_size)})", 'info')
+                    return {'success': True, 'size': actual_size}
+                else:
+                    # 文件大小不对,删除重新下载
+                    cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 分块大小不匹配，重新下载", 'warning')
+                    chunk_file.unlink()
             
-            if download_result.get('code') != 0:
-                raise Exception(f"获取下载链接失败: {download_result.get('message', '')}")
+            # 生成代理下载URL（永久有效，每次请求302到最新真实地址）
+            import hashlib
+            import time as time_module
+            from config import Config
             
-            download_data = download_result.get('data', [])
-            if not download_data:
-                raise Exception("下载链接为空")
+            timestamp = int(time_module.time())
+            secret = Config.SECRET_KEY
+            data = f"{account_id}:{file_fid}:{timestamp}:{secret}"
+            token = hashlib.sha256(data.encode()).hexdigest()
             
-            download_url = download_data[0].get('download_url') or download_data[0].get('downloadUrl')
-            if not download_url:
-                raise Exception("下载链接无效")
+            # 构建代理URL
+            base_url = Config.API_BASE_URL or "http://localhost:8520"
+            proxy_url = f"{base_url}/api/download-proxy/{account_id}/{file_fid}?token={token}&ts={timestamp}"
             
             # 设置Range请求头
             chunk_headers = headers.copy()
             chunk_headers['Range'] = f'bytes={start}-{end}'
             
-            # 更新Cookie（使用最新的）
-            if download_cookie:
-                chunk_headers['Cookie'] = download_cookie
+            # 创建独立的Session
+            session = requests.Session()
             
-            timeout = cls._get_config('download_timeout', 60)
+            # 禁用系统代理，直连下载
+            session.trust_env = False
+            session.proxies = {}
             
-            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 开始下载 ({cls._format_size(start)}-{cls._format_size(end)})", 'info')
+            # 设置连接超时和读取超时
+            # 连接超时60秒,读取超时30秒(30秒无数据则超时)
+            timeout = (60, 30)
             
-            response = requests.get(
-                download_url,
+            # 计算源端口（基于chunk_index，避免冲突）
+            source_port = 60001 + (chunk_index % 1000)
+            
+            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 开始下载 (代理URL, 源端口:{source_port}, {cls._format_size(start)}-{cls._format_size(end)})", 'info')
+            
+            # 使用代理URL下载,每次请求会302重定向到最新的真实地址
+            response = session.get(
+                proxy_url,
                 headers=chunk_headers,
                 stream=True,
-                timeout=timeout,
-                verify=False
+                timeout=timeout,  # (连接超时, 读取超时)
+                verify=False,
+                allow_redirects=True  # 允许302重定向
             )
             
             # 403状态码专属处理：立即重新获取链接
             if response.status_code == 403:
                 response.close()
+                if session:
+                    session.close()
                 if retry < max_403_retry:
-                    cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 检测到403链接失效，立即重新获取链接 (重试 {retry + 1}/{max_403_retry})", 'warning')
-                    # 不等待，立即重试并重新获取链接
-                    return cls._download_chunk_with_dynamic_url(task_id, cloud_service, file_fid, headers, start, end, 
-                                                                chunk_file, chunk_index, total_chunks, retry + 1, network_retry)
+                    cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 检测到403链接失效，立即重试 (重试 {retry + 1}/{max_403_retry})", 'warning')
+                    # 不等待，立即重试(代理URL会自动获取新链接)
+                    return cls._download_chunk_with_dynamic_url(task_id, file_fid, headers, start, end, 
+                                                                chunk_file, chunk_index, total_chunks, account_id, retry + 1, network_retry)
                 else:
                     raise Exception(f"403链接失效，已重试{max_403_retry}次仍失败")
             
@@ -706,6 +940,7 @@ class TaskExecutor:
             
             # 写入分块文件
             downloaded = 0
+            
             with open(chunk_file, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     # 检查任务是否被停止
@@ -713,6 +948,8 @@ class TaskExecutor:
                         if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
                             cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 已停止", 'warning')
                             response.close()
+                            if session:
+                                session.close()
                             if chunk_file.exists():
                                 chunk_file.unlink()
                             return {'success': False, 'message': '任务已停止'}
@@ -721,24 +958,75 @@ class TaskExecutor:
                         f.write(chunk)
                         downloaded += len(chunk)
             
-            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 完成 ({cls._format_size(chunk_file.stat().st_size)})", 'success')
+            response.close()
+            if session:
+                session.close()
             
-            return {'success': True, 'size': chunk_file.stat().st_size}
+            # 验证下载的大小
+            expected_size = end - start + 1
+            actual_size = chunk_file.stat().st_size
+            
+            if actual_size == 0:
+                # 文件大小为0，删除并抛出异常让外层重试
+                if chunk_file.exists():
+                    chunk_file.unlink()
+                raise Exception("下载文件大小为0")
+            
+            if actual_size != expected_size:
+                error_msg = f"大小不匹配: 期望{cls._format_size(expected_size)}, 实际{cls._format_size(actual_size)}"
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} {error_msg}", 'error')
+                if chunk_file.exists():
+                    chunk_file.unlink()
+                raise Exception(error_msg)
+            
+            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 完成 ({cls._format_size(actual_size)})", 'success')
+            
+            return {'success': True, 'size': actual_size}
             
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             # 网络类错误：指数退避重试
+            if response:
+                try:
+                    response.close()
+                except:
+                    pass
+            if session:
+                try:
+                    session.close()
+                except:
+                    pass
+            
             if network_retry < max_network_retry:
                 delay = 2 ** network_retry  # 指数退避：1s, 2s, 4s, 8s, 16s
                 cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 网络错误，{delay}秒后重试 ({network_retry + 1}/{max_network_retry}): {type(e).__name__}", 'warning')
-                time.sleep(delay)
-                return cls._download_chunk_with_dynamic_url(task_id, cloud_service, file_fid, headers, start, end, 
-                                                            chunk_file, chunk_index, total_chunks, retry, network_retry + 1)
+                
+                # 可中断的等待
+                for _ in range(int(delay * 2)):
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 在重试等待中被停止", 'warning')
+                            return {'success': False, 'message': '任务已停止'}
+                    time.sleep(0.5)
+                
+                return cls._download_chunk_with_dynamic_url(task_id, file_fid, headers, start, end, 
+                                                            chunk_file, chunk_index, total_chunks, account_id, retry, network_retry + 1)
             else:
                 cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 网络错误超过最大重试次数: {type(e).__name__}: {str(e)}", 'error')
                 return {'success': False, 'message': f'网络错误: {type(e).__name__}: {str(e)}'}
-                
+        
         except Exception as e:
             # 通用异常兜底重试
+            if response:
+                try:
+                    response.close()
+                except:
+                    pass
+            if session:
+                try:
+                    session.close()
+                except:
+                    pass
+            
             error_type = type(e).__name__
             error_msg = str(e)
             
@@ -748,8 +1036,8 @@ class TaskExecutor:
             if retry < max_general_retry:
                 cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 通用异常重试 ({retry + 1}/{max_general_retry})", 'warning')
                 time.sleep(2)  # 固定延迟2秒
-                return cls._download_chunk_with_dynamic_url(task_id, cloud_service, file_fid, headers, start, end, 
-                                                            chunk_file, chunk_index, total_chunks, retry + 1, network_retry)
+                return cls._download_chunk_with_dynamic_url(task_id, file_fid, headers, start, end, 
+                                                            chunk_file, chunk_index, total_chunks, account_id, retry + 1, network_retry)
             else:
                 cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 失败: {error_type}: {error_msg}", 'error')
                 return {'success': False, 'message': f'{error_type}: {error_msg}'}
@@ -782,23 +1070,28 @@ class TaskExecutor:
         try:
             # 动态获取下载链接（每次下载前实时获取）
             cls._add_log(task_id, f"   获取下载链接...", 'info')
-            download_result, download_cookie = cloud_service.get_download_url([file_fid])
             
-            if download_result.get('code') != 0:
-                raise Exception(f"获取下载链接失败: {download_result.get('message', '')}")
-            
-            download_data = download_result.get('data', [])
-            if not download_data:
-                raise Exception("下载链接为空")
-            
-            download_url = download_data[0].get('download_url') or download_data[0].get('downloadUrl')
-            if not download_url:
-                raise Exception("下载链接无效")
-            
-            # 更新Cookie
-            if download_cookie:
-                headers = headers.copy()
-                headers['Cookie'] = download_cookie
+            # 判断云盘类型并获取下载链接
+            if hasattr(cloud_service, 'get_download_url'):
+                download_result, download_cookie = cloud_service.get_download_url([file_fid])
+                
+                if download_result.get('code') != 0 and download_result.get('res_code') != 0:
+                    raise Exception(f"获取下载链接失败: {download_result.get('message', download_result.get('res_message', ''))}")
+                
+                download_data = download_result.get('data', [])
+                if not download_data:
+                    raise Exception("下载链接为空")
+                
+                download_url = download_data[0].get('download_url') or download_data[0].get('downloadUrl')
+                if not download_url:
+                    raise Exception("下载链接无效")
+                
+                # 更新Cookie
+                if download_cookie:
+                    headers = headers.copy()
+                    headers['Cookie'] = download_cookie
+            else:
+                raise Exception("云盘服务不支持获取下载链接")
             
             temp_file_path = local_file_path + '.tmp'
             
@@ -918,7 +1211,15 @@ class TaskExecutor:
                 delay = 2 ** network_retry  # 指数退避：1s, 2s, 4s, 8s, 16s
                 cls._add_log(task_id, f"   网络错误，{delay}秒后重试 ({network_retry + 1}/{max_network_retry}): {type(e).__name__}", 'warning')
                 cls._add_log(task_id, f"   已下载: {cls._format_size(downloaded_size)}", 'info')
-                time.sleep(delay)
+                
+                # 可中断的等待
+                for _ in range(int(delay * 2)):
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"   在重试等待中被停止", 'warning')
+                            return False
+                    time.sleep(0.5)
+                
                 return cls._download_file_single(task_id, file_info, cloud_service, file_fid, headers, local_file_path, retry, network_retry + 1)
             else:
                 cls._add_log(task_id, f"   网络错误超过最大重试次数: {type(e).__name__}: {str(e)}", 'error')
@@ -943,7 +1244,14 @@ class TaskExecutor:
             if retry < max_general_retry:
                 cls._add_log(task_id, f"   通用异常重试 ({retry + 1}/{max_general_retry})", 'warning')
                 cls._add_log(task_id, f"   已下载: {cls._format_size(downloaded_size)}", 'info')
-                time.sleep(2)  # 固定延迟2秒
+                
+                # 可中断的等待（2秒，每0.5秒检查一次）
+                for _ in range(4):
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"   在重试等待中被停止", 'warning')
+                            return False
+                    time.sleep(0.5)
                 return cls._download_file_single(task_id, file_info, cloud_service, file_fid, headers, local_file_path, retry + 1, network_retry)
             else:
                 cls._add_log(task_id, f"   下载异常: {error_type}: {error_msg}", 'error')
@@ -1358,13 +1666,52 @@ class TaskExecutor:
                     elif cloud_type == CloudType.CLOUD189:
                         download_headers['Referer'] = 'https://cloud.189.cn'
                     
+                    # 获取下载链接（夸克和天翼云策略不同）
+                    download_url = None
+                    if cloud_type == CloudType.QUARK:
+                        # 夸克：获取一次真实下载链接,所有分块共用(避免412错误)
+                        download_result, download_cookie = cloud_service.get_download_url([file_fid])
+                        
+                        if download_result.get('code') != 0:
+                            cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 获取下载链接失败", 'error')
+                            fail_count += 1
+                            continue
+                        
+                        download_data = download_result.get('data', [])
+                        if not download_data:
+                            cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 下载链接为空", 'error')
+                            fail_count += 1
+                            continue
+                        
+                        download_url = download_data[0].get('download_url')
+                        if not download_url:
+                            cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 下载链接无效", 'error')
+                            fail_count += 1
+                            continue
+                        
+                        # 如果返回了download_cookie，更新请求头
+                        if download_cookie:
+                            download_headers['Cookie'] = download_cookie
+                    
+                    elif cloud_type == CloudType.CLOUD189:
+                        # 天翼云：不在这里获取下载链接,使用代理机制
+                        # 代理URL会在多线程/单线程下载方法中生成
+                        pass
+                    
                     # 判断是否使用多线程下载
                     if enable_multithread and file_size >= multithread_threshold:
                         cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 文件大小 {size_mb:.2f}MB >= {multithread_threshold/(1024*1024):.0f}MB，使用多线程下载", 'info')
-                        # 大文件使用多线程下载（每个线程独立获取下载链接）
-                        download_success = cls._download_file_multithread(
-                            task_id, file_info, cloud_service, file_fid, download_headers, local_file_path
-                        )
+                        
+                        if cloud_type == CloudType.QUARK:
+                            # 夸克：使用真实下载链接
+                            download_success = cls._download_file_multithread(
+                                task_id, file_info, download_url, download_headers, local_file_path
+                            )
+                        elif cloud_type == CloudType.CLOUD189:
+                            # 天翼云：使用代理机制
+                            download_success = cls._download_file_multithread_with_proxy(
+                                task_id, file_info, cloud_service, file_fid, download_headers, local_file_path, account['id']
+                            )
                     else:
                         if not enable_multithread:
                             cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 多线程下载已禁用，使用单线程下载", 'info')
@@ -1454,6 +1801,22 @@ class TaskExecutor:
                         WHERE id = ?
                     """, (final_status, datetime.now(), logs_json, success_count, fail_count, execution_id))
                     conn.commit()
+                
+                # 如果有新内容下载成功，更新last_content_update_time
+                if success_count > 0:
+                    try:
+                        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        with get_db() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE download_tasks 
+                                SET last_content_update_time = ?, updated_at = ?
+                                WHERE id = ?
+                            """, (current_time, current_time, task_id))
+                            conn.commit()
+                        logger.info(f"[AutoExpiration] 下载任务有新内容，已重置计时器: task_id={task_id}, last_content_update_time={current_time}")
+                    except Exception as e:
+                        logger.error(f"[AutoExpiration] 更新last_content_update_time失败: {e}")
             
             # 执行关联的插件
             if execution_id:

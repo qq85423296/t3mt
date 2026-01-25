@@ -1,6 +1,41 @@
 <!-- 影视下载页面 -->
 <link rel="stylesheet" href="../css/task-list-optimize.css">
 <style>
+    /* 状态标签样式 */
+    .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 12px;
+        font-weight: 500;
+        border-radius: 4px;
+        white-space: nowrap;
+    }
+    
+    .badge-success {
+        background: #E8F5E9;
+        color: #2E7D32;
+    }
+    
+    .badge-warning {
+        background: #FFF3E0;
+        color: #E65100;
+    }
+    
+    .badge-error {
+        background: #FFEBEE;
+        color: #C62828;
+    }
+    
+    .badge-running {
+        background: #E3F2FD;
+        color: #1976D2;
+    }
+    
+    .badge-completed {
+        background: #E8F5E9;
+        color: #388E3C;
+    }
+    
     /* 进度条样式 */
     .progress-bar {
         width: 100%;
@@ -397,11 +432,30 @@
         background: #FDE68A !important;
         border-color: #FBBF24 !important;
     }
+    
+    /* 返回搜索按钮高亮样式 */
+    #backToSearchBtnModal:hover {
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%) !important;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.6) !important;
+        transform: translateY(-1px);
+        transition: all 0.2s ease;
+    }
+    
+    #backToSearchBtnModal:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 6px rgba(102, 126, 234, 0.4) !important;
+    }
 </style>
 
 <div class="toolbar">
     <div class="toolbar-title">影视下载任务</div>
-    <button class="btn btn-primary" onclick="showCreateTaskModal()">+ 新建任务</button>
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <!-- 返回搜索结果按钮（从搜索页面跳转过来时显示） -->
+        <button id="backToSearchBtn" class="btn btn-secondary" onclick="backToSearchResults()" style="display: none;">
+            ← 返回搜索结果
+        </button>
+        <button class="btn btn-primary" onclick="showCreateTaskModal()">+ 新建任务</button>
+    </div>
 </div>
 
 <table class="data-table">
@@ -411,13 +465,14 @@
             <th>官网地址</th>
             <th>保存目录</th>
             <th>执行表达式</th>
+            <th width="80">状态</th>
             <th width="150">进度</th>
-            <th width="240">操作</th>
+            <th width="280">操作</th>
         </tr>
     </thead>
     <tbody id="taskList">
         <tr>
-            <td colspan="6" style="text-align: center; padding: 40px;">
+            <td colspan="7" style="text-align: center; padding: 40px;">
                 <div class="loading">加载中...</div>
             </td>
         </tr>
@@ -429,6 +484,10 @@
     <div class="modal-content video-task-modal">
         <div class="modal-header">
             <div class="modal-title" id="modalTitle">新建影视下载任务</div>
+            <!-- 返回搜索结果按钮（从搜索页面跳转过来时显示，在关闭按钮左侧） -->
+            <button id="backToSearchBtnModal" class="btn btn-small" onclick="backToSearchResults()" style="display: none; height: 28px; padding: 0 12px; font-size: 13px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4); font-weight: 500; margin-right: 8px;">
+                ← 返回搜索
+            </button>
             <button class="modal-close" onclick="hideTaskModal()">×</button>
         </div>
         <div class="modal-body">
@@ -586,6 +645,16 @@
                     </div>
                     <div id="videoPreviewResult" style="display: none; margin-top: 8px; padding: 12px; 
                          background: #f5f5f5; border-radius: 4px; font-size: 13px; line-height: 1.6;"></div>
+                </div>
+            </div>
+            
+            <!-- 名称过滤配置 -->
+            <div class="form-section">
+                <div class="form-group">
+                    <label class="form-label">排除关键词</label>
+                    <input type="text" class="form-input" id="excludeKeywords" 
+                           placeholder="例如: 预告|花絮|片花" />
+                    <div class="form-hint">输入关键词，多个关键词用 | 分割，下载时将跳过包含这些关键词的剧集</div>
                 </div>
             </div>
             
@@ -788,7 +857,7 @@
     // 加载任务列表
     async function loadTasks() {
         const tbody = document.getElementById('taskList');
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
 
         try {
             const result = await VideoAPI.getList();
@@ -796,11 +865,11 @@
             if (result.code === 200 && result.data) {
                 displayTasks(result.data);
             } else {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
             }
         } catch (error) {
             console.error('加载任务列表失败:', error);
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
         }
     }
 
@@ -809,17 +878,35 @@
         const tbody = document.getElementById('taskList');
         
         if (!tasks || tasks.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
             return;
         }
 
         tbody.innerHTML = tasks.map(task => {
             const progress = task.progress || 0;
-            const statusText = task.status === 'running' ? '运行中' : 
-                             task.status === 'paused' ? '已暂停' : 
-                             task.status === 'completed' ? '已完成' : '等待中';
-            const statusColor = task.status === 'running' ? '#1890ff' : 
-                              task.status === 'completed' ? '#52c41a' : '#999';
+            
+            // 状态显示和按钮文本逻辑
+            // draft(新建) -> 显示"新建"，按钮为"发布"
+            // active(生效) -> 显示"生效"，按钮为"下线"
+            // inactive(失效) -> 显示"失效"，按钮为"发布"
+            // 兼容旧状态：waiting/idle -> draft, disabled -> inactive, running/completed保持原样
+            let normalizedStatus = task.status;
+            if (task.status === 'waiting' || task.status === 'idle') normalizedStatus = 'draft';
+            if (task.status === 'disabled') normalizedStatus = 'inactive';
+            
+            const statusClass = normalizedStatus === 'active' ? 'badge-success' : 
+                              normalizedStatus === 'draft' ? 'badge-warning' : 
+                              normalizedStatus === 'inactive' ? 'badge-error' :
+                              normalizedStatus === 'running' ? 'badge-running' : 
+                              normalizedStatus === 'completed' ? 'badge-completed' : 'badge-warning';
+            const statusText = normalizedStatus === 'active' ? '生效' : 
+                             normalizedStatus === 'draft' ? '新建' : 
+                             normalizedStatus === 'inactive' ? '失效' :
+                             normalizedStatus === 'running' ? '运行中' : 
+                             normalizedStatus === 'completed' ? '已完成' : '等待中';
+            
+            // 按钮文本：新建和失效状态显示"发布"，生效状态显示"下线"
+            const toggleButtonText = (normalizedStatus === 'draft' || normalizedStatus === 'inactive') ? '发布' : '下线';
             
             // 显示平台标识
             const platformText = task.platform === 'tencent' ? '腾讯视频' : 
@@ -837,21 +924,22 @@
                     </td>
                     <td>${task.save_directory}</td>
                     <td>${CronConfig.parseCronExpression(task.cron_expression)}</td>
+                    <td><span class="badge ${statusClass}">${statusText}</span></td>
                     <td>
                         <div class="progress-bar">
                             <div class="progress-fill" style="width: ${progress}%">
                                 ${progress}%
                             </div>
                         </div>
-                        <div style="font-size: 12px; color: ${statusColor}; margin-top: 4px;">
-                            ${statusText} (${task.downloaded_episodes || 0}/${task.total_episodes || 0})
+                        <div style="font-size: 12px; color: #999; margin-top: 4px;">
+                            (${task.downloaded_episodes || 0}/${task.total_episodes || 0})
                         </div>
                     </td>
                     <td>
                         <div class="action-buttons">
                             <button class="btn btn-small btn-execute" onclick="executeTask(${task.id})" title="立即执行一次">▶️ 执行</button>
                             <button class="btn btn-small btn-edit" onclick="editTask(${task.id})" title="编辑任务">✏️ 编辑</button>
-                            <button class="btn btn-small ${task.status === 'running' ? 'btn-stop' : 'btn-start'}" onclick="toggleTask(${task.id})" title="${task.status === 'running' ? '停止定时任务' : '启动定时任务'}">${task.status === 'running' ? '⏸️ 停止' : '▶️ 启动'}</button>
+                            <button class="btn btn-small" onclick="toggleTask(${task.id})" title="${toggleButtonText}任务">${toggleButtonText}</button>
                             <button class="btn btn-small btn-warning" onclick="clearTaskFailures(${task.id})" title="清除失败记录">🔄 清除失败</button>
                             <button class="btn btn-small btn-delete icon-only" onclick="deleteTask(${task.id})" title="删除任务">删除</button>
                         </div>
@@ -913,6 +1001,10 @@
                 if (videoRegexPatternEl) videoRegexPatternEl.value = task.regex_pattern || '';
                 if (videoReplacementPatternEl) videoReplacementPatternEl.value = task.replacement_pattern || '';
                 if (videoPreviewResultEl) videoPreviewResultEl.style.display = 'none';
+                
+                // 恢复排除关键词配置
+                const excludeKeywordsEl = document.getElementById('excludeKeywords');
+                if (excludeKeywordsEl) excludeKeywordsEl.value = task.exclude_keywords || '';
                 
                 // 恢复剧集数据
                 episodeData = task.episodes || [];
@@ -1302,13 +1394,15 @@
         modal.classList.remove('show');
     }
 
-    // 切换任务状态（全局函数）
+    // 切换任务状态（发布/下线）（全局函数）
     window.toggleTask = async function(taskId) {
         try {
             const result = await VideoAPI.toggle(taskId);
             
             if (result.code === 200) {
-                Message.success('状态更新成功');
+                const newStatus = result.data?.status || result.data;
+                const statusText = newStatus === 'active' ? '已发布' : '已下线';
+                Message.success(`任务${statusText}`);
                 loadTasks();
             } else {
                 Message.error(result.message || '操作失败');
@@ -1435,6 +1529,10 @@
         if (videoReplacementPatternEl) videoReplacementPatternEl.value = '';
         if (videoPreviewFilenameEl) videoPreviewFilenameEl.value = '';
         if (videoPreviewResultEl) videoPreviewResultEl.style.display = 'none';
+        
+        // 重置排除关键词配置
+        const excludeKeywordsEl = document.getElementById('excludeKeywords');
+        if (excludeKeywordsEl) excludeKeywordsEl.value = '';
         
         episodeData = [];
         currentPlatform = null;
@@ -1804,6 +1902,10 @@
         const regexPattern = videoRegexPatternEl ? (videoRegexPatternEl.value.trim() || null) : null;
         const replacementPattern = videoReplacementPatternEl ? (videoReplacementPatternEl.value.trim() || null) : null;
         
+        // 获取排除关键词配置
+        const excludeKeywordsEl = document.getElementById('excludeKeywords');
+        const excludeKeywords = excludeKeywordsEl ? (excludeKeywordsEl.value.trim() || null) : null;
+        
         if (!name) {
             Message.warning('请输入任务名称');
             return;
@@ -1883,7 +1985,9 @@
                 retry_interval: retryInterval,
                 // 正则替换配置
                 regex_pattern: regexPattern,
-                replacement_pattern: replacementPattern
+                replacement_pattern: replacementPattern,
+                // 排除关键词配置
+                exclude_keywords: excludeKeywords
             };
             
             let result;
@@ -1916,6 +2020,18 @@
         }
     }
 
+    // 返回搜索结果页面
+    function backToSearchResults() {
+        // 跳转到搜索页面（搜索页面会自动恢复状态）
+        const searchMenuItem = document.querySelector('.menu-item[data-page="search"]');
+        if (searchMenuItem) {
+            searchMenuItem.click();
+        }
+        
+        // 不需要设置 clearSearchStateAfterRestore，因为 searchState 需要保留以便恢复搜索结果
+        // fromSearchPage 标记已经在页面加载时被清除了
+    }
+
     // 暴露需要在HTML中调用的函数到window对象
     window.showCreateTaskModal = showCreateTaskModal;
     window.hideTaskModal = hideTaskModal;
@@ -1926,6 +2042,7 @@
     window.closeExecuteLogModal = closeExecuteLogModal;
     window.toggleTask = toggleTask;
     window.deleteTask = deleteTask;
+    window.backToSearchResults = backToSearchResults;
     
     // 正则预览函数（影视下载专用）
     window.previewVideoRegex = async function() {
@@ -1988,6 +2105,39 @@
             }
         });
     }
+    
+    // 检查是否有搜索状态（从搜索页面跳转过来）
+    const searchState = sessionStorage.getItem('searchState');
+    const fromSearchPage = sessionStorage.getItem('fromSearchPage');
+    
+    if (searchState && fromSearchPage === 'true') {
+        try {
+            const state = JSON.parse(searchState);
+            // 检查状态是否在24小时内
+            const stateAge = Date.now() - state.timestamp;
+            const maxAge = 24 * 60 * 60 * 1000; // 24小时
+            
+            if (stateAge < maxAge) {
+                // 显示弹窗内的返回按钮
+                const backBtnModal = document.getElementById('backToSearchBtnModal');
+                if (backBtnModal) {
+                    backBtnModal.style.display = 'inline-block';
+                    console.log('检测到搜索状态，显示弹窗返回按钮');
+                }
+                
+                // 同时显示工具栏的返回按钮（保留）
+                const backBtn = document.getElementById('backToSearchBtn');
+                if (backBtn) {
+                    backBtn.style.display = 'inline-block';
+                }
+            }
+        } catch (e) {
+            console.error('解析搜索状态失败:', e);
+        }
+    }
+    
+    // 清除来源标记（只在首次加载时显示按钮）
+    sessionStorage.removeItem('fromSearchPage');
     
     // 检查是否有待添加的影视任务
     const pendingTask = sessionStorage.getItem('pendingVideoTask');

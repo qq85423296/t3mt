@@ -5,6 +5,11 @@ Flask应用主文件
 from flask import Flask, session, request, send_from_directory
 from flask_cors import CORS
 import os
+import warnings
+
+# 禁用urllib3的SSL警告
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from config import Config
 from database import get_db
@@ -28,6 +33,11 @@ def create_app():
                 static_folder=frontend_dir,
                 static_url_path='')
     app.config.from_object(Config)
+    
+    # 禁用Flask的HTTP请求日志
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
     
     # 启用CORS（API接口需要）
     CORS(app, 
@@ -131,15 +141,12 @@ def main():
     """主函数"""
     try:
         # 初始化许可证管理器并获取解密密钥
-        logger.info("初始化许可证管理器...")
         try:
             from utils.license_manager import license_manager
             if license_manager.ensure_decryption_key():
-                logger.info("解密密钥获取成功，配置已就绪")
                 # 加载夸克API配置
                 try:
                     Config.ensure_quark_config()
-                    logger.info("夸克API配置加载完成")
                 except Exception as e:
                     logger.error(f"夸克API配置加载失败: {e}")
             else:
@@ -149,22 +156,17 @@ def main():
             logger.warning("将以降级模式运行，部分功能可能不可用")
         
         # 确保数据库已初始化
-        logger.info("检查数据库...")
         if not os.path.exists(Config.DATABASE_PATH):
             logger.info("数据库不存在，正在初始化...")
             from database import _get_db_instance
             _get_db_instance().init_database()
-        logger.info("数据库检查完成")
         
         # 执行数据库迁移（必须成功）
-        logger.info("检查数据库迁移...")
         migration_success = False
         try:
             from migrations.run_migrations import run_migrations
             migration_success = run_migrations()
-            if migration_success:
-                logger.info("数据库迁移检查完成")
-            else:
+            if not migration_success:
                 logger.error("数据库迁移执行失败")
         except Exception as e:
             logger.error(f"数据库迁移检查失败: {e}")
@@ -204,15 +206,15 @@ def main():
                 if interrupted_count > 0:
                     logger.info(f"已清理 {interrupted_count} 个异常中断的任务")
                 
-                # 将所有downloading状态的影视下载任务更新为waiting
+                # 将所有downloading状态的影视下载任务更新为draft（而不是waiting）
                 cursor.execute('''
                     UPDATE video_tasks 
-                    SET status = 'waiting', progress = 0
+                    SET status = 'draft', progress = 0
                     WHERE status = 'downloading'
                 ''')
                 video_interrupted_count = cursor.rowcount
                 if video_interrupted_count > 0:
-                    logger.info(f"已重置 {video_interrupted_count} 个影视下载任务状态")
+                    logger.info(f"已重置 {video_interrupted_count} 个影视下载任务状态为draft")
                 
         except Exception as e:
             logger.error(f"清理任务状态失败: {e}")

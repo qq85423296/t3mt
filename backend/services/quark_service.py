@@ -454,7 +454,18 @@ class QuarkService:
     # ========== 分享与转存 ==========
     
     def get_stoken(self, pwd_id, passcode=""):
-        """获取分享令牌"""
+        """
+        获取分享令牌(可验证资源是否失效)
+        
+        参考: quark-auto-save项目的实现
+        
+        Args:
+            pwd_id: 分享ID
+            passcode: 提取码(可选)
+        
+        Returns:
+            dict: API响应,包含status和code等信息
+        """
         url = f"{self.base_url}/1/clouddrive/share/sharepage/token"
         params = {"pr": "ucpro", "fr": "pc"}
         payload = {"pwd_id": pwd_id, "passcode": passcode}
@@ -463,13 +474,23 @@ class QuarkService:
     
     def check_share_link(self, share_url):
         """
-        检查分享链接有效性
+        检查分享链接有效性(统一接口)
+        
+        参考quark-auto-save项目的检测逻辑:
+        通过get_stoken验证链接是否有效,根据返回的status和code判断
         
         Args:
             share_url: 分享链接
         
         Returns:
-            dict: 包含is_valid和相关信息的字典
+            dict: {
+                'is_valid': bool,  # 链接是否有效
+                'status': str,     # 状态描述
+                'code': int,       # 错误码(如果有)
+                'message': str,    # 详细信息
+                'file_count': int, # 文件数量(如果有效)
+                'share_title': str # 分享标题(如果有效)
+            }
         """
         try:
             # 解析分享链接
@@ -478,50 +499,85 @@ class QuarkService:
             if not pwd_id:
                 return {
                     'is_valid': False,
+                    'status': '链接格式错误',
+                    'code': -1,
                     'message': '无效的分享链接格式'
                 }
             
-            # 获取分享令牌
+            logger.info(f"检查夸克链接: pwd_id={pwd_id}, passcode={passcode}, folder_id={folder_id}")
+            
+            # 获取分享令牌(同时验证链接有效性)
             token_result = self.get_stoken(pwd_id, passcode)
+            logger.info(f"get_stoken返回: {token_result}")
             
-            if token_result.get('code') != 0:
+            # 参考quark-auto-save项目的判断逻辑
+            # status=200 且 code=0 表示链接有效
+            if token_result.get('status') == 200 and token_result.get('code') == 0:
+                # 链接有效
+                stoken = token_result.get('data', {}).get('stoken')
+                logger.info(f"链接有效, stoken={stoken}")
+                
+                if stoken:
+                    try:
+                        # 尝试获取分享详情(获取文件数量等信息)
+                        detail_result = self.get_share_detail(pwd_id, stoken, folder_id or "0")
+                        if detail_result.get('code') == 0:
+                            data = detail_result.get('data', {})
+                            file_list = data.get('list', [])
+                            logger.info(f"获取到分享详情, 文件数量: {len(file_list)}")
+                            return {
+                                'is_valid': True,
+                                'status': '正常',
+                                'code': 0,
+                                'message': '链接有效',
+                                'file_count': len(file_list),
+                                'share_title': data.get('title', '')
+                            }
+                        else:
+                            logger.warning(f"获取分享详情失败: {detail_result}")
+                    except Exception as detail_error:
+                        logger.warning(f"获取分享详情异常: {detail_error}")
+                
+                # 即使获取详情失败,只要token有效就说明链接有效
                 return {
-                    'is_valid': False,
-                    'message': token_result.get('message', '链接已失效或不存在')
+                    'is_valid': True,
+                    'status': '正常',
+                    'code': 0,
+                    'message': '链接有效'
                 }
             
-            stoken = token_result.get('data', {}).get('stoken')
-            if not stoken:
-                return {
-                    'is_valid': False,
-                    'message': '无法获取分享令牌'
-                }
+            # 链接无效,根据code返回具体原因
+            code = token_result.get('code', -1)
+            message = token_result.get('message', '未知错误')
+            status_code = token_result.get('status')
             
-            # 获取分享详情
-            detail_result = self.get_share_detail(pwd_id, stoken)
+            logger.info(f"链接无效: status={status_code}, code={code}, message={message}")
             
-            if detail_result.get('code') != 0:
-                return {
-                    'is_valid': False,
-                    'message': detail_result.get('message', '无法获取分享详情')
-                }
-            
-            # 链接有效，返回文件信息
-            data = detail_result.get('data', {})
-            file_list = data.get('list', [])
+            # 根据错误码判断具体原因
+            if code == 31001:
+                status = '分享已失效'
+            elif code == 31002:
+                status = '分享违规'
+            elif code == 31003:
+                status = '密码错误'
+            elif status_code == 500:
+                status = '网络异常'
+            else:
+                status = f'异常({code})'
             
             return {
-                'is_valid': True,
-                'message': '链接有效',
-                'file_count': len(file_list),
-                'share_title': data.get('title', ''),
-                'share_author': data.get('nickname', '')
+                'is_valid': False,
+                'status': status,
+                'code': code,
+                'message': message
             }
             
         except Exception as e:
-            logger.error(f"检查分享链接失败: {e}")
+            logger.error(f"检查夸克分享链接失败: {e}", exc_info=True)
             return {
                 'is_valid': False,
+                'status': '检查失败',
+                'code': -1,
                 'message': f'检测失败: {str(e)}'
             }
     

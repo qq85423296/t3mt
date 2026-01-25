@@ -54,6 +54,9 @@
     <div class="toolbar-title">
         <span id="cloudTypeTitle">我的云盘</span>
         <span id="cloudTypeBadge" class="cloud-type-badge" style="display: none;"></span>
+        <span id="selectedCount" style="margin-left: 12px; color: #666; font-size: 14px; display: none;">
+            已选择 <span id="selectedCountNum">0</span> 项
+        </span>
     </div>
     <div class="toolbar-actions">
         <select class="filter-select" id="accountSelect" onchange="switchAccount()">
@@ -61,6 +64,7 @@
         </select>
         <button class="btn" onclick="refreshFiles()">🔄 刷新</button>
         <button class="btn btn-primary" onclick="showCreateFolderModal()">+ 新建文件夹</button>
+        <button class="btn btn-danger" id="batchDeleteBtn" onclick="batchDeleteFiles()" style="display: none;">🗑️ 批量删除</button>
     </div>
 </div>
 
@@ -578,6 +582,82 @@
     window.updateSelection = function() {
         selectedFiles = Array.from(document.querySelectorAll('.file-checkbox:checked'))
             .map(cb => cb.value);
+        
+        // 更新选中数量显示
+        const selectedCountEl = document.getElementById('selectedCount');
+        const selectedCountNumEl = document.getElementById('selectedCountNum');
+        const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+        
+        if (selectedFiles.length > 0) {
+            selectedCountEl.style.display = 'inline';
+            selectedCountNumEl.textContent = selectedFiles.length;
+            batchDeleteBtn.style.display = 'inline-block';
+        } else {
+            selectedCountEl.style.display = 'none';
+            batchDeleteBtn.style.display = 'none';
+        }
+        
+        // 更新全选复选框状态
+        const allCheckboxes = document.querySelectorAll('.file-checkbox');
+        const selectAllCheckbox = document.getElementById('selectAll');
+        if (allCheckboxes.length > 0) {
+            selectAllCheckbox.checked = selectedFiles.length === allCheckboxes.length;
+            selectAllCheckbox.indeterminate = selectedFiles.length > 0 && selectedFiles.length < allCheckboxes.length;
+        }
+    }
+    
+    // 批量删除文件
+    window.batchDeleteFiles = async function() {
+        if (selectedFiles.length === 0) {
+            Message.warning('请先选择要删除的文件');
+            return;
+        }
+        
+        if (!confirm(`确定要删除选中的 ${selectedFiles.length} 个文件/文件夹吗？\n\n此操作不可恢复！`)) {
+            return;
+        }
+        
+        // 显示加载提示
+        Message.info(`正在删除 ${selectedFiles.length} 个文件...`);
+        
+        try {
+            // 获取选中文件的信息（用于天翼云盘删除）
+            const fileInfos = [];
+            selectedFiles.forEach(fileId => {
+                const checkbox = document.querySelector(`.file-checkbox[value="${fileId}"]`);
+                if (checkbox) {
+                    const row = checkbox.closest('tr');
+                    const nameCell = row.querySelector('.file-name');
+                    const folderNameEl = nameCell.querySelector('.folder-name');
+                    const isFolder = !!folderNameEl;
+                    const fileName = (folderNameEl || nameCell.querySelector('span:last-child')).textContent.trim();
+                    
+                    fileInfos.push({
+                        name: fileName,
+                        isFolder: isFolder
+                    });
+                }
+            });
+            
+            const result = await QuarkAPI.deleteFiles(currentAccountId, selectedFiles, fileInfos);
+            
+            if (result.code === 200) {
+                Message.success(`成功删除 ${selectedFiles.length} 个文件`);
+                
+                // 清空选择
+                selectedFiles = [];
+                document.getElementById('selectAll').checked = false;
+                updateSelection();
+                
+                // 刷新列表
+                loadFiles();
+            } else {
+                Message.error(result.message || '批量删除失败');
+            }
+        } catch (error) {
+            console.error('批量删除文件失败:', error);
+            Message.error('批量删除失败');
+        }
     }
 
     // HTML转义函数

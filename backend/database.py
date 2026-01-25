@@ -82,7 +82,7 @@ class Database:
                 ON quark_accounts(status)
             ''')
             
-            # 创建转存任务表（包含schedule_period字段、正则替换字段和cloud_type字段）
+            # 创建转存任务表（包含schedule_period字段、正则替换字段、cloud_type字段和last_content_update_time字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS transfer_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,9 +101,10 @@ class Database:
                     end_date DATE,
                     cron_expression VARCHAR(50) NOT NULL,
                     schedule_period VARCHAR(20) DEFAULT 'daily',
-                    status VARCHAR(20) DEFAULT 'running',
+                    status VARCHAR(20) DEFAULT 'draft',
                     last_execute_time DATETIME,
                     next_execute_time DATETIME,
+                    last_content_update_time DATETIME,
                     regex_pattern TEXT,
                     replacement_pattern TEXT,
                     check_mode VARCHAR(20) DEFAULT 'replaced',
@@ -140,7 +141,31 @@ class Database:
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN target_folder_id VARCHAR(100)")
                 print("✅ transfer_tasks表已添加target_folder_id字段（用于快速定位目录）")
             
-            # 创建下载任务表（包含filter_extensions、include_extensions、正则替换字段和cloud_type字段）
+            # 迁移：为已存在的transfer_tasks表添加last_content_update_time字段
+            try:
+                cursor.execute("SELECT last_content_update_time FROM transfer_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN last_content_update_time DATETIME")
+                print("✅ transfer_tasks表已添加last_content_update_time字段（用于自动失效检测）")
+            
+            # 迁移：更新transfer_tasks表的status字段值（从旧状态到新状态）
+            # running -> active (生效)
+            # paused -> inactive (失效)
+            # 其他保持不变
+            try:
+                cursor.execute("SELECT status FROM transfer_tasks WHERE status IN ('running', 'paused') LIMIT 1")
+                old_status_exists = cursor.fetchone()
+                if old_status_exists:
+                    cursor.execute("UPDATE transfer_tasks SET status = 'active' WHERE status = 'running'")
+                    cursor.execute("UPDATE transfer_tasks SET status = 'inactive' WHERE status = 'paused'")
+                    updated_count = cursor.rowcount
+                    if updated_count > 0:
+                        print(f"✅ transfer_tasks表已更新状态字段：{updated_count} 条记录从旧状态迁移到新状态")
+            except Exception as e:
+                print(f"⚠️ transfer_tasks状态迁移失败（可能是新安装）: {e}")
+            
+            # 创建下载任务表（包含filter_extensions、include_extensions、正则替换字段、cloud_type字段和last_content_update_time字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS download_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,10 +181,11 @@ class Database:
                     delete_after_download TINYINT DEFAULT 0,
                     regex_pattern TEXT,
                     replacement_pattern TEXT,
-                    status VARCHAR(20) DEFAULT 'running',
+                    status VARCHAR(20) DEFAULT 'draft',
                     progress INTEGER DEFAULT 0,
                     last_execute_time DATETIME,
                     next_execute_time DATETIME,
+                    last_content_update_time DATETIME,
                     cloud_type VARCHAR(20) DEFAULT 'quark',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -184,6 +210,29 @@ class Database:
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN source_folder_id VARCHAR(100)")
                 print("✅ download_tasks表已添加source_folder_id字段（用于快速定位目录）")
             
+            # 迁移：为已存在的download_tasks表添加last_content_update_time字段
+            try:
+                cursor.execute("SELECT last_content_update_time FROM download_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE download_tasks ADD COLUMN last_content_update_time DATETIME")
+                print("✅ download_tasks表已添加last_content_update_time字段（用于自动失效检测）")
+            
+            # 迁移：更新download_tasks表的status字段值（从旧状态到新状态）
+            # running -> active (生效)
+            # paused -> inactive (失效)
+            try:
+                cursor.execute("SELECT status FROM download_tasks WHERE status IN ('running', 'paused') LIMIT 1")
+                old_status_exists = cursor.fetchone()
+                if old_status_exists:
+                    cursor.execute("UPDATE download_tasks SET status = 'active' WHERE status = 'running'")
+                    cursor.execute("UPDATE download_tasks SET status = 'inactive' WHERE status = 'paused'")
+                    updated_count = cursor.rowcount
+                    if updated_count > 0:
+                        print(f"✅ download_tasks表已更新状态字段：{updated_count} 条记录从旧状态迁移到新状态")
+            except Exception as e:
+                print(f"⚠️ download_tasks状态迁移失败（可能是新安装）: {e}")
+            
             # 创建影视下载任务表（包含create_subfolder、集数选择、影视类型和cloud_type字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS video_tasks (
@@ -196,7 +245,7 @@ class Database:
                     cron_expression VARCHAR(100) NOT NULL,
                     episodes_json TEXT,
                     video_info_json TEXT,
-                    status VARCHAR(20) DEFAULT 'waiting',
+                    status VARCHAR(20) DEFAULT 'draft',
                     progress INTEGER DEFAULT 0,
                     downloaded_episodes INTEGER DEFAULT 0,
                     create_subfolder INTEGER DEFAULT 0,
@@ -218,6 +267,30 @@ class Database:
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN regex_pattern TEXT")
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN replacement_pattern TEXT")
                 print("✅ video_tasks表已添加正则替换字段")
+            
+            # 迁移：为已存在的video_tasks表添加排除关键词字段
+            try:
+                cursor.execute("SELECT exclude_keywords FROM video_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE video_tasks ADD COLUMN exclude_keywords TEXT")
+                print("✅ video_tasks表已添加排除关键词字段")
+            
+            # 迁移：更新video_tasks表的status字段值（从旧状态到新状态）
+            # waiting/idle -> draft (新建)
+            # disabled -> inactive (失效)
+            # 其他状态保持不变（running, completed等）
+            try:
+                cursor.execute("SELECT status FROM video_tasks WHERE status IN ('waiting', 'idle', 'disabled') LIMIT 1")
+                old_status_exists = cursor.fetchone()
+                if old_status_exists:
+                    cursor.execute("UPDATE video_tasks SET status = 'draft' WHERE status IN ('waiting', 'idle')")
+                    cursor.execute("UPDATE video_tasks SET status = 'inactive' WHERE status = 'disabled'")
+                    updated_count = cursor.rowcount
+                    if updated_count > 0:
+                        print(f"✅ video_tasks表已更新状态字段：{updated_count} 条记录从旧状态迁移到新状态")
+            except Exception as e:
+                print(f"⚠️ video_tasks状态迁移失败（可能是新安装）: {e}")
             
             # 创建任务执行历史表（包含schedule_period字段和唯一约束）
             cursor.execute('''

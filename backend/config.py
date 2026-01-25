@@ -108,7 +108,6 @@ class Config:
         cls.QUARK_BASE_URL = quark_config['base_url']
         cls.QUARK_BASE_URL_APP = quark_config['base_url_app']
         cls.QUARK_USER_AGENT = quark_config['user_agent']
-        logger.info("夸克API配置加载成功")
         return quark_config
     
     @classmethod

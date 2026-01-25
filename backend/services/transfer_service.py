@@ -132,7 +132,7 @@ class TransferService:
                     task_data.get('replacement_pattern'),
                     task_data.get('check_mode', 'replaced'),
                     cloud_type,
-                    'running',
+                    'draft',  # 新建任务默认为草稿状态
                     datetime.now(),
                     datetime.now()
                 ))
@@ -214,7 +214,7 @@ class TransferService:
     
     @staticmethod
     def toggle_task_status(task_id):
-        """切换任务状态（运行/暂停）"""
+        """切换任务状态（发布/下线）"""
         try:
             with get_db() as conn:
                 cursor = conn.cursor()
@@ -227,7 +227,18 @@ class TransferService:
                     raise ValueError(f"任务不存在: ID {task_id}")
                 
                 current_status = result['status']
-                new_status = 'paused' if current_status == 'running' else 'running'
+                
+                # 状态转换逻辑：
+                # draft(新建) -> active(生效)
+                # inactive(失效) -> active(生效)
+                # active(生效) -> inactive(失效)
+                if current_status in ['draft', 'inactive']:
+                    new_status = 'active'
+                elif current_status == 'active':
+                    new_status = 'inactive'
+                else:
+                    # 兼容旧状态
+                    new_status = 'active'
                 
                 cursor.execute("""
                     UPDATE transfer_tasks SET status = ?, updated_at = ?
