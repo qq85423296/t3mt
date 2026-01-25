@@ -155,11 +155,10 @@ def main():
             logger.error(f"许可证管理器初始化失败: {e}")
             logger.warning("将以降级模式运行，部分功能可能不可用")
         
-        # 确保数据库已初始化
-        if not os.path.exists(Config.DATABASE_PATH):
-            logger.info("数据库不存在，正在初始化...")
-            from database import _get_db_instance
-            _get_db_instance().init_database()
+        # 确保数据库已初始化（每次启动都执行，包含迁移逻辑）
+        logger.info("正在初始化数据库...")
+        from database import _get_db_instance
+        _get_db_instance().init_database()
         
         # 执行数据库迁移（必须成功）
         migration_success = False
