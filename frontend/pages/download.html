@@ -430,6 +430,14 @@
                     <div class="form-hint">使用正则表达式自动重命名下载的文件，留空则不替换</div>
                 </div>
                 
+                <!-- 排除关键词配置 -->
+                <div class="form-group">
+                    <label class="form-label">排除关键词</label>
+                    <input type="text" class="form-input" id="dlExcludeKeywords" 
+                           placeholder="输入关键词，多个关键词用 | 分割 (如: 火力全员|预告|花絮)" />
+                    <div class="form-hint">下载时将跳过包含这些关键词的文件，多个关键词用 | 分割</div>
+                </div>
+                
                 <div class="form-group">
                     <label class="form-label">预览效果</label>
                     <div class="input-with-button">
@@ -824,11 +832,13 @@
         // 重置正则替换字段（添加空值检查）
         const dlRegexPattern = document.getElementById('dlRegexPattern');
         const dlReplacementPattern = document.getElementById('dlReplacementPattern');
+        const dlExcludeKeywords = document.getElementById('dlExcludeKeywords');
         const dlPreviewFilename = document.getElementById('dlPreviewFilename');
         const dlPreviewResult = document.getElementById('dlPreviewResult');
         
         if (dlRegexPattern) dlRegexPattern.value = '';
         if (dlReplacementPattern) dlReplacementPattern.value = '';
+        if (dlExcludeKeywords) dlExcludeKeywords.value = '';
         if (dlPreviewFilename) dlPreviewFilename.value = '';
         if (dlPreviewResult) dlPreviewResult.style.display = 'none';
     }
@@ -1127,9 +1137,10 @@
             return;
         }
 
-        // 获取正则字段（添加空值检查）
+        // 获取正则字段和排除关键词（添加空值检查）
         const dlRegexPatternEl = document.getElementById('dlRegexPattern');
         const dlReplacementPatternEl = document.getElementById('dlReplacementPattern');
+        const dlExcludeKeywordsEl = document.getElementById('dlExcludeKeywords');
         
         const taskData = {
             name,
@@ -1144,7 +1155,8 @@
             delete_after_download: document.getElementById('deleteAfterDownload').checked ? 1 : 0,
             cron_expression: cronExpression,
             regex_pattern: dlRegexPatternEl ? (dlRegexPatternEl.value.trim() || null) : null,
-            replacement_pattern: dlReplacementPatternEl ? (dlReplacementPatternEl.value.trim() || null) : null
+            replacement_pattern: dlReplacementPatternEl ? (dlReplacementPatternEl.value.trim() || null) : null,
+            exclude_keywords: dlExcludeKeywordsEl ? (dlExcludeKeywordsEl.value.trim() || null) : null  // 新增：排除关键词
         };
 
         try {
@@ -1225,11 +1237,13 @@
         // 回填正则替换字段（添加空值检查）
         const dlRegexPattern = document.getElementById('dlRegexPattern');
         const dlReplacementPattern = document.getElementById('dlReplacementPattern');
+        const dlExcludeKeywords = document.getElementById('dlExcludeKeywords');
         const dlPreviewFilename = document.getElementById('dlPreviewFilename');
         const dlPreviewResult = document.getElementById('dlPreviewResult');
         
         if (dlRegexPattern) dlRegexPattern.value = task.regex_pattern || '';
         if (dlReplacementPattern) dlReplacementPattern.value = task.replacement_pattern || '';
+        if (dlExcludeKeywords) dlExcludeKeywords.value = task.exclude_keywords || '';
         if (dlPreviewFilename) dlPreviewFilename.value = '';
         if (dlPreviewResult) dlPreviewResult.style.display = 'none';
     }

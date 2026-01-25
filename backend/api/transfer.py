@@ -427,6 +427,70 @@ def execute_task(task_id):
                             success_count += 1
                             # 统计实际转存的文件数
                             total_files += result.get('total_count', 1)
+                            
+                            # ========== 新增：排除关键词过滤 ==========
+                            exclude_keywords = task.get('exclude_keywords')
+                            if exclude_keywords:
+                                try:
+                                    # 解析排除关键词
+                                    exclude_keyword_list = [kw.strip() for kw in exclude_keywords.split('|') if kw.strip()]
+                                    if exclude_keyword_list:
+                                        add_log(f"[{idx}/{len(share_urls)}] 开始清理包含排除关键词的文件...", 'info')
+                                        add_log(f"[{idx}/{len(share_urls)}] 排除关键词: {', '.join(exclude_keyword_list)}", 'info')
+                                        
+                                        # 获取目标文件夹的文件列表
+                                        if cloud_type == 'cloud189':
+                                            files_result = cloud_service.list_files(target_folder_id)
+                                        else:
+                                            # 夸克网盘
+                                            from services.quark_service import QuarkService
+                                            files_result = cloud_service.list_files(target_folder_id)
+                                        
+                                        if files_result.get('success') and files_result.get('files'):
+                                            files_to_delete = []
+                                            for file_item in files_result['files']:
+                                                file_name = file_item.get('name', '')
+                                                # 检查文件名是否包含排除关键词
+                                                for keyword in exclude_keyword_list:
+                                                    if keyword in file_name:
+                                                        files_to_delete.append(file_item)
+                                                        add_log(f"[{idx}/{len(share_urls)}] 发现需要删除的文件: {file_name} (包含关键词'{keyword}')", 'info')
+                                                        break
+                                            
+                                            # 批量删除文件
+                                            if files_to_delete:
+                                                deleted_count = 0
+                                                for file_item in files_to_delete:
+                                                    try:
+                                                        file_id = file_item.get('fid') or file_item.get('id')
+                                                        file_name = file_item.get('name', '')
+                                                        
+                                                        if cloud_type == 'cloud189':
+                                                            delete_result = cloud_service.delete_file(file_id)
+                                                        else:
+                                                            # 夸克网盘
+                                                            delete_result = cloud_service.delete_file(file_id)
+                                                        
+                                                        if delete_result.get('success'):
+                                                            deleted_count += 1
+                                                            add_log(f"[{idx}/{len(share_urls)}] 已删除: {file_name}", 'info')
+                                                        else:
+                                                            add_log(f"[{idx}/{len(share_urls)}] 删除失败: {file_name}", 'warning')
+                                                    except Exception as del_e:
+                                                        logger.error(f"删除文件失败: {del_e}")
+                                                        add_log(f"[{idx}/{len(share_urls)}] 删除文件异常: {str(del_e)}", 'warning')
+                                                
+                                                add_log(f"[{idx}/{len(share_urls)}] 清理完成，共删除 {deleted_count} 个文件", 'success')
+                                                # 更新实际文件数（减去被删除的文件）
+                                                total_files -= deleted_count
+                                            else:
+                                                add_log(f"[{idx}/{len(share_urls)}] 未发现需要清理的文件", 'info')
+                                        else:
+                                            add_log(f"[{idx}/{len(share_urls)}] 无法获取文件列表，跳过清理", 'warning')
+                                except Exception as filter_e:
+                                    logger.error(f"排除关键词过滤失败: {filter_e}", exc_info=True)
+                                    add_log(f"[{idx}/{len(share_urls)}] 排除关键词过滤失败: {str(filter_e)}", 'warning')
+                            # ========== 排除关键词过滤结束 ==========
                         else:
                             add_log(f"[{idx}/{len(share_urls)}] 转存失败: {result.get('message', '未知错误')}", 'error')
                             fail_count += 1

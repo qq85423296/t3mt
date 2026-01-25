@@ -1532,6 +1532,49 @@ class TaskExecutor:
                 filtered_files = [f for f in filtered_files if any(get_file_name(f).endswith(ext) for ext in exts)]
                 cls._add_log(task_id, f"仅保留扩展名 {', '.join(exts)} 后剩余 {len(filtered_files)} 个文件", 'info')
             
+            # ========== 新增：排除关键词过滤 ==========
+            exclude_keywords = task.get('exclude_keywords')
+            if exclude_keywords:
+                # 解析排除关键词
+                exclude_keyword_list = [kw.strip() for kw in exclude_keywords.split('|') if kw.strip()]
+                if exclude_keyword_list:
+                    cls._add_log(task_id, f"排除关键词: {', '.join(exclude_keyword_list)}", 'info')
+                    
+                    # 过滤包含排除关键词的文件
+                    before_count = len(filtered_files)
+                    filtered_out_files = []
+                    
+                    new_filtered_files = []
+                    for f in filtered_files:
+                        file_name = get_file_name(f)
+                        should_skip = False
+                        matched_keyword = None
+                        
+                        # 检查文件名是否包含排除关键词
+                        for keyword in exclude_keyword_list:
+                            if keyword in file_name:
+                                should_skip = True
+                                matched_keyword = keyword
+                                break
+                        
+                        if should_skip:
+                            filtered_out_files.append((file_name, matched_keyword))
+                        else:
+                            new_filtered_files.append(f)
+                    
+                    filtered_files = new_filtered_files
+                    
+                    if filtered_out_files:
+                        cls._add_log(task_id, f"根据排除关键词过滤了 {len(filtered_out_files)} 个文件", 'info')
+                        # 显示前5个被过滤的文件
+                        for file_name, keyword in filtered_out_files[:5]:
+                            cls._add_log(task_id, f"  跳过: {file_name} (包含关键词'{keyword}')", 'info')
+                        if len(filtered_out_files) > 5:
+                            cls._add_log(task_id, f"  ... 还有 {len(filtered_out_files) - 5} 个文件被过滤", 'info')
+                    
+                    cls._add_log(task_id, f"排除关键词过滤后剩余 {len(filtered_files)} 个文件", 'info')
+            # ========== 排除关键词过滤结束 ==========
+            
             if not filtered_files:
                 cls._add_log(task_id, '没有需要下载的文件', 'warning')
                 cls._update_progress(task_id, status='success', total_files=0)

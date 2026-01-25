@@ -149,6 +149,14 @@ class Database:
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN last_content_update_time DATETIME")
                 print("✅ transfer_tasks表已添加last_content_update_time字段（用于自动失效检测）")
             
+            # 迁移：为已存在的transfer_tasks表添加排除关键词字段
+            try:
+                cursor.execute("SELECT exclude_keywords FROM transfer_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN exclude_keywords TEXT")
+                print("✅ transfer_tasks表已添加排除关键词字段")
+            
             # 迁移：更新transfer_tasks表的status字段值（从旧状态到新状态）
             # running -> active (生效)
             # paused -> inactive (失效)
@@ -217,6 +225,14 @@ class Database:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN last_content_update_time DATETIME")
                 print("✅ download_tasks表已添加last_content_update_time字段（用于自动失效检测）")
+            
+            # 迁移：为已存在的download_tasks表添加排除关键词字段
+            try:
+                cursor.execute("SELECT exclude_keywords FROM download_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                # 字段不存在，需要添加
+                cursor.execute("ALTER TABLE download_tasks ADD COLUMN exclude_keywords TEXT")
+                print("✅ download_tasks表已添加排除关键词字段")
             
             # 迁移：更新download_tasks表的status字段值（从旧状态到新状态）
             # running -> active (生效)

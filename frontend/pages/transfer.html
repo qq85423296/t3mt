@@ -621,6 +621,14 @@
                     <div class="form-hint">使用正则表达式自动重命名文件，留空则不替换。配置后自动使用替换后的文件名检查重复。</div>
                 </div>
                 
+                <!-- 排除关键词配置 -->
+                <div class="form-group">
+                    <label class="form-label">排除关键词</label>
+                    <input type="text" class="form-input" id="excludeKeywords" 
+                           placeholder="输入关键词，多个关键词用 | 分割 (如: 火力全员|预告|花絮)" />
+                    <div class="form-hint">转存时将跳过包含这些关键词的文件，多个关键词用 | 分割</div>
+                </div>
+                
                 <div class="form-group">
                     <label class="form-label">预览效果</label>
                     <div style="display: flex; gap: 8px; margin-bottom: 8px;">
@@ -1151,6 +1159,8 @@
         // 重置正则替换字段
         document.getElementById('regexPattern').value = '';
         document.getElementById('replacementPattern').value = '';
+        // 重置排除关键词字段
+        document.getElementById('excludeKeywords').value = '';
         document.getElementById('previewFilename').value = '';
         document.getElementById('previewResult').style.display = 'none';
     }
@@ -2297,7 +2307,9 @@
             end_date: document.getElementById('endDate').value || null,
             // 正则替换字段
             regex_pattern: document.getElementById('regexPattern').value.trim() || null,
-            replacement_pattern: document.getElementById('replacementPattern').value.trim() || null
+            replacement_pattern: document.getElementById('replacementPattern').value.trim() || null,
+            // 排除关键词字段
+            exclude_keywords: document.getElementById('excludeKeywords').value.trim() || null
         };
 
         try {
@@ -2424,6 +2436,8 @@
         // 回填正则替换字段
         document.getElementById('regexPattern').value = task.regex_pattern || '';
         document.getElementById('replacementPattern').value = task.replacement_pattern || '';
+        // 回填排除关键词字段
+        document.getElementById('excludeKeywords').value = task.exclude_keywords || '';
     }
 
     // 执行任务

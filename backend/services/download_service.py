@@ -83,9 +83,9 @@ class DownloadService:
                         name, source_account_id, source_path, source_folder_id, target_path,
                         cron_expression, filter_extensions, include_extensions,
                         only_new_files, keep_structure, delete_after_download,
-                        regex_pattern, replacement_pattern,
+                        regex_pattern, replacement_pattern, exclude_keywords,
                         cloud_type, status, progress, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     task_data['source_account_id'],
@@ -100,6 +100,7 @@ class DownloadService:
                     task_data.get('delete_after_download', 0),
                     task_data.get('regex_pattern'),
                     task_data.get('replacement_pattern'),
+                    task_data.get('exclude_keywords'),  # 新增：排除关键词
                     cloud_type,
                     'draft',  # 新建任务默认为草稿状态
                     0,
@@ -131,7 +132,7 @@ class DownloadService:
                         only_new_files = ?, keep_structure = ?,
                         delete_after_download = ?,
                         regex_pattern = ?, replacement_pattern = ?,
-                        updated_at = ?
+                        exclude_keywords = ?, updated_at = ?
                     WHERE id = ?
                 """, (
                     task_data['name'],
@@ -147,6 +148,7 @@ class DownloadService:
                     task_data.get('delete_after_download', 0),
                     task_data.get('regex_pattern'),
                     task_data.get('replacement_pattern'),
+                    task_data.get('exclude_keywords'),  # 新增：排除关键词
                     datetime.now(),
                     task_id
                 ))

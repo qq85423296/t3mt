@@ -110,8 +110,8 @@ class TransferService:
                         rules, filter_extensions, include_extensions,
                         update_dirs, file_start_date, overwrite_mode, end_date,
                         cron_expression, regex_pattern, replacement_pattern, check_mode,
-                        cloud_type, status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        exclude_keywords, cloud_type, status, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     task_data['name'],
                     share_urls_json,
@@ -131,6 +131,7 @@ class TransferService:
                     task_data.get('regex_pattern'),
                     task_data.get('replacement_pattern'),
                     task_data.get('check_mode', 'replaced'),
+                    task_data.get('exclude_keywords'),  # 新增：排除关键词
                     cloud_type,
                     'draft',  # 新建任务默认为草稿状态
                     datetime.now(),
@@ -165,7 +166,7 @@ class TransferService:
                         include_extensions = ?, update_dirs = ?,
                         file_start_date = ?, overwrite_mode = ?, end_date = ?,
                         cron_expression = ?, regex_pattern = ?, replacement_pattern = ?,
-                        check_mode = ?, updated_at = ?
+                        check_mode = ?, exclude_keywords = ?, updated_at = ?
                     WHERE id = ?
                 """, (
                     task_data['name'],
@@ -186,6 +187,7 @@ class TransferService:
                     task_data.get('regex_pattern'),
                     task_data.get('replacement_pattern'),
                     task_data.get('check_mode', 'replaced'),
+                    task_data.get('exclude_keywords'),  # 新增：排除关键词
                     datetime.now(),
                     task_id
                 ))
