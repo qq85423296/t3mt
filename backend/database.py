@@ -82,7 +82,7 @@ class Database:
                 ON quark_accounts(status)
             ''')
             
-            # 创建转存任务表（包含schedule_period字段、正则替换字段、cloud_type字段和last_content_update_time字段）
+            # 创建转存任务表（包含schedule_period字段、正则替换字段、cloud_type字段、last_content_update_time字段和exclude_keywords字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS transfer_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,6 +108,7 @@ class Database:
                     regex_pattern TEXT,
                     replacement_pattern TEXT,
                     check_mode VARCHAR(20) DEFAULT 'replaced',
+                    exclude_keywords TEXT,
                     cloud_type VARCHAR(20) DEFAULT 'quark',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -173,7 +174,7 @@ class Database:
             except Exception as e:
                 print(f"⚠️ transfer_tasks状态迁移失败（可能是新安装）: {e}")
             
-            # 创建下载任务表（包含filter_extensions、include_extensions、正则替换字段、cloud_type字段和last_content_update_time字段）
+            # 创建下载任务表（包含filter_extensions、include_extensions、正则替换字段、cloud_type字段、last_content_update_time字段和exclude_keywords字段）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS download_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -189,6 +190,7 @@ class Database:
                     delete_after_download TINYINT DEFAULT 0,
                     regex_pattern TEXT,
                     replacement_pattern TEXT,
+                    exclude_keywords TEXT,
                     status VARCHAR(20) DEFAULT 'draft',
                     progress INTEGER DEFAULT 0,
                     last_execute_time DATETIME,

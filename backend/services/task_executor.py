@@ -1578,6 +1578,29 @@ class TaskExecutor:
             if not filtered_files:
                 cls._add_log(task_id, '没有需要下载的文件', 'warning')
                 cls._update_progress(task_id, status='success', total_files=0)
+                
+                # 刷新日志到数据库
+                cls._flush_logs_to_db(task_id)
+                
+                # 更新执行历史记录为成功
+                if execution_id:
+                    import json
+                    from database import get_db
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        logs_json = json.dumps(cls._running_tasks[task_id]['logs'], ensure_ascii=False)
+                        cursor.execute("""
+                            UPDATE task_execution_history 
+                            SET status = ?, end_time = ?, logs = ?,
+                                success_count = ?, failed_count = ?
+                            WHERE id = ?
+                        """, ('success', datetime.now(), logs_json, 0, 0, execution_id))
+                        conn.commit()
+                
+                # 更新任务执行时间
+                DownloadService.update_execute_time(task_id, last_time=datetime.now())
+                DownloadService.update_progress(task_id, 100)
+                
                 return
             
             cls._update_progress(task_id, total_files=len(filtered_files))
