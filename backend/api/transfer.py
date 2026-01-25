@@ -1495,42 +1495,49 @@ def check_share_status(task_id):
                             file_id = share_info.get('fileId')
                             share_mode = share_info.get('shareMode')
                             
+                            # 如果需要访问码，先验证访问码获取shareId
+                            if access_code and not share_id:
+                                check_result = cloud_service.check_access_code(share_code, access_code)
+                                if check_result.get('res_code') == 0:
+                                    share_id = check_result.get('shareId')
+                                    logger.info(f"从访问码验证结果中获取到shareId: {share_id}")
+                            
                             logger.info(f"提取的字段: share_id={share_id}, file_id={file_id}, share_mode={share_mode}")
                             
                             if share_id and file_id and share_mode:
-                                # 尝试不带访问码访问
-                                list_result = cloud_service.list_share_dir(
-                                    share_id=share_id,
-                                    file_id=file_id,
-                                    share_mode=share_mode,
-                                    access_code='',
-                                    share_code=share_code,
-                                    root_file_id=file_id
-                                )
-                                
-                                if list_result.get('res_code') == 0:
-                                    # 可以直接访问,不需要访问码
-                                    status = '正常'
-                                elif list_result.get('res_code') == 4031:
-                                    # 需要访问码
-                                    if access_code:
-                                        # 尝试带访问码访问
-                                        list_result2 = cloud_service.list_share_dir(
-                                            share_id=share_id,
-                                            file_id=file_id,
-                                            share_mode=share_mode,
-                                            access_code=access_code,
-                                            share_code=share_code,
-                                            root_file_id=file_id
-                                        )
-                                        if list_result2.get('res_code') == 0:
-                                            status = '正常'
-                                        else:
-                                            status = '访问码错误'
+                                # 如果有访问码，直接带访问码访问
+                                if access_code:
+                                    list_result = cloud_service.list_share_dir(
+                                        share_id=share_id,
+                                        file_id=file_id,
+                                        share_mode=share_mode,
+                                        access_code=access_code,
+                                        share_code=share_code,
+                                        root_file_id=file_id
+                                    )
+                                    if list_result.get('res_code') == 0:
+                                        status = '正常'
                                     else:
-                                        status = '需要访问码'
+                                        status = '访问码错误'
                                 else:
-                                    status = f"异常({list_result.get('res_code')})"
+                                    # 没有访问码，尝试直接访问
+                                    list_result = cloud_service.list_share_dir(
+                                        share_id=share_id,
+                                        file_id=file_id,
+                                        share_mode=share_mode,
+                                        access_code='',
+                                        share_code=share_code,
+                                        root_file_id=file_id
+                                    )
+                                    
+                                    if list_result.get('res_code') == 0:
+                                        # 可以直接访问,不需要访问码
+                                        status = '正常'
+                                    elif list_result.get('res_code') == 4031:
+                                        # 需要访问码
+                                        status = '需要访问码'
+                                    else:
+                                        status = f"异常({list_result.get('res_code')})"
                             else:
                                 # 缺少必要信息
                                 status = '分享信息不完整'
