@@ -65,6 +65,15 @@ class SchedulerService:
         )
         cls._cleanup_thread.start()
         logger.info("日志清理线程已启动")
+        
+        # 启动自动失效检查线程（每天凌晨3点执行）
+        cls._expiration_thread = threading.Thread(
+            target=cls._expiration_check_loop,
+            daemon=True,
+            name="ExpirationCheckThread"
+        )
+        cls._expiration_thread.start()
+        logger.info("自动失效检查线程已启动")
     
     @classmethod
     def stop(cls):
@@ -270,6 +279,50 @@ class SchedulerService:
                 
         except Exception as e:
             logger.error(f"清理调度日志失败: {e}", exc_info=True)
+    
+    @classmethod
+    def _expiration_check_loop(cls):
+        """自动失效检查循环 - 每天凌晨3点执行"""
+        logger.info("自动失效检查循环已启动")
+        
+        while cls._running:
+            try:
+                now = datetime.now()
+                # 计算下次执行时间（明天凌晨3点）
+                next_run = now.replace(hour=3, minute=0, second=0, microsecond=0)
+                if now.hour >= 3:
+                    next_run += timedelta(days=1)
+                
+                # 计算需要等待的秒数
+                wait_seconds = (next_run - now).total_seconds()
+                
+                # 如果是首次启动且已过凌晨3点，立即执行一次
+                if wait_seconds > 86000:  # 超过23小时，说明是首次启动
+                    logger.info("首次启动，立即执行一次自动失效检查")
+                    cls._check_task_expiration()
+                
+                logger.info(f"下次自动失效检查时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # 等待到下次执行时间
+                time.sleep(wait_seconds)
+                
+                # 执行检查
+                cls._check_task_expiration()
+                
+            except Exception as e:
+                logger.error(f"自动失效检查循环异常: {e}", exc_info=True)
+                time.sleep(3600)  # 出错后等待1小时再试
+    
+    @classmethod
+    def _check_task_expiration(cls):
+        """执行自动失效检查"""
+        try:
+            logger.info("开始执行自动失效检查")
+            from services.auto_expiration_service import AutoExpirationService
+            AutoExpirationService.check_and_expire_tasks()
+            logger.info("自动失效检查完成")
+        except Exception as e:
+            logger.error(f"自动失效检查失败: {e}", exc_info=True)
     
     @classmethod
     def _generate_today_schedules(cls):
@@ -830,6 +883,7 @@ class SchedulerService:
                 # 在新线程中执行下载任务
                 def download_thread():
                     from utils.task_logger import TaskLogger
+                    from services.video_parse_service import video_parse_service  # 在内层函数中导入
                     
                     task_logger = TaskLogger()
                     
@@ -1264,14 +1318,6 @@ class SchedulerService:
                 logger.error(f"记录错误日志失败: {log_error}")
             
             raise
-        finally:
-            # 任务执行完成后，触发自动失效检查
-            try:
-                from services.auto_expiration_service import AutoExpirationService
-                AutoExpirationService.check_and_expire_tasks()
-            except Exception as check_error:
-                # 自动失效检查失败不应影响主流程
-                logger.error(f"[AutoExpiration] 自动失效检查失败: {check_error}", exc_info=True)
     
     @classmethod
     def _execute_task_plugins(cls, task_id, task_type, execution_id, task_name,
