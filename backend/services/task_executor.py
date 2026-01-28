@@ -265,9 +265,9 @@ class TaskExecutor:
     
     @classmethod
     def _download_file_multithread(cls, task_id: int, file_info: dict, cloud_service, file_fid: str,
-                                   headers: dict, local_file_path: str) -> bool:
+                                   headers: dict, local_file_path: str, account_id: int = None) -> bool:
         """
-        多线程分块下载单个文件（动态获取下载链接：每个线程独立获取最新链接）
+        多线程分块下载单个文件（天翼云盘使用代理模式，其他云盘动态获取链接）
         
         Args:
             task_id: 任务ID
@@ -276,6 +276,7 @@ class TaskExecutor:
             file_fid: 文件ID
             headers: 请求头
             local_file_path: 本地文件路径
+            account_id: 账号ID（用于生成代理URL）
         """
         file_name = file_info['file_name']
         file_size = file_info['size']
@@ -290,8 +291,18 @@ class TaskExecutor:
         cls._add_log(task_id, f"   配置: {threads_per_file} 个线程，每块 {cls._format_size(multithread_chunk_size)}", 'info')
         
         try:
-            # 【动态获取方案】每个线程独立获取最新下载链接
-            cls._add_log(task_id, f"   使用动态获取链接方案（每个线程独立获取最新链接）", 'info')
+            # 判断是否使用代理模式（天翼云盘使用代理，其他云盘动态获取）
+            from models.cloud_type import CloudType
+            use_proxy = hasattr(cloud_service, '__class__') and cloud_service.__class__.__name__ == 'Cloud189Service'
+            
+            if use_proxy and account_id:
+                cls._add_log(task_id, f"   使用代理模式（天翼云盘专用，稳定性优先）", 'info')
+                # 生成代理URL
+                proxy_url = cls._generate_proxy_url(account_id, file_fid)
+                cls._add_log(task_id, f"   代理URL: {proxy_url[:80]}...", 'info')
+            else:
+                cls._add_log(task_id, f"   使用动态获取链接方案（每个线程独立获取最新链接）", 'info')
+                proxy_url = None
             
             # 计算分块
             num_chunks = (file_size + multithread_chunk_size - 1) // multithread_chunk_size
@@ -310,27 +321,45 @@ class TaskExecutor:
             
             cls._add_log(task_id, f"   分块数量: {num_chunks}", 'info')
             
-            # 并行下载所有分块（使用动态获取链接）
+            # 并行下载所有分块
             start_time = time.time()
             failed_chunks = []
             chunk_results = {}
             
             with ThreadPoolExecutor(max_workers=threads_per_file) as executor:
-                future_to_chunk = {
-                    executor.submit(
-                        cls._download_chunk_with_dynamic_url,
-                        task_id,
-                        cloud_service,  # 传递云盘服务实例
-                        file_fid,       # 传递文件ID
-                        headers,
-                        chunk['start'],
-                        chunk['end'],
-                        chunk['file'],
-                        chunk['index'],
-                        num_chunks
-                    ): chunk
-                    for chunk in chunks
-                }
+                if use_proxy and proxy_url:
+                    # 使用代理模式（天翼云盘）
+                    future_to_chunk = {
+                        executor.submit(
+                            cls._download_chunk_with_proxy,
+                            task_id,
+                            proxy_url,
+                            headers,
+                            chunk['start'],
+                            chunk['end'],
+                            chunk['file'],
+                            chunk['index'],
+                            num_chunks
+                        ): chunk
+                        for chunk in chunks
+                    }
+                else:
+                    # 使用动态获取链接（其他云盘）
+                    future_to_chunk = {
+                        executor.submit(
+                            cls._download_chunk_with_dynamic_url,
+                            task_id,
+                            cloud_service,
+                            file_fid,
+                            headers,
+                            chunk['start'],
+                            chunk['end'],
+                            chunk['file'],
+                            chunk['index'],
+                            num_chunks
+                        ): chunk
+                        for chunk in chunks
+                    }
                 
                 for future in as_completed(future_to_chunk):
                     chunk = future_to_chunk[future]
@@ -447,6 +476,141 @@ class TaskExecutor:
                     chunk['file'].unlink()
             cls._add_log(task_id, f"多线程下载失败: {file_name} - {str(e)}", 'error')
             return False
+    
+    @classmethod
+    def _generate_proxy_url(cls, account_id: int, file_id: str) -> str:
+        """
+        生成代理下载URL
+        
+        Args:
+            account_id: 账号ID
+            file_id: 文件ID
+        
+        Returns:
+            代理URL
+        """
+        import hashlib
+        from config import Config
+        
+        # 生成时间戳和token
+        timestamp = int(time.time())
+        secret = Config.SECRET_KEY
+        
+        # 生成签名
+        data = f"{account_id}:{file_id}:{timestamp}:{secret}"
+        token = hashlib.sha256(data.encode()).hexdigest()
+        
+        # 构建代理URL（使用localhost，因为是内部调用）
+        proxy_url = f"http://127.0.0.1:8520/api/download-proxy/{account_id}/{file_id}?token={token}&ts={timestamp}"
+        
+        return proxy_url
+    
+    @classmethod
+    def _download_chunk_with_proxy(cls, task_id: int, proxy_url: str, headers: dict, 
+                                   start: int, end: int, chunk_file: Path, chunk_index: int, 
+                                   total_chunks: int, retry: int = 0) -> Dict:
+        """
+        使用代理URL下载文件分块（天翼云盘专用，稳定性优先）
+        
+        Args:
+            task_id: 任务ID
+            proxy_url: 代理URL
+            headers: 请求头
+            start: 起始字节
+            end: 结束字节
+            chunk_file: 分块文件保存路径
+            chunk_index: 分块索引
+            total_chunks: 总分块数
+            retry: 当前重试次数
+        """
+        max_retry = 5  # 最大重试次数
+        
+        try:
+            # 设置Range请求头
+            chunk_headers = {
+                'User-Agent': headers.get('User-Agent', 'Mozilla/5.0'),
+                'Range': f'bytes={start}-{end}'
+            }
+            
+            timeout = cls._get_config('download_timeout', 60)
+            
+            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 开始下载 ({cls._format_size(start)}-{cls._format_size(end)})", 'info')
+            
+            # 请求代理URL（代理会自动处理链接刷新）
+            response = requests.get(
+                proxy_url,
+                headers=chunk_headers,
+                stream=True,
+                timeout=timeout,
+                verify=False
+            )
+            
+            # 检查状态码
+            if response.status_code not in [200, 206]:
+                response.close()
+                error_msg = f"状态码: {response.status_code}"
+                
+                # 重试
+                if retry < max_retry:
+                    delay = 2 ** retry  # 指数退避
+                    cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} {error_msg}，{delay}秒后重试 ({retry + 1}/{max_retry})", 'warning')
+                    time.sleep(delay)
+                    return cls._download_chunk_with_proxy(task_id, proxy_url, headers, start, end, 
+                                                         chunk_file, chunk_index, total_chunks, retry + 1)
+                else:
+                    raise Exception(f"{error_msg}，已重试{max_retry}次仍失败")
+            
+            # 写入分块文件
+            downloaded = 0
+            with open(chunk_file, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    # 检查任务是否被停止
+                    with cls._lock:
+                        if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
+                            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 已停止", 'warning')
+                            response.close()
+                            if chunk_file.exists():
+                                chunk_file.unlink()
+                            return {'success': False, 'message': '任务已停止'}
+                    
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+            
+            response.close()
+            
+            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 完成 ({cls._format_size(chunk_file.stat().st_size)})", 'success')
+            
+            return {'success': True, 'size': chunk_file.stat().st_size}
+            
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            # 网络类错误：重试
+            if retry < max_retry:
+                delay = 2 ** retry  # 指数退避
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 网络错误，{delay}秒后重试 ({retry + 1}/{max_retry}): {type(e).__name__}", 'warning')
+                time.sleep(delay)
+                return cls._download_chunk_with_proxy(task_id, proxy_url, headers, start, end, 
+                                                     chunk_file, chunk_index, total_chunks, retry + 1)
+            else:
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 网络错误超过最大重试次数: {type(e).__name__}: {str(e)}", 'error')
+                return {'success': False, 'message': f'网络错误: {type(e).__name__}: {str(e)}'}
+                
+        except Exception as e:
+            # 通用异常
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 异常: {error_type}: {error_msg}", 'error')
+            
+            if retry < max_retry:
+                delay = 2
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} {delay}秒后重试 ({retry + 1}/{max_retry})", 'warning')
+                time.sleep(delay)
+                return cls._download_chunk_with_proxy(task_id, proxy_url, headers, start, end, 
+                                                     chunk_file, chunk_index, total_chunks, retry + 1)
+            else:
+                cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 失败: {error_type}: {error_msg}", 'error')
+                return {'success': False, 'message': f'{error_type}: {error_msg}'}
     
     @classmethod
     def _download_chunk_with_shared_url(cls, task_id: int, download_url: str, headers: dict, 
@@ -736,7 +900,8 @@ class TaskExecutor:
     
     @classmethod
     def _download_file_single(cls, task_id: int, file_info: dict, cloud_service, file_fid: str,
-                             headers: dict, local_file_path: str, retry: int = 0, network_retry: int = 0) -> bool:
+                             headers: dict, local_file_path: str, retry: int = 0, network_retry: int = 0,
+                             account_id: int = None) -> bool:
         """
         单线程下载文件（支持差异化重试：403立即重新获取链接，网络错误指数退避）
         
@@ -760,25 +925,39 @@ class TaskExecutor:
         downloaded_size = 0  # 初始化已下载大小
         
         try:
-            # 动态获取下载链接（每次下载前实时获取）
-            cls._add_log(task_id, f"   获取下载链接...", 'info')
-            download_result, download_cookie = cloud_service.get_download_url([file_fid])
+            # 判断是否使用代理模式（天翼云盘使用代理，其他云盘动态获取）
+            from models.cloud_type import CloudType
+            use_proxy = hasattr(cloud_service, '__class__') and cloud_service.__class__.__name__ == 'Cloud189Service'
             
-            if download_result.get('code') != 0:
-                raise Exception(f"获取下载链接失败: {download_result.get('message', '')}")
-            
-            download_data = download_result.get('data', [])
-            if not download_data:
-                raise Exception("下载链接为空")
-            
-            download_url = download_data[0].get('download_url') or download_data[0].get('downloadUrl')
-            if not download_url:
-                raise Exception("下载链接无效")
-            
-            # 更新Cookie
-            if download_cookie:
-                headers = headers.copy()
-                headers['Cookie'] = download_cookie
+            if use_proxy and account_id:
+                # 天翼云盘：使用代理模式
+                cls._add_log(task_id, f"   使用代理模式下载（天翼云盘专用）", 'info')
+                proxy_url = cls._generate_proxy_url(account_id, file_fid)
+                download_url = proxy_url
+                # 代理模式不需要额外的Cookie
+                download_headers = {
+                    'User-Agent': headers.get('User-Agent', 'Mozilla/5.0')
+                }
+            else:
+                # 其他云盘：动态获取下载链接
+                cls._add_log(task_id, f"   获取下载链接...", 'info')
+                download_result, download_cookie = cloud_service.get_download_url([file_fid])
+                
+                if download_result.get('code') != 0:
+                    raise Exception(f"获取下载链接失败: {download_result.get('message', '')}")
+                
+                download_data = download_result.get('data', [])
+                if not download_data:
+                    raise Exception("下载链接为空")
+                
+                download_url = download_data[0].get('download_url') or download_data[0].get('downloadUrl')
+                if not download_url:
+                    raise Exception("下载链接无效")
+                
+                # 更新Cookie
+                download_headers = headers.copy()
+                if download_cookie:
+                    download_headers['Cookie'] = download_cookie
             
             temp_file_path = local_file_path + '.tmp'
             
@@ -788,9 +967,9 @@ class TaskExecutor:
             cls._add_log(task_id, f"   开始请求下载链接...", 'info')
             
             # 使用verify=False避免SSL证书问题
-            response = requests.get(download_url, headers=headers, stream=True, timeout=timeout, verify=False)
+            response = requests.get(download_url, headers=download_headers, stream=True, timeout=timeout, verify=False)
             
-            # 403状态码专属处理：立即重新获取链接
+            # 403状态码专属处理
             if response.status_code == 403:
                 response.close()
                 temp_file_path_obj = local_file_path + '.tmp'
@@ -801,11 +980,18 @@ class TaskExecutor:
                         pass
                 
                 if retry < max_403_retry:
-                    cls._add_log(task_id, f"   检测到403链接失效，立即重新获取链接 (重试 {retry + 1}/{max_403_retry})", 'warning')
-                    # 不等待，立即重试并重新获取链接
-                    return cls._download_file_single(task_id, file_info, cloud_service, file_fid, headers, local_file_path, retry + 1, network_retry)
+                    if use_proxy:
+                        # 代理模式：403可能是代理服务问题，等待后重试
+                        delay = 2 ** retry
+                        cls._add_log(task_id, f"   代理请求失败(403)，{delay}秒后重试 (重试 {retry + 1}/{max_403_retry})", 'warning')
+                        time.sleep(delay)
+                    else:
+                        # 非代理模式：立即重新获取链接
+                        cls._add_log(task_id, f"   检测到403链接失效，立即重新获取链接 (重试 {retry + 1}/{max_403_retry})", 'warning')
+                    
+                    return cls._download_file_single(task_id, file_info, cloud_service, file_fid, headers, local_file_path, retry + 1, network_retry, account_id)
                 else:
-                    cls._add_log(task_id, f"   403链接失效，已重试{max_403_retry}次仍失败", 'error')
+                    cls._add_log(task_id, f"   403错误，已重试{max_403_retry}次仍失败", 'error')
                     return False
             
             if response.status_code != 200:
@@ -899,7 +1085,7 @@ class TaskExecutor:
                 cls._add_log(task_id, f"   网络错误，{delay}秒后重试 ({network_retry + 1}/{max_network_retry}): {type(e).__name__}", 'warning')
                 cls._add_log(task_id, f"   已下载: {cls._format_size(downloaded_size)}", 'info')
                 time.sleep(delay)
-                return cls._download_file_single(task_id, file_info, cloud_service, file_fid, headers, local_file_path, retry, network_retry + 1)
+                return cls._download_file_single(task_id, file_info, cloud_service, file_fid, headers, local_file_path, retry, network_retry + 1, account_id)
             else:
                 cls._add_log(task_id, f"   网络错误超过最大重试次数: {type(e).__name__}: {str(e)}", 'error')
                 cls._add_log(task_id, f"   已下载: {cls._format_size(downloaded_size)}", 'error')
@@ -924,7 +1110,7 @@ class TaskExecutor:
                 cls._add_log(task_id, f"   通用异常重试 ({retry + 1}/{max_general_retry})", 'warning')
                 cls._add_log(task_id, f"   已下载: {cls._format_size(downloaded_size)}", 'info')
                 time.sleep(2)  # 固定延迟2秒
-                return cls._download_file_single(task_id, file_info, cloud_service, file_fid, headers, local_file_path, retry + 1, network_retry)
+                return cls._download_file_single(task_id, file_info, cloud_service, file_fid, headers, local_file_path, retry + 1, network_retry, account_id)
             else:
                 cls._add_log(task_id, f"   下载异常: {error_type}: {error_msg}", 'error')
                 cls._add_log(task_id, f"   已下载: {cls._format_size(downloaded_size) if 'downloaded_size' in locals() else '0'}", 'error')
@@ -1338,9 +1524,9 @@ class TaskExecutor:
                     # 判断是否使用多线程下载
                     if enable_multithread and file_size >= multithread_threshold:
                         cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 文件大小 {size_mb:.2f}MB >= {multithread_threshold/(1024*1024):.0f}MB，使用多线程下载", 'info')
-                        # 大文件使用多线程下载（每个线程独立获取下载链接）
+                        # 大文件使用多线程下载（天翼云盘使用代理模式）
                         download_success = cls._download_file_multithread(
-                            task_id, file_info, cloud_service, file_fid, download_headers, local_file_path
+                            task_id, file_info, cloud_service, file_fid, download_headers, local_file_path, account['id']
                         )
                     else:
                         if not enable_multithread:
@@ -1348,9 +1534,9 @@ class TaskExecutor:
                         else:
                             cls._add_log(task_id, f"[{idx}/{len(filtered_files)}] 文件大小 {size_mb:.2f}MB < {multithread_threshold/(1024*1024):.0f}MB，使用单线程下载", 'info')
                         
-                        # 小文件使用单线程下载(传递cloud_service和file_fid以支持重试时重新获取下载地址)
+                        # 小文件使用单线程下载（天翼云盘使用代理模式）
                         download_success = cls._download_file_single(
-                            task_id, file_info, cloud_service, file_fid, download_headers, local_file_path
+                            task_id, file_info, cloud_service, file_fid, download_headers, local_file_path, 0, 0, account['id']
                         )
                     
                     if download_success:

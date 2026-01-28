@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-下载代理API - 提供永久有效的下载链接，自动302重定向到最新的真实下载地址
-类似OpenList的实现方式
+下载代理API - 提供永久有效的下载链接，透明代理模式支持分段下载
+参考OpenList的实现方式：每次Range请求都实时获取最新的真实下载地址
 """
-from flask import Blueprint, request, redirect, jsonify
+from flask import Blueprint, request, redirect, jsonify, Response, stream_with_context
 from services.account_service import AccountService
 from services.cloud_service_factory import CloudServiceFactory
 from utils.logger import logger
 import hashlib
 import time
+import requests
 
 download_proxy_bp = Blueprint('download_proxy', __name__, url_prefix='/api/download-proxy')
 
@@ -59,23 +60,24 @@ def verify_download_token(account_id: int, file_id: str, timestamp: int, token: 
     return token == expected_token
 
 
-@download_proxy_bp.route('/<int:account_id>/<file_id>', methods=['GET'])
+@download_proxy_bp.route('/<int:account_id>/<file_id>', methods=['GET', 'HEAD'])
 def proxy_download(account_id: int, file_id: str):
     """
-    下载代理接口 - 302重定向到最新的真实下载地址
+    下载代理接口 - 透明代理模式，支持分段下载
     
     URL格式: /api/download-proxy/{account_id}/{file_id}?token={token}&ts={timestamp}
     
     工作流程:
     1. 验证token和时间戳
     2. 实时获取最新的下载链接
-    3. 302重定向到真实下载地址
+    3. 作为透明代理转发请求（支持Range）
+    4. 每次Range请求都重新获取最新链接
     
     优势:
     - 代理URL永久有效（24小时内）
-    - 每次请求都获取最新链接
-    - 支持分段下载、断点续传
-    - 自动处理链接过期
+    - 每次Range请求都获取最新链接
+    - 完美支持分段下载、断点续传
+    - 自动处理链接过期，分段下载不会失败
     """
     try:
         # 获取参数
@@ -114,8 +116,8 @@ def proxy_download(account_id: int, file_id: str):
             password=account.get('password')
         )
         
-        # 实时获取最新的下载链接
-        logger.info(f"代理下载请求: account_id={account_id}, file_id={file_id}")
+        # 实时获取最新的下载链接（每次请求都获取，包括Range请求）
+        logger.info(f"代理下载请求: account_id={account_id}, file_id={file_id}, method={request.method}, range={request.headers.get('Range', 'None')}")
         
         download_result, download_cookie = service.get_download_url([file_id])
         
@@ -139,11 +141,86 @@ def proxy_download(account_id: int, file_id: str):
                 'message': '下载链接无效'
             }), 500
         
-        logger.info(f"代理下载重定向: {download_url[:100]}...")
+        logger.debug(f"获取到最新下载链接: {download_url[:100]}...")
         
-        # 302重定向到真实下载地址
-        return redirect(download_url, code=302)
+        # 构建请求头（转发客户端的Range等头部）
+        headers = {
+            'User-Agent': request.headers.get('User-Agent', 'Mozilla/5.0'),
+        }
         
+        # 转发Range头（支持分段下载）
+        if 'Range' in request.headers:
+            headers['Range'] = request.headers['Range']
+            logger.debug(f"转发Range请求: {headers['Range']}")
+        
+        # 根据云盘类型设置Referer
+        from models.cloud_type import CloudType
+        if cloud_type == CloudType.QUARK:
+            from config import Config
+            if Config.QUARK_BASE_URL:
+                headers['Referer'] = Config.QUARK_BASE_URL.replace('drive-pc', 'pan')
+        elif cloud_type == CloudType.CLOUD189:
+            headers['Referer'] = 'https://cloud.189.cn'
+        
+        # HEAD请求：只返回头部信息
+        if request.method == 'HEAD':
+            resp = requests.head(download_url, headers=headers, timeout=10, allow_redirects=True)
+            
+            # 构建响应头
+            response_headers = {}
+            for key in ['Content-Length', 'Content-Type', 'Accept-Ranges', 'Last-Modified', 'ETag']:
+                if key in resp.headers:
+                    response_headers[key] = resp.headers[key]
+            
+            return Response(status=resp.status_code, headers=response_headers)
+        
+        # GET请求：透明代理转发
+        # 使用stream=True支持大文件和分段下载
+        resp = requests.get(download_url, headers=headers, stream=True, timeout=30)
+        
+        # 构建响应头（转发真实服务器的头部）
+        response_headers = {}
+        for key in ['Content-Length', 'Content-Type', 'Content-Range', 'Accept-Ranges', 
+                    'Last-Modified', 'ETag', 'Cache-Control']:
+            if key in resp.headers:
+                response_headers[key] = resp.headers[key]
+        
+        # 设置文件名（如果有）
+        if 'Content-Disposition' in resp.headers:
+            response_headers['Content-Disposition'] = resp.headers['Content-Disposition']
+        
+        logger.info(f"代理转发成功: status={resp.status_code}, content-length={resp.headers.get('Content-Length', 'unknown')}")
+        
+        # 流式返回数据（支持大文件）
+        def generate():
+            try:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            except Exception as e:
+                logger.error(f"代理传输数据失败: {e}")
+            finally:
+                resp.close()
+        
+        return Response(
+            stream_with_context(generate()),
+            status=resp.status_code,
+            headers=response_headers,
+            direct_passthrough=True
+        )
+        
+    except requests.exceptions.Timeout:
+        logger.error(f"代理下载超时: account_id={account_id}, file_id={file_id}")
+        return jsonify({
+            'code': 504,
+            'message': '下载请求超时'
+        }), 504
+    except requests.exceptions.RequestException as e:
+        logger.error(f"代理下载网络错误: {e}", exc_info=True)
+        return jsonify({
+            'code': 502,
+            'message': f'网络请求失败: {str(e)}'
+        }), 502
     except Exception as e:
         logger.error(f"代理下载失败: {e}", exc_info=True)
         return jsonify({
