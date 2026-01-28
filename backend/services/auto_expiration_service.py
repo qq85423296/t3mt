@@ -123,22 +123,29 @@ class AutoExpirationService:
                 last_update_time = task_row['last_episode_update_time']
                 
                 try:
-                    # 判断任务是否超时（超过配置天数没有新剧集）
+                    # 计算无更新天数
+                    no_update_days = cls._calculate_no_update_days(last_update_time)
+                    
+                    # 输出无更新天数到日志（关键信息）
+                    logger.info(f"[AutoExpiration] 影视任务 {task_name} (ID: {task_id}) - 连续无新剧集更新天数: {no_update_days} 天, 阈值: {days} 天, 最后更新时间: {last_update_time or '未记录'}")
+                    
+                    # 条件1：判断任务是否超时（超过配置天数没有新剧集）
                     if not cls._is_task_expired(last_update_time, days):
-                        logger.debug(f"[AutoExpiration] 影视任务未超时，跳过: {task_name} (ID: {task_id})")
+                        logger.info(f"[AutoExpiration] 影视任务未超时（条件1不满足），跳过: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 影视任务已超时: {task_name} (ID: {task_id}), 最后更新时间: {last_update_time}")
+                    logger.info(f"[AutoExpiration] 影视任务已超时（条件1满足）: {task_name} (ID: {task_id})")
                     
-                    # 验证所有剧集是否下载成功
+                    # 条件2：验证所有剧集是否下载成功
                     if not cls._is_all_episodes_downloaded(task_id):
-                        logger.info(f"[AutoExpiration] 影视任务存在未下载剧集，不满足失效条件: {task_name} (ID: {task_id})")
+                        logger.info(f"[AutoExpiration] 影视任务存在未下载剧集（条件2不满足），不满足失效条件: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 影视任务满足失效条件: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 影视任务所有剧集已下载完成（条件2满足）: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 影视任务满足双条件，准备置为失效: {task_name} (ID: {task_id})")
                     
                     # 执行失效操作
-                    cls._expire_task(task_id, task_name, days, 'video')
+                    cls._expire_task(task_id, task_name, days, 'video', no_update_days)
                     expired_count += 1
                     
                 except Exception as e:
@@ -186,22 +193,29 @@ class AutoExpirationService:
                 last_update_time = task_row['last_content_update_time']
                 
                 try:
-                    # 判断任务是否超时（超过配置天数没有新内容）
+                    # 计算无更新天数
+                    no_update_days = cls._calculate_no_update_days(last_update_time)
+                    
+                    # 输出无更新天数到日志（关键信息）
+                    logger.info(f"[AutoExpiration] 转存任务 {task_name} (ID: {task_id}) - 连续无新内容更新天数: {no_update_days} 天, 阈值: {days} 天, 最后更新时间: {last_update_time or '未记录'}")
+                    
+                    # 条件1：判断任务是否超时（超过配置天数没有新内容）
                     if not cls._is_task_expired(last_update_time, days):
-                        logger.debug(f"[AutoExpiration] 转存任务未超时，跳过: {task_name} (ID: {task_id})")
+                        logger.info(f"[AutoExpiration] 转存任务未超时（条件1不满足），跳过: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 转存任务已超时: {task_name} (ID: {task_id}), 最后更新时间: {last_update_time}")
+                    logger.info(f"[AutoExpiration] 转存任务已超时（条件1满足）: {task_name} (ID: {task_id})")
                     
-                    # 验证最近的执行记录是否全部成功
+                    # 条件2：验证最近的执行记录是否全部成功
                     if not cls._is_recent_execution_all_success(task_id, 'transfer'):
-                        logger.info(f"[AutoExpiration] 转存任务存在失败记录，不满足失效条件: {task_name} (ID: {task_id})")
+                        logger.info(f"[AutoExpiration] 转存任务存在失败或待处理记录（条件2不满足），不满足失效条件: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 转存任务满足失效条件: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 转存任务所有内容已处理完成（条件2满足）: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 转存任务满足双条件，准备置为失效: {task_name} (ID: {task_id})")
                     
                     # 执行失效操作
-                    cls._expire_task(task_id, task_name, days, 'transfer')
+                    cls._expire_task(task_id, task_name, days, 'transfer', no_update_days)
                     expired_count += 1
                     
                 except Exception as e:
@@ -249,22 +263,29 @@ class AutoExpirationService:
                 last_update_time = task_row['last_content_update_time']
                 
                 try:
-                    # 判断任务是否超时（超过配置天数没有新内容）
+                    # 计算无更新天数
+                    no_update_days = cls._calculate_no_update_days(last_update_time)
+                    
+                    # 输出无更新天数到日志（关键信息）
+                    logger.info(f"[AutoExpiration] 下载任务 {task_name} (ID: {task_id}) - 连续无新内容更新天数: {no_update_days} 天, 阈值: {days} 天, 最后更新时间: {last_update_time or '未记录'}")
+                    
+                    # 条件1：判断任务是否超时（超过配置天数没有新内容）
                     if not cls._is_task_expired(last_update_time, days):
-                        logger.debug(f"[AutoExpiration] 下载任务未超时，跳过: {task_name} (ID: {task_id})")
+                        logger.info(f"[AutoExpiration] 下载任务未超时（条件1不满足），跳过: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 下载任务已超时: {task_name} (ID: {task_id}), 最后更新时间: {last_update_time}")
+                    logger.info(f"[AutoExpiration] 下载任务已超时（条件1满足）: {task_name} (ID: {task_id})")
                     
-                    # 验证最近的执行记录是否全部成功
+                    # 条件2：验证最近的执行记录是否全部成功
                     if not cls._is_recent_execution_all_success(task_id, 'download'):
-                        logger.info(f"[AutoExpiration] 下载任务存在失败记录，不满足失效条件: {task_name} (ID: {task_id})")
+                        logger.info(f"[AutoExpiration] 下载任务存在失败或待处理记录（条件2不满足），不满足失效条件: {task_name} (ID: {task_id})")
                         continue
                     
-                    logger.info(f"[AutoExpiration] 下载任务满足失效条件: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 下载任务所有内容已处理完成（条件2满足）: {task_name} (ID: {task_id})")
+                    logger.info(f"[AutoExpiration] 下载任务满足双条件，准备置为失效: {task_name} (ID: {task_id})")
                     
                     # 执行失效操作
-                    cls._expire_task(task_id, task_name, days, 'download')
+                    cls._expire_task(task_id, task_name, days, 'download', no_update_days)
                     expired_count += 1
                     
                 except Exception as e:
@@ -332,6 +353,36 @@ class AutoExpirationService:
             return False
     
     @classmethod
+    def _calculate_no_update_days(cls, last_update_time):
+        """
+        计算连续无更新天数
+        
+        Args:
+            last_update_time: 最后更新时间（字符串格式：YYYY-MM-DD HH:MM:SS）
+            
+        Returns:
+            int: 连续无更新天数，如果时间无效返回-1
+        """
+        try:
+            if not last_update_time:
+                return -1
+            
+            # 解析时间
+            try:
+                last_update_dt = datetime.strptime(last_update_time, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                return -1
+            
+            # 计算天数差
+            now = datetime.now()
+            delta = now - last_update_dt
+            return delta.days
+            
+        except Exception as e:
+            logger.error(f"[AutoExpiration] 计算无更新天数失败: {e}", exc_info=True)
+            return -1
+    
+    @classmethod
     def _is_task_expired(cls, last_update_time, timeout_days):
         """
         判断任务是否超时
@@ -345,7 +396,7 @@ class AutoExpirationService:
         """
         try:
             if not last_update_time:
-                logger.warning("[AutoExpiration] 任务没有last_episode_update_time字段，视为未超时")
+                logger.warning("[AutoExpiration] 任务没有last_update_time字段，视为未超时")
                 return False
             
             # 解析时间
@@ -419,15 +470,16 @@ class AutoExpirationService:
             return False
     
     @classmethod
-    def _expire_task(cls, task_id, task_name, timeout_days, task_type):
+    def _expire_task(cls, task_id, task_name, timeout_days, task_type, no_update_days):
         """
         将任务设置为失效
         
         Args:
             task_id: 任务ID
             task_name: 任务名称
-            timeout_days: 超时天数
+            timeout_days: 超时天数阈值
             task_type: 任务类型（video/transfer/download）
+            no_update_days: 实际无更新天数
         """
         try:
             # 根据任务类型选择对应的表
@@ -460,7 +512,7 @@ class AutoExpirationService:
                 logger.error(f"[AutoExpiration] 数据库更新失败: task_id={task_id}, task_type={task_type}, error={e}", exc_info=True)
                 raise
             
-            logger.info(f"[AutoExpiration] 任务已失效：task_id={task_id}, task_name={task_name}, task_type={task_type}, 原因=超时{timeout_days}天且全部执行成功")
+            logger.info(f"[AutoExpiration] ✅ 任务已自动失效：task_id={task_id}, task_name={task_name}, task_type={task_type}, 原因=连续{no_update_days}天无新内容（阈值{timeout_days}天）且已有内容全部处理完成")
             
         except Exception as e:
             logger.error(f"[AutoExpiration] 更新任务状态失败: task_id={task_id}, task_type={task_type}, error={e}", exc_info=True)
