@@ -337,7 +337,7 @@ class AutoExpirationService:
             # 检查是否存在失败或部分成功的记录
             for execution in recent_executions:
                 status = execution['status']
-                failed_count = execution['failed_count'] or 0
+                failed_count = execution['failed_count'] if execution['failed_count'] is not None else 0
                 
                 # 如果状态为失败或部分成功，或者有失败数量，视为不满足条件
                 if status in ['failed', 'partial'] or failed_count > 0:
@@ -396,7 +396,7 @@ class AutoExpirationService:
         """
         try:
             if not last_update_time:
-                logger.warning("[AutoExpiration] 任务没有last_update_time字段，视为未超时")
+                logger.info("[AutoExpiration] 任务没有last_update_time字段，视为未超时（可能是新创建的任务）")
                 return False
             
             # 解析时间
@@ -413,8 +413,16 @@ class AutoExpirationService:
                 logger.error(f"[AutoExpiration] 计算超时时间点失败: timeout_days={timeout_days}, error={e}")
                 return False
             
-            # 判断是否超时
-            return last_update_dt < timeout_threshold
+            # 判断是否超时：必须严格大于timeout_days天
+            # 使用 <= 而不是 < ，确保只有真正超过N天才算超时
+            is_expired = last_update_dt <= timeout_threshold
+            
+            if not is_expired:
+                # 计算实际天数差
+                days_diff = (datetime.now() - last_update_dt).days
+                logger.info(f"[AutoExpiration] 任务未超时: 距离上次更新{days_diff}天，阈值{timeout_days}天")
+            
+            return is_expired
             
         except Exception as e:
             logger.error(f"[AutoExpiration] 判断任务超时失败: {e}", exc_info=True)
@@ -432,19 +440,6 @@ class AutoExpirationService:
             bool: 是否所有剧集都下载成功
         """
         try:
-            # 查询该任务的所有失败记录
-            try:
-                failed_episodes = EpisodeFailureRecord.get_all_by_task(task_id)
-            except Exception as e:
-                logger.error(f"[AutoExpiration] 查询失败记录失败: task_id={task_id}, error={e}", exc_info=True)
-                # 查询失败时保守处理，视为有失败记录
-                return False
-            
-            # 如果存在失败记录，说明有剧集未下载成功
-            if failed_episodes:
-                logger.info(f"[AutoExpiration] 任务存在 {len(failed_episodes)} 个失败剧集记录")
-                return False
-            
             # 获取任务信息
             try:
                 task = VideoTask.get_by_id(task_id)
@@ -458,10 +453,57 @@ class AutoExpirationService:
             
             # 如果任务没有剧集记录，视为不满足条件
             if not task.episodes or len(task.episodes) == 0:
-                logger.info(f"[AutoExpiration] 任务没有剧集记录")
+                logger.info(f"[AutoExpiration] 任务没有剧集记录，不满足失效条件")
+                return False
+            
+            # 查询该任务的所有失败记录
+            try:
+                failed_episodes = EpisodeFailureRecord.get_all_by_task(task_id)
+            except Exception as e:
+                logger.error(f"[AutoExpiration] 查询失败记录失败: task_id={task_id}, error={e}", exc_info=True)
+                # 查询失败时保守处理，视为有失败记录
+                return False
+            
+            # 如果存在失败记录，说明有剧集未下载成功
+            if failed_episodes:
+                logger.info(f"[AutoExpiration] 任务存在 {len(failed_episodes)} 个失败剧集记录，不满足失效条件")
+                return False
+            
+            # 检查最近的执行历史，确保最近有成功的下载记录
+            try:
+                with get_db() as conn:
+                    cursor = conn.cursor()
+                    # 查询最近7天的执行记录
+                    cursor.execute("""
+                        SELECT status, success_count, failed_count, total_count
+                        FROM task_execution_history
+                        WHERE task_id = ? AND task_type = 'video'
+                          AND start_time >= datetime('now', '-7 days')
+                        ORDER BY start_time DESC
+                        LIMIT 5
+                    """, (task_id,))
+                    recent_executions = cursor.fetchall()
+                    
+                    if not recent_executions:
+                        logger.info(f"[AutoExpiration] 任务没有最近的执行记录，不满足失效条件")
+                        return False
+                    
+                    # 检查是否有失败或部分成功的记录
+                    for execution in recent_executions:
+                        status = execution['status']
+                        failed_count = execution['failed_count'] if execution['failed_count'] is not None else 0
+                        
+                        if status in ['failed', 'partial'] or failed_count > 0:
+                            logger.info(f"[AutoExpiration] 任务存在失败的执行记录: status={status}, failed_count={failed_count}，不满足失效条件")
+                            return False
+                    
+            except Exception as e:
+                logger.error(f"[AutoExpiration] 查询执行历史失败: task_id={task_id}, error={e}", exc_info=True)
+                # 查询失败时保守处理
                 return False
             
             # 所有剧集都下载成功
+            logger.info(f"[AutoExpiration] 任务所有剧集已下载完成，共{len(task.episodes)}集，无失败记录")
             return True
             
         except Exception as e:
