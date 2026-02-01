@@ -416,15 +416,35 @@ def stop_execution(execution_id):
             
             # 根据任务类型终止
             if task_type == 'download':
-                # 终止下载任务
+                # 终止下载任务 - 需要判断是天翼云盘还是夸克网盘
                 from services.task_executor import TaskExecutor
                 from datetime import datetime
                 
-                # 尝试终止内存中的任务
-                stopped_in_memory = TaskExecutor.stop_task(task_id)
+                # 获取任务的cloud_type
+                cursor.execute('SELECT cloud_type FROM download_tasks WHERE id = ?', (task_id,))
+                task_row = cursor.fetchone()
+                cloud_type = task_row['cloud_type'] if task_row else 'quark'
+                
+                logger.info(f"下载任务cloud_type: {cloud_type}")
+                
+                stopped_in_memory = False
+                
+                if cloud_type == 'cloud189':
+                    # 天翼云盘：使用Aria2适配器，调用stop_aria2_task
+                    stopped_in_memory = TaskExecutor.stop_aria2_task(task_id)
+                    if stopped_in_memory:
+                        logger.info(f"天翼云盘Aria2任务已终止: {task_name}")
+                    else:
+                        logger.info(f"天翼云盘Aria2任务已终止(仅数据库,任务可能已完成): {task_name}")
+                else:
+                    # 夸克网盘：使用传统方式，调用stop_task
+                    stopped_in_memory = TaskExecutor.stop_task(task_id)
+                    if stopped_in_memory:
+                        logger.info(f"夸克网盘下载任务已终止(内存+数据库): {task_name}")
+                    else:
+                        logger.info(f"夸克网盘下载任务已终止(仅数据库,任务可能已完成): {task_name}")
                 
                 # 无论任务是否在内存中,都更新数据库状态
-                # (任务可能已完成但数据库状态未更新,或任务确实在运行)
                 cursor.execute("""
                     UPDATE task_execution_history 
                     SET status = 'failed', 
@@ -433,11 +453,6 @@ def stop_execution(execution_id):
                     WHERE id = ?
                 """, (datetime.now(), execution_id))
                 conn.commit()
-                
-                if stopped_in_memory:
-                    logger.info(f"下载任务已终止(内存+数据库): {task_name}")
-                else:
-                    logger.info(f"下载任务已终止(仅数据库,任务可能已完成): {task_name}")
                 
                 return jsonify({
                     'code': 200,

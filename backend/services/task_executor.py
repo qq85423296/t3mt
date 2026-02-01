@@ -25,6 +25,10 @@ class TaskExecutor:
     _lock = threading.Lock()
     _download_url_lock = threading.Lock()  # 新增：下载链接获取锁
     
+    # Aria2适配器管理（用于天翼云盘下载）
+    _aria2_adapters: Dict[int, 'Cloud189DownloadAdapter'] = {}  # task_id -> adapter
+    _adapter_lock = threading.Lock()  # 适配器字典操作锁
+    
     @classmethod
     def _get_config(cls, key: str, default):
         """获取配置值"""
@@ -49,7 +53,7 @@ class TaskExecutor:
     @classmethod
     def stop_task(cls, task_id: int) -> bool:
         """
-        停止任务执行
+        停止任务执行（用于夸克网盘等非Aria2任务）
         
         Args:
             task_id: 任务ID
@@ -67,6 +71,73 @@ class TaskExecutor:
             
             logger.info(f"任务 {task_id} 已标记为停止")
             return True
+    
+    @classmethod
+    def stop_aria2_task(cls, task_id: int) -> bool:
+        """
+        停止Aria2下载任务（用于天翼云盘）
+        
+        Args:
+            task_id: 任务ID
+            
+        Returns:
+            是否成功停止
+        """
+        logger.info(f"尝试停止Aria2任务: task_id={task_id}")
+        
+        with cls._adapter_lock:
+            adapter = cls._aria2_adapters.get(task_id)
+            
+            if not adapter:
+                logger.warning(f"未找到Aria2适配器: task_id={task_id}")
+                return False
+            
+            try:
+                # 1. 停止监控线程
+                adapter.stop_monitor()
+                logger.info(f"已停止Aria2监控线程: task_id={task_id}")
+                
+                # 2. 强制删除正在下载的Aria2任务
+                if adapter.current_gid:
+                    try:
+                        adapter.aria2.remove_task(adapter.current_gid, force=True)
+                        logger.info(f"已强制删除Aria2任务: task_id={task_id}, gid={adapter.current_gid}")
+                    except Exception as e:
+                        logger.warning(f"删除Aria2任务失败: {e}")
+                
+                # 3. 清理临时文件（.part 和 .aria2 文件）
+                try:
+                    if adapter.pending_files or adapter.current_file_info:
+                        # 获取下载目录
+                        if adapter.current_file_info:
+                            download_dir = adapter.current_file_info.get('download_dir', '')
+                        elif adapter.pending_files:
+                            download_dir = adapter.pending_files[0].get('download_dir', '')
+                        else:
+                            download_dir = ''
+                        
+                        if download_dir and os.path.exists(download_dir):
+                            # 清理 .part 和 .aria2 文件
+                            for file in os.listdir(download_dir):
+                                if file.endswith('.part') or file.endswith('.aria2'):
+                                    file_path = os.path.join(download_dir, file)
+                                    try:
+                                        os.remove(file_path)
+                                        logger.info(f"已清理临时文件: {file_path}")
+                                    except Exception as e:
+                                        logger.warning(f"清理临时文件失败: {file_path}, {e}")
+                except Exception as e:
+                    logger.warning(f"清理临时文件异常: {e}")
+                
+                # 4. 从字典中移除适配器
+                cls._aria2_adapters.pop(task_id, None)
+                logger.info(f"已从适配器字典中移除: task_id={task_id}")
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"停止Aria2任务异常: task_id={task_id}, error={e}", exc_info=True)
+                return False
     
     @classmethod
     def start_task(cls, task_id: int, execution_id: int = None, schedule_period: str = None) -> bool:
@@ -1408,6 +1479,106 @@ class TaskExecutor:
                     cls._add_log(task_id, f"创建本地目录失败: {str(e)}", 'error')
                     cls._update_progress(task_id, status='failed')
                     return
+            
+            # 判断是否使用Aria2下载（仅针对天翼云盘）
+            use_aria2 = (cloud_type == CloudType.CLOUD189)
+            
+            if use_aria2:
+                cls._add_log(task_id, '检测到天翼云盘，使用Aria2下载引擎', 'info')
+                
+                # 使用Aria2下载适配器
+                try:
+                    from services.cloud189_download_adapter import Cloud189DownloadAdapter
+                    from services.aria2_manager import aria2_manager
+                    
+                    # 检查Aria2是否运行
+                    if not aria2_manager.is_running():
+                        cls._add_log(task_id, 'Aria2服务未运行，尝试启动...', 'warning')
+                        if not aria2_manager.start():
+                            cls._add_log(task_id, 'Aria2服务启动失败，降级使用传统下载方式', 'error')
+                            use_aria2 = False
+                    
+                    if use_aria2:
+                        # 准备文件列表（转换格式）
+                        aria2_files = []
+                        for file_info in filtered_files:
+                            file = file_info['file']
+                            aria2_files.append({
+                                'id': str(file.get('id')),
+                                'name': file.get('name'),
+                                'size': file.get('size', 0),
+                                'isFolder': False,
+                                'path': file_info['relative_path']
+                            })
+                        
+                        # 创建Aria2适配器，传递execution_id用于直接写入数据库日志
+                        def log_callback(message, log_type='info'):
+                            cls._add_log(task_id, message, log_type)
+                        
+                        adapter = Cloud189DownloadAdapter(
+                            aria2_manager.get_rpc_url(), 
+                            log_callback=log_callback,
+                            execution_id=execution_id
+                        )
+                        
+                        # 注册适配器到全局字典（用于任务终止）
+                        with cls._adapter_lock:
+                            cls._aria2_adapters[task_id] = adapter
+                        logger.info(f"已注册Aria2适配器: task_id={task_id}")
+                        
+                        # 提交下载任务（传递execution_id用于异步更新状态）
+                        cls._add_log(task_id, f'准备下载 {len(aria2_files)} 个文件（串行模式）', 'info')
+                        result = adapter.download_files(task, aria2_files, cloud_service, execution_id)
+                        
+                        if result.get('success'):
+                            total = result.get('total', 0)
+                            is_serial = result.get('serial_mode', False)
+                            
+                            if is_serial:
+                                # 串行模式：文件会逐个提交和下载
+                                cls._add_log(task_id, f'已加入下载队列，共 {total} 个文件将串行下载', 'success')
+                            else:
+                                # 并行模式：显示提交统计
+                                submitted = result.get('submitted', 0)
+                                failed = result.get('failed', 0)
+                                cls._add_log(task_id, f'成功提交 {submitted} 个文件，失败 {failed} 个', 'success' if failed == 0 else 'warning')
+                            
+                            # Aria2适配器会自动监控进度并更新最终状态
+                            cls._add_log(task_id, 'Aria2下载任务已启动，请查看下方实时进度', 'info')
+                            
+                            # 更新执行历史记录为"进行中"状态
+                            if execution_id:
+                                import json
+                                from database import get_db
+                                with get_db() as conn:
+                                    cursor = conn.cursor()
+                                    logs_json = json.dumps(cls._running_tasks[task_id]['logs'], ensure_ascii=False)
+                                    cursor.execute("""
+                                        UPDATE task_execution_history 
+                                        SET status = ?, logs = ?,
+                                            success_count = ?, failed_count = ?
+                                        WHERE id = ?
+                                    """, ('running', logs_json, total, 0, execution_id))
+                                    conn.commit()
+                            
+                            # 清理任务状态（但不标记为完成，由Aria2监控线程负责）
+                            with cls._lock:
+                                if task_id in cls._running_tasks:
+                                    del cls._running_tasks[task_id]
+                            
+                            return
+                        else:
+                            cls._add_log(task_id, f'Aria2下载失败: {result.get("error")}，降级使用传统下载方式', 'error')
+                            use_aria2 = False
+                    
+                except Exception as aria2_err:
+                    cls._add_log(task_id, f'Aria2下载异常: {str(aria2_err)}，降级使用传统下载方式', 'error')
+                    logger.error(f"Aria2下载异常: {aria2_err}", exc_info=True)
+                    use_aria2 = False
+            
+            # 传统下载方式（夸克网盘或Aria2失败时的降级方案）
+            if not use_aria2:
+                cls._add_log(task_id, '使用传统多线程下载方式', 'info')
             
             # 开始下载文件
             success_count = 0

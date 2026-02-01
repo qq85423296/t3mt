@@ -706,7 +706,14 @@ class Cloud189Service(ICloudService):
             
             logger.info(f"189获取文件列表请求: folder_id={folder_id}, page={page}, size={size}")
             
-            response = self._send_request("GET", url, params=params)
+            try:
+                response = self._send_request("GET", url, params=params)
+            except Exception as req_err:
+                logger.error(f"189文件列表请求异常: {req_err}", exc_info=True)
+                return {
+                    'code': -1,
+                    'message': f'请求异常: {str(req_err)}'
+                }
             
             logger.info(f"189文件列表响应状态码: {response.status_code}")
             
@@ -2096,7 +2103,7 @@ class Cloud189Service(ICloudService):
     
     def get_download_url(self, file_ids):
         """
-        获取下载链接(直接使用备用API,支持大文件)
+        获取下载链接(支持视频和普通文件)
         
         Args:
             file_ids: 文件ID列表
@@ -2112,32 +2119,60 @@ class Cloud189Service(ICloudService):
             download_urls = []
             
             for file_id in file_ids:
-                # 直接使用备用API(视频播放URL API,支持大文件)
-                url = "/api/portal/getNewVlcVideoPlayUrl.action"
-                params = {
-                    'fileId': file_id,
-                    'type': 2,  # 2=个人文件
-                    'dt': 1
-                }
+                download_url = None
                 
-                response = self._send_request("GET", url, params=params)
-                
-                if response.status_code == 200:
-                    result = response.json()
+                # 方法1: 尝试使用视频播放API(适用于大文件/视频)
+                try:
+                    url = "/api/portal/getNewVlcVideoPlayUrl.action"
+                    params = {
+                        'fileId': file_id,
+                        'type': 2,  # 2=个人文件
+                        'dt': 1
+                    }
                     
-                    if result.get('res_code') == 0:
-                        # 备用API返回的数据结构: {'normal': {'url': '...'}}
-                        normal_info = result.get('normal', {})
-                        download_url = normal_info.get('url', '')
-                        if download_url:
-                            download_urls.append({
-                                'file_id': file_id,
-                                'download_url': download_url,
-                                'downloadUrl': download_url
-                            })
-                            continue
+                    response = self._send_request("GET", url, params=params)
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        
+                        if result.get('res_code') == 0:
+                            normal_info = result.get('normal', {})
+                            download_url = normal_info.get('url', '')
+                            if download_url:
+                                logger.info(f"文件 {file_id} 使用视频API获取下载链接成功")
+                except Exception as e:
+                    logger.debug(f"视频API获取失败: {e}")
                 
-                logger.warning(f"文件 {file_id} 的下载链接获取失败")
+                # 方法2: 如果方法1失败，尝试使用通用下载API(适用于小文件/图片)
+                if not download_url:
+                    try:
+                        url = "/api/open/file/getFileDownloadUrl.action"
+                        params = {
+                            'fileId': file_id
+                        }
+                        
+                        response = self._send_request("GET", url, params=params)
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            
+                            if result.get('res_code') == 0 or result.get('fileDownloadUrl'):
+                                download_url = result.get('fileDownloadUrl') or result.get('downloadUrl')
+                                if download_url:
+                                    logger.info(f"文件 {file_id} 使用通用API获取下载链接成功")
+                    except Exception as e:
+                        logger.debug(f"通用API获取失败: {e}")
+                
+                # 如果两种方法都失败
+                if not download_url:
+                    logger.warning(f"文件 {file_id} 的下载链接获取失败（已尝试视频API和通用API）")
+                    continue
+                
+                download_urls.append({
+                    'file_id': file_id,
+                    'download_url': download_url,
+                    'downloadUrl': download_url
+                })
             
             if download_urls:
                 return {

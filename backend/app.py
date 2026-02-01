@@ -155,6 +155,18 @@ def main():
             logger.error(f"许可证管理器初始化失败: {e}")
             logger.warning("将以降级模式运行，部分功能可能不可用")
         
+        # 启动Aria2进程（用于天翼云盘下载）
+        logger.info("启动Aria2下载服务...")
+        try:
+            from services.aria2_manager import aria2_manager
+            if aria2_manager.start():
+                logger.info("Aria2下载服务启动成功")
+            else:
+                logger.warning("Aria2下载服务启动失败，天翼云盘下载功能可能受限")
+        except Exception as e:
+            logger.error(f"Aria2下载服务启动异常: {e}")
+            logger.warning("天翼云盘下载功能可能不可用")
+        
         # 确保数据库已初始化（每次启动都执行，包含迁移逻辑）
         logger.info("正在初始化数据库...")
         from database import _get_db_instance
