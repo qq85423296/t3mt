@@ -27,23 +27,71 @@ class Aria2Manager:
         system = platform.system()
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
+        # 优先尝试使用系统安装的aria2c（支持多架构）
+        try:
+            result = subprocess.run(['which', 'aria2c'], 
+                                  capture_output=True, 
+                                  text=True, 
+                                  timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                system_aria2 = result.stdout.strip()
+                logger.info(f"找到系统安装的Aria2: {system_aria2}")
+                return system_aria2
+        except Exception as e:
+            logger.debug(f"未找到系统安装的Aria2: {e}")
+        
+        # 如果系统没有安装，使用内置的aria2c
         if system == 'Windows':
             aria2_path = os.path.join(base_dir, 'bin', 'aria2', 'windows', 'aria2c.exe')
         elif system == 'Linux':
             aria2_path = os.path.join(base_dir, 'bin', 'aria2', 'linux', 'aria2c')
         else:
-            # macOS或其他系统，尝试从PATH查找
+            # macOS或其他系统
             aria2_path = 'aria2c'
+        
+        logger.info(f"尝试使用内置Aria2: {aria2_path}")
         
         # 检查文件是否存在
         if os.path.exists(aria2_path):
-            # Linux下确保有执行权限
+            logger.info(f"内置Aria2文件存在: {aria2_path}")
+            
+            # Linux下检查并设置执行权限
             if system == 'Linux':
-                os.chmod(aria2_path, 0o755)
-            return aria2_path
-        else:
-            logger.warning(f"Aria2可执行文件不存在: {aria2_path}，尝试使用系统PATH")
-            return 'aria2c'
+                # 检查当前权限
+                import stat
+                file_stat = os.stat(aria2_path)
+                current_mode = oct(file_stat.st_mode)
+                logger.info(f"内置Aria2文件当前权限: {current_mode}")
+                
+                # 检查是否有执行权限
+                if not os.access(aria2_path, os.X_OK):
+                    logger.warning(f"内置Aria2文件没有执行权限，尝试设置...")
+                    try:
+                        os.chmod(aria2_path, 0o755)
+                        logger.info(f"已设置内置Aria2执行权限: 0o755")
+                    except Exception as chmod_err:
+                        logger.error(f"设置执行权限失败: {chmod_err}")
+                else:
+                    logger.info(f"内置Aria2文件已有执行权限")
+                
+                # 尝试执行测试（检查架构兼容性）
+                try:
+                    test_result = subprocess.run([aria2_path, '--version'], 
+                                               capture_output=True, 
+                                               timeout=5)
+                    if test_result.returncode == 0:
+                        logger.info(f"内置Aria2可执行，架构兼容")
+                        return aria2_path
+                    else:
+                        logger.warning(f"内置Aria2执行失败，可能架构不兼容")
+                except Exception as test_err:
+                    logger.warning(f"内置Aria2测试失败: {test_err}，可能架构不兼容")
+            else:
+                return aria2_path
+        
+        # 最后尝试从PATH查找
+        logger.warning(f"内置Aria2不可用，尝试使用系统PATH中的aria2c")
+        return 'aria2c'
     
     def _load_config(self):
         """从数据库加载Aria2配置（只使用云盘下载配置）"""
@@ -152,27 +200,17 @@ class Aria2Manager:
             
             # 获取下载目录
             self.download_dir = self._get_download_dir()
+            logger.info(f"Aria2下载目录: {self.download_dir}")
             
-            # 获取可执行文件路径
+            # 获取可执行文件路径（会自动检查和设置权限）
             aria2_exe = self._get_aria2_executable()
             
-            # 检查可执行文件是否存在
-            if not os.path.exists(aria2_exe) and aria2_exe != 'aria2c':
+            # 检查可执行文件是否可用
+            if aria2_exe != 'aria2c' and not os.path.exists(aria2_exe):
                 logger.error(f"Aria2可执行文件不存在: {aria2_exe}")
                 return False
             
-            # 检查可执行文件权限（Linux）
-            if platform.system() == 'Linux' and os.path.exists(aria2_exe):
-                if not os.access(aria2_exe, os.X_OK):
-                    logger.error(f"Aria2可执行文件没有执行权限: {aria2_exe}")
-                    try:
-                        os.chmod(aria2_exe, 0o755)
-                        logger.info(f"已设置Aria2可执行权限: {aria2_exe}")
-                    except Exception as chmod_err:
-                        logger.error(f"设置执行权限失败: {chmod_err}")
-                        return False
-            
-            # 构建启动参数（简化版，移除可能导致RPC超时的参数）
+            # 构建启动参数
             args = [
                 aria2_exe,
                 '--enable-rpc',
@@ -187,7 +225,7 @@ class Aria2Manager:
                 '--allow-overwrite=false',  # 禁止覆盖已存在文件
             ]
             
-            logger.info(f"启动Aria2进程: {' '.join(args)}")
+            logger.info(f"启动Aria2进程，命令: {' '.join(args)}")
             
             # 启动进程
             if platform.system() == 'Windows':
@@ -204,18 +242,26 @@ class Aria2Manager:
                     stderr=subprocess.PIPE
                 )
             
+            logger.info(f"Aria2进程已启动，PID: {self.process.pid}，等待2秒...")
+            
             # 等待进程启动
             time.sleep(2)
             
             # 检查进程是否正常运行
-            if self.process.poll() is not None:
+            poll_result = self.process.poll()
+            if poll_result is not None:
                 # 进程已退出，读取错误信息
+                logger.error(f"Aria2进程启动后立即退出，退出码: {poll_result}")
                 try:
-                    _, stderr = self.process.communicate(timeout=1)
-                    error_msg = stderr.decode('utf-8', errors='ignore') if stderr else '未知错误'
-                    logger.error(f"Aria2进程启动后立即退出，错误信息: {error_msg}")
-                except:
-                    logger.error(f"Aria2进程启动后立即退出")
+                    stdout, stderr = self.process.communicate(timeout=1)
+                    if stdout:
+                        stdout_msg = stdout.decode('utf-8', errors='ignore')
+                        logger.error(f"Aria2 stdout: {stdout_msg}")
+                    if stderr:
+                        stderr_msg = stderr.decode('utf-8', errors='ignore')
+                        logger.error(f"Aria2 stderr: {stderr_msg}")
+                except Exception as comm_err:
+                    logger.error(f"读取Aria2输出失败: {comm_err}")
                 return False
             
             # 注册退出时的清理函数

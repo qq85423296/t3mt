@@ -13,13 +13,20 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     make \
+    aria2 \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制后端代码
 COPY backend/ /app/backend/
 
 # 设置 Aria2 可执行文件权限（Linux）
-RUN chmod +x /app/backend/bin/aria2/linux/aria2c
+RUN if [ -f /app/backend/bin/aria2/linux/aria2c ]; then \
+        chmod +x /app/backend/bin/aria2/linux/aria2c && \
+        ls -la /app/backend/bin/aria2/linux/aria2c && \
+        echo "Aria2 可执行权限设置成功"; \
+    else \
+        echo "警告: Aria2 可执行文件不存在"; \
+    fi
 
 # 确保配置文件存在
 RUN test -f /app/backend/config.ini || (echo "错误: config.ini 配置文件不存在" && exit 1)
