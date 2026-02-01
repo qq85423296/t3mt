@@ -34,18 +34,28 @@ class YoukuService:
     def extract_video_id_from_url(self, url: str) -> Optional[str]:
         """
         从官网地址提取video_id
-        例如: http://v.youku.com/v_show/id_XNjUwODQwNDg5Ng==.html -> XNjUwODQwNDg5Ng==
+        支持的URL格式:
+        1. http://v.youku.com/v_show/id_XNjUwODQwNDg5Ng==.html
+        2. https://v.youku.com/video?vid=XNDE5NDQyMzc2NA==
+        3. https://v.youku.com/video?video_id=XNDE5NDQyMzc2NA==
         """
         try:
-            # 模式1: /id_XXX.html
+            # 模式1: /id_XXX.html 或 /id_XXX
             match = re.search(r'/id_([^/.]+)', url)
             if match:
                 video_id = match.group(1)
                 logger.info(f"从URL中提取到video_id: {video_id}")
                 return video_id
             
-            # 模式2: video_id=XXX
-            match = re.search(r'video_id=([^&]+)', url)
+            # 模式2: vid=XXX (新增支持)
+            match = re.search(r'[?&]vid=([^&]+)', url)
+            if match:
+                video_id = match.group(1)
+                logger.info(f"从URL参数中提取到video_id: {video_id}")
+                return video_id
+            
+            # 模式3: video_id=XXX
+            match = re.search(r'[?&]video_id=([^&]+)', url)
             if match:
                 video_id = match.group(1)
                 logger.info(f"从URL参数中提取到video_id: {video_id}")
@@ -269,7 +279,7 @@ class YoukuService:
         if not video_id:
             return {
                 'success': False,
-                'error': '无效的优酷地址或无法提取video_id'
+                'error': '无法识别的优酷URL格式,请使用以下格式之一:\n1) https://v.youku.com/v_show/id_XXX.html\n2) https://v.youku.com/video?vid=XXX'
             }
         
         logger.info(f"提取到video_id: {video_id}")

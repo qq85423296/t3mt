@@ -73,6 +73,9 @@ def get_config():
             'video_expiration': {
                 'enabled': ConfigModel.get_config('video_auto_expiration_enabled', '1') == '1',
                 'days': int(ConfigModel.get_config('video_auto_expiration_days', '7'))
+            },
+            'default': {
+                'exclude_keywords': ConfigModel.get_config('default_exclude_keywords', '')
             }
         }
         
@@ -281,6 +284,14 @@ def save_config():
             ConfigModel.set_config('video_auto_expiration_days', str(days), 'video')
             
             logger.info(f"[AutoExpiration] 配置保存成功: enabled={enabled}, days={days}")
+        
+        # 保存默认排除关键词配置
+        if 'default' in data:
+            default_config = data['default']
+            if 'exclude_keywords' in default_config:
+                exclude_keywords = default_config['exclude_keywords']
+                ConfigModel.set_config('default_exclude_keywords', exclude_keywords, 'default')
+                logger.info(f"[DefaultConfig] 默认排除关键词保存成功: {exclude_keywords}")
         
         logger.info("系统配置保存成功")
         

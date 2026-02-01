@@ -626,7 +626,7 @@
                     <label class="form-label">排除关键词</label>
                     <input type="text" class="form-input" id="excludeKeywords" 
                            placeholder="输入关键词，多个关键词用 | 分割 (如: 火力全员|预告|花絮)" />
-                    <div class="form-hint">转存时将跳过包含这些关键词的文件，多个关键词用 | 分割</div>
+                    <div class="form-hint">排除关键词（用|分隔，包含关键词的文件将被跳过）</div>
                 </div>
                 
                 <div class="form-group">
@@ -1159,8 +1159,8 @@
         // 重置正则替换字段
         document.getElementById('regexPattern').value = '';
         document.getElementById('replacementPattern').value = '';
-        // 重置排除关键词字段
-        document.getElementById('excludeKeywords').value = '';
+        // 重置排除关键词字段，自动填充系统默认值
+        document.getElementById('excludeKeywords').value = defaultExcludeKeywords;
         document.getElementById('previewFilename').value = '';
         document.getElementById('previewResult').style.display = 'none';
     }
@@ -2741,6 +2741,21 @@
     }
 
     // 初始化
+    let defaultExcludeKeywords = ''; // 存储默认排除关键词
+    
+    // 加载系统配置
+    async function loadSystemConfig() {
+        try {
+            const result = await API.get('/api/config');
+            if (result.code === 200 && result.data) {
+                defaultExcludeKeywords = result.data.default?.exclude_keywords || '';
+            }
+        } catch (error) {
+            console.error('加载系统配置失败:', error);
+        }
+    }
+    
+    loadSystemConfig();
     loadAccounts();
     loadTasks();
 })();

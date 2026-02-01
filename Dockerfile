@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y \
 # 复制后端代码
 COPY backend/ /app/backend/
 
+# 设置 Aria2 可执行文件权限（Linux）
+RUN chmod +x /app/backend/bin/aria2/linux/aria2c
+
 # 确保配置文件存在
 RUN test -f /app/backend/config.ini || (echo "错误: config.ini 配置文件不存在" && exit 1)
 RUN test -f /app/backend/config/encrypted_config.dat || (echo "错误: encrypted_config.dat 配置文件不存在" && exit 1)

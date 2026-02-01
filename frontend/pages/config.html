@@ -795,6 +795,19 @@
     </div>
 </div>
 
+<div class="config-section">
+    <h3 class="section-title">通用配置</h3>
+    <div class="config-form">
+        <div class="form-row">
+            <div class="form-row-label">默认排除关键词</div>
+            <div class="form-row-content">
+                <input type="text" class="form-input" id="defaultExcludeKeywords" placeholder="预告|花絮|片花" style="width: 400px;" />
+            </div>
+        </div>
+        <div class="form-hint">默认排除关键词（用|分隔，如：预告|花絮|片花）</div>
+    </div>
+</div>
+
 <div class="save-button-container">
     <button class="btn btn-primary" onclick="saveAllConfig()">保存所有配置</button>
 </div>
@@ -1018,6 +1031,9 @@
         // 任务自动失效配置
         document.getElementById('autoExpirationEnabled').checked = data.video_expiration?.enabled !== false;
         document.getElementById('autoExpirationDays').value = data.video_expiration?.days || 7;
+        
+        // 默认排除关键词配置
+        document.getElementById('defaultExcludeKeywords').value = data.default?.exclude_keywords || '';
     }
 
     // 加载账号列表
@@ -1738,6 +1754,9 @@
             video_expiration: {
                 enabled: document.getElementById('autoExpirationEnabled').checked,
                 days: parseInt(document.getElementById('autoExpirationDays').value)
+            },
+            default: {
+                exclude_keywords: document.getElementById('defaultExcludeKeywords').value.trim()
             }
         };
 

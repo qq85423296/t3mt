@@ -455,12 +455,18 @@
             ← 返回搜索结果
         </button>
         <button class="btn btn-primary" onclick="showCreateTaskModal()">+ 新建任务</button>
+        <button class="btn btn-secondary" id="batchModeBtn" onclick="toggleBatchMode()">批量操作</button>
+        <button class="btn btn-success" id="batchRestoreBtn" style="display: none;" onclick="batchRestoreTasks()">批量恢复</button>
+        <button class="btn btn-secondary" id="cancelBatchBtn" style="display: none;" onclick="cancelBatchMode()">取消</button>
     </div>
 </div>
 
 <table class="data-table">
     <thead>
         <tr>
+            <th width="40" id="batchCheckboxHeader" style="display: none;">
+                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)">
+            </th>
             <th>任务名称</th>
             <th>官网地址</th>
             <th>保存目录</th>
@@ -472,7 +478,7 @@
     </thead>
     <tbody id="taskList">
         <tr>
-            <td colspan="7" style="text-align: center; padding: 40px;">
+            <td colspan="8" style="text-align: center; padding: 40px;">
                 <div class="loading">加载中...</div>
             </td>
         </tr>
@@ -654,7 +660,7 @@
                     <label class="form-label">排除关键词</label>
                     <input type="text" class="form-input" id="excludeKeywords" 
                            placeholder="例如: 预告|花絮|片花" />
-                    <div class="form-hint">输入关键词，多个关键词用 | 分割，下载时将跳过包含这些关键词的剧集</div>
+                    <div class="form-hint">排除关键词（用|分隔，包含关键词的文件将被跳过）</div>
                 </div>
             </div>
             
@@ -857,7 +863,8 @@
     // 加载任务列表
     async function loadTasks() {
         const tbody = document.getElementById('taskList');
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>';
+        const colspan = batchMode ? '8' : '7';
+        tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; padding: 40px;"><div class="loading">加载中...</div></td></tr>`;
 
         try {
             const result = await VideoAPI.getList();
@@ -865,11 +872,11 @@
             if (result.code === 200 && result.data) {
                 displayTasks(result.data);
             } else {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>`;
             }
         } catch (error) {
             console.error('加载任务列表失败:', error);
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; padding: 40px; color: #999;">加载失败</td></tr>`;
         }
     }
 
@@ -878,7 +885,8 @@
         const tbody = document.getElementById('taskList');
         
         if (!tasks || tasks.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>';
+            const colspan = batchMode ? '8' : '7';
+            tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; padding: 40px; color: #999;">暂无任务</td></tr>`;
             return;
         }
 
@@ -914,8 +922,20 @@
                                 task.platform === 'youku' ? '优酷' : '芒果TV';
             const platformBadge = `<span style="font-size: 11px; color: #666; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; margin-left: 8px;">${platformText}</span>`;
             
+            // 批量操作模式下的复选框（只有失效状态的任务可以选择）
+            const checkboxCell = batchMode ? `
+                <td>
+                    <input type="checkbox" 
+                           class="task-checkbox" 
+                           data-task-id="${task.id}"
+                           onchange="onTaskCheckboxChange(this, ${task.id})"
+                           ${normalizedStatus !== 'inactive' ? 'disabled' : ''}>
+                </td>
+            ` : '';
+            
             return `
                 <tr>
+                    ${checkboxCell}
                     <td>${task.name}${platformBadge}</td>
                     <td>
                         <a href="${task.website_url}" target="_blank" style="color: #2563EB; text-decoration: none;">
@@ -1530,9 +1550,9 @@
         if (videoPreviewFilenameEl) videoPreviewFilenameEl.value = '';
         if (videoPreviewResultEl) videoPreviewResultEl.style.display = 'none';
         
-        // 重置排除关键词配置
+        // 重置排除关键词配置，自动填充系统默认值
         const excludeKeywordsEl = document.getElementById('excludeKeywords');
-        if (excludeKeywordsEl) excludeKeywordsEl.value = '';
+        if (excludeKeywordsEl) excludeKeywordsEl.value = defaultExcludeKeywords;
         
         episodeData = [];
         currentPlatform = null;
@@ -1716,6 +1736,10 @@
             const vipBadge = ep.is_vip ? '<span style="color: #E4B659; font-size: 11px; margin-left: 4px;">VIP</span>' : '';
             const downloadedBadge = ep.downloaded ? '<span class="episode-downloaded">已下载</span>' : '';
             
+            // 检查是否为电影类型（剧集数为1且视频类型为电影）
+            const isMovie = (currentVideoType === '电影' && episodes.length === 1);
+            const movieBadge = isMovie ? '<span style="background: #FF6B6B; color: white; font-size: 11px; padding: 2px 6px; border-radius: 3px; margin-left: 4px;">电影</span>' : '';
+            
             // 构建完整标题
             let displayParts = [];
             
@@ -1749,7 +1773,7 @@
                     <input type="checkbox" class="episode-checkbox" id="episode_${index}" 
                            onchange="updateSelectedCount()" onclick="event.stopPropagation()" />
                     <span class="episode-index" style="color: #999; font-size: 12px; margin-right: 8px;">[${index + 1}]</span>
-                    <span class="episode-name">${displayText}${vipBadge}</span>
+                    <span class="episode-name">${displayText}${vipBadge}${movieBadge}</span>
                     ${downloadedBadge}
                     <span class="episode-status">${durationText}</span>
                 </div>
@@ -2094,6 +2118,21 @@
     }
 
     // 初始化
+    let defaultExcludeKeywords = ''; // 存储默认排除关键词
+    
+    // 加载系统配置
+    async function loadSystemConfig() {
+        try {
+            const result = await API.get('/api/config');
+            if (result.code === 200 && result.data) {
+                defaultExcludeKeywords = result.data.default?.exclude_keywords || '';
+            }
+        } catch (error) {
+            console.error('加载系统配置失败:', error);
+        }
+    }
+    
+    loadSystemConfig();
     loadTasks();
     
     // 监听任务名称变化，自动更新路径
@@ -2201,6 +2240,120 @@
             console.error('解析待添加任务失败:', error);
         }
     }
+    
+    // ==================== 批量操作功能 ====================
+    
+    let batchMode = false;  // 批量操作模式
+    let selectedTaskIds = [];  // 选中的任务ID列表
+    
+    // 切换批量操作模式
+    window.toggleBatchMode = function() {
+        batchMode = !batchMode;
+        selectedTaskIds = [];
+        
+        if (batchMode) {
+            // 进入批量操作模式
+            document.getElementById('batchModeBtn').style.display = 'none';
+            document.getElementById('batchCheckboxHeader').style.display = 'table-cell';
+            document.getElementById('cancelBatchBtn').style.display = 'inline-block';
+            
+            // 重新渲染任务列表，显示复选框
+            loadTasks();
+        } else {
+            // 退出批量操作模式
+            document.getElementById('batchModeBtn').style.display = 'inline-block';
+            document.getElementById('batchCheckboxHeader').style.display = 'none';
+            document.getElementById('batchRestoreBtn').style.display = 'none';
+            document.getElementById('cancelBatchBtn').style.display = 'none';
+            document.getElementById('selectAllCheckbox').checked = false;
+            
+            // 重新渲染任务列表，隐藏复选框
+            loadTasks();
+        }
+    };
+    
+    // 取消批量操作模式
+    window.cancelBatchMode = function() {
+        toggleBatchMode();
+    };
+    
+    // 全选/取消全选
+    window.toggleSelectAll = function(checkbox) {
+        const checkboxes = document.querySelectorAll('.task-checkbox:not(:disabled)');
+        checkboxes.forEach(cb => {
+            cb.checked = checkbox.checked;
+            const taskId = parseInt(cb.dataset.taskId);
+            if (checkbox.checked) {
+                if (!selectedTaskIds.includes(taskId)) {
+                    selectedTaskIds.push(taskId);
+                }
+            } else {
+                selectedTaskIds = selectedTaskIds.filter(id => id !== taskId);
+            }
+        });
+        updateBatchButtons();
+    };
+    
+    // 任务复选框变化
+    window.onTaskCheckboxChange = function(checkbox, taskId) {
+        if (checkbox.checked) {
+            if (!selectedTaskIds.includes(taskId)) {
+                selectedTaskIds.push(taskId);
+            }
+        } else {
+            selectedTaskIds = selectedTaskIds.filter(id => id !== taskId);
+            document.getElementById('selectAllCheckbox').checked = false;
+        }
+        updateBatchButtons();
+    };
+    
+    // 更新批量操作按钮状态
+    function updateBatchButtons() {
+        const hasSelected = selectedTaskIds.length > 0;
+        document.getElementById('batchRestoreBtn').style.display = hasSelected ? 'inline-block' : 'none';
+    }
+    
+    // 批量恢复任务
+    window.batchRestoreTasks = async function() {
+        if (selectedTaskIds.length === 0) {
+            Message.warning('请选择要恢复的任务');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/video/task/batch-restore', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    task_ids: selectedTaskIds
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.code === 200) {
+                // 静默刷新列表
+                await loadTasks();
+                
+                // 退出批量操作模式
+                batchMode = false;
+                selectedTaskIds = [];
+                document.getElementById('batchModeBtn').style.display = 'inline-block';
+                document.getElementById('batchCheckboxHeader').style.display = 'none';
+                document.getElementById('batchRestoreBtn').style.display = 'none';
+                document.getElementById('cancelBatchBtn').style.display = 'none';
+                document.getElementById('selectAllCheckbox').checked = false;
+            } else {
+                Message.error(result.message || '批量恢复失败');
+            }
+        } catch (error) {
+            console.error('批量恢复失败:', error);
+            Message.error('批量恢复失败');
+        }
+    };
+    
 })();
 </script>
 

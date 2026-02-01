@@ -30,11 +30,11 @@ def upgrade():
                 ADD COLUMN last_episode_update_time TEXT
             ''')
             
-            # 3. 为现有记录初始化该字段为created_at值
+            # 3. 为现有记录初始化该字段为当前时间（避免老任务立即超时）
             print("  初始化现有记录的last_episode_update_time字段...")
             cursor.execute('''
                 UPDATE video_tasks 
-                SET last_episode_update_time = created_at 
+                SET last_episode_update_time = datetime('now')
                 WHERE last_episode_update_time IS NULL
             ''')
             updated_count = cursor.rowcount

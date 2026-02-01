@@ -413,9 +413,9 @@ class AutoExpirationService:
                 logger.error(f"[AutoExpiration] 计算超时时间点失败: timeout_days={timeout_days}, error={e}")
                 return False
             
-            # 判断是否超时：必须严格大于timeout_days天
-            # 使用 <= 而不是 < ，确保只有真正超过N天才算超时
-            is_expired = last_update_dt <= timeout_threshold
+            # 判断是否超时：必须严格超过timeout_days天
+            # 使用 < 而不是 <=，确保只有真正超过N天才算超时（刚好N天不算超时）
+            is_expired = last_update_dt < timeout_threshold
             
             if not is_expired:
                 # 计算实际天数差

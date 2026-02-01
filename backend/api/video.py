@@ -1097,3 +1097,65 @@ def clear_task_failures(task_id):
     except Exception as e:
         logger.error(f"清除失败记录失败: {str(e)}", exc_info=True)
         return jsonify({'code': 500, 'message': f'清除失败记录失败: {str(e)}'})
+
+
+@video_bp.route('/task/batch-restore', methods=['POST'])
+def batch_restore_tasks():
+    """批量恢复失效任务"""
+    try:
+        from datetime import datetime
+        
+        data = request.get_json()
+        task_ids = data.get('task_ids', [])
+        
+        if not task_ids:
+            return jsonify({'code': 400, 'message': '请选择要恢复的任务'})
+        
+        if not isinstance(task_ids, list):
+            return jsonify({'code': 400, 'message': '任务ID必须为数组'})
+        
+        success_count = 0
+        failed_count = 0
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        for task_id in task_ids:
+            try:
+                # 验证任务是否存在
+                task = VideoTask.get_by_id(task_id)
+                if not task:
+                    logger.warning(f"批量恢复: 任务不存在 task_id={task_id}")
+                    failed_count += 1
+                    continue
+                
+                # 只能恢复失效状态的任务
+                if task.status != 'disabled':
+                    logger.warning(f"批量恢复: 任务状态不是disabled task_id={task_id}, status={task.status}")
+                    failed_count += 1
+                    continue
+                
+                # 恢复任务并重置时间
+                VideoTask.update(
+                    task_id,
+                    status='active',
+                    last_episode_update_time=current_time
+                )
+                
+                logger.info(f"批量恢复成功: task_id={task_id}, task_name={task.name}")
+                success_count += 1
+                
+            except Exception as e:
+                logger.error(f"恢复任务失败: task_id={task_id}, error={e}", exc_info=True)
+                failed_count += 1
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'success_count': success_count,
+                'failed_count': failed_count
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"批量恢复任务失败: {e}", exc_info=True)
+        return jsonify({'code': 500, 'message': f'批量恢复失败: {str(e)}'})

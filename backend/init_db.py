@@ -41,6 +41,12 @@ def init_default_configs():
                 'config_value': '7',
                 'config_type': 'video',
                 'description': '影视任务自动失效超时天数'
+            },
+            {
+                'config_key': 'default_exclude_keywords',
+                'config_value': '',
+                'config_type': 'default',
+                'description': '默认排除关键词配置'
             }
         ]
         

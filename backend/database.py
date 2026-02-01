@@ -429,6 +429,13 @@ class Database:
             
             conn.commit()
             print("✅ 数据库初始化成功")
+            
+            # 执行数据修复脚本（修复影视任务的last_episode_update_time数据）
+            try:
+                from migrations.fix_video_task_expiration_time import upgrade as fix_expiration_time
+                fix_expiration_time()
+            except Exception as e:
+                print(f"⚠️ 数据修复脚本执行失败（可忽略）: {e}")
     
     def reset_database(self):
         """重置数据库（删除所有表）"""

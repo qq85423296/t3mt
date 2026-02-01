@@ -221,6 +221,54 @@ class TencentService:
             video_info['cid'] = cid
             video_info['episode_all'] = str(len(all_episodes))
             
+            # 电影类型特殊处理：如果剧集为0，自动创建默认剧集
+            if len(all_episodes) == 0:
+                # 检查是否为电影类型
+                business_info = video_info.get('businessInfo', {})
+                video_category = business_info.get('video_category', 0)
+                
+                if video_category == 1:  # 电影类型
+                    # 记录日志
+                    movie_title = video_info.get('title', '电影')
+                    logger.info(f"检测到电影类型且剧集为0，自动创建默认剧集：{movie_title}")
+                    
+                    # 尝试从video_info获取时长
+                    duration_str = ''
+                    if 'duration' in video_info:
+                        duration_seconds = video_info.get('duration', 0)
+                        try:
+                            duration_int = int(duration_seconds)
+                            if duration_int > 0:
+                                minutes = duration_int // 60
+                                seconds = duration_int % 60
+                                duration_str = f"{minutes}:{seconds:02d}"
+                        except:
+                            pass
+                    
+                    # 创建默认剧集
+                    default_episode = {
+                        'name': movie_title,  # 使用电影标题作为剧集名称
+                        'title': '',  # 副标题留空
+                        'url': f"{self.base_url}/x/cover/{cid}.html",  # 使用cid构造URL
+                        'vid': '',  # vid留空
+                        'publish_date': video_info.get('broadcast_time', ''),  # 尝试从video_info获取发布日期
+                        'time': duration_str,  # 时长
+                        'image': video_info.get('cover_url', ''),  # 使用封面图
+                        'is_vip': False  # VIP标识默认为false
+                    }
+                    
+                    all_episodes = [default_episode]
+                    video_info['episode_all'] = '1'
+                    
+                    logger.info(f"电影默认剧集创建成功：{movie_title}")
+                else:
+                    # 非电影类型，剧集为0是异常情况
+                    logger.warning(f"非电影类型剧集为0，video_category={video_category}")
+                    return {
+                        'success': False,
+                        'error': '未获取到剧集信息，请检查URL是否正确'
+                    }
+            
             # 按集数排序
             all_episodes.sort(key=lambda x: self._extract_episode_number(x.get('name', '')))
             

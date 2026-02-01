@@ -156,6 +156,22 @@ class Aria2Manager:
             # 获取可执行文件路径
             aria2_exe = self._get_aria2_executable()
             
+            # 检查可执行文件是否存在
+            if not os.path.exists(aria2_exe) and aria2_exe != 'aria2c':
+                logger.error(f"Aria2可执行文件不存在: {aria2_exe}")
+                return False
+            
+            # 检查可执行文件权限（Linux）
+            if platform.system() == 'Linux' and os.path.exists(aria2_exe):
+                if not os.access(aria2_exe, os.X_OK):
+                    logger.error(f"Aria2可执行文件没有执行权限: {aria2_exe}")
+                    try:
+                        os.chmod(aria2_exe, 0o755)
+                        logger.info(f"已设置Aria2可执行权限: {aria2_exe}")
+                    except Exception as chmod_err:
+                        logger.error(f"设置执行权限失败: {chmod_err}")
+                        return False
+            
             # 构建启动参数（简化版，移除可能导致RPC超时的参数）
             args = [
                 aria2_exe,
@@ -181,11 +197,11 @@ class Aria2Manager:
                     creationflags=subprocess.CREATE_NO_WINDOW  # 不创建新窗口
                 )
             else:
-                # Linux下正常启动
+                # Linux下捕获stderr用于诊断
                 self.process = subprocess.Popen(
                     args,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
                 )
             
             # 等待进程启动
@@ -193,8 +209,13 @@ class Aria2Manager:
             
             # 检查进程是否正常运行
             if self.process.poll() is not None:
-                # 进程已退出
-                logger.error(f"Aria2进程启动后立即退出")
+                # 进程已退出，读取错误信息
+                try:
+                    _, stderr = self.process.communicate(timeout=1)
+                    error_msg = stderr.decode('utf-8', errors='ignore') if stderr else '未知错误'
+                    logger.error(f"Aria2进程启动后立即退出，错误信息: {error_msg}")
+                except:
+                    logger.error(f"Aria2进程启动后立即退出")
                 return False
             
             # 注册退出时的清理函数

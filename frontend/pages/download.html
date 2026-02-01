@@ -435,7 +435,7 @@
                     <label class="form-label">排除关键词</label>
                     <input type="text" class="form-input" id="dlExcludeKeywords" 
                            placeholder="输入关键词，多个关键词用 | 分割 (如: 火力全员|预告|花絮)" />
-                    <div class="form-hint">下载时将跳过包含这些关键词的文件，多个关键词用 | 分割</div>
+                    <div class="form-hint">排除关键词（用|分隔，包含关键词的文件将被跳过）</div>
                 </div>
                 
                 <div class="form-group">
@@ -838,7 +838,8 @@
         
         if (dlRegexPattern) dlRegexPattern.value = '';
         if (dlReplacementPattern) dlReplacementPattern.value = '';
-        if (dlExcludeKeywords) dlExcludeKeywords.value = '';
+        // 自动填充系统默认排除关键词
+        if (dlExcludeKeywords) dlExcludeKeywords.value = defaultExcludeKeywords;
         if (dlPreviewFilename) dlPreviewFilename.value = '';
         if (dlPreviewResult) dlPreviewResult.style.display = 'none';
     }
@@ -2577,6 +2578,21 @@
     });
 
     // 初始化
+    let defaultExcludeKeywords = ''; // 存储默认排除关键词
+    
+    // 加载系统配置
+    async function loadSystemConfig() {
+        try {
+            const result = await API.get('/api/config');
+            if (result.code === 200 && result.data) {
+                defaultExcludeKeywords = result.data.default?.exclude_keywords || '';
+            }
+        } catch (error) {
+            console.error('加载系统配置失败:', error);
+        }
+    }
+    
+    loadSystemConfig();
     loadAccounts();
     loadTasks();
 })();

@@ -618,7 +618,11 @@ class TaskExecutor:
             
             # 检查状态码
             if response.status_code not in [200, 206]:
-                response.close()
+                # 安全关闭response
+                try:
+                    response.close()
+                except Exception as close_err:
+                    logger.warning(f"关闭response失败: {close_err}")
                 error_msg = f"状态码: {response.status_code}"
                 
                 # 重试
@@ -639,16 +643,30 @@ class TaskExecutor:
                     with cls._lock:
                         if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
                             cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 已停止", 'warning')
-                            response.close()
+                            # 安全关闭response
+                            try:
+                                if response:
+                                    response.close()
+                            except Exception as close_err:
+                                logger.warning(f"关闭response失败: {close_err}")
+                            # 清理临时文件
                             if chunk_file.exists():
-                                chunk_file.unlink()
+                                try:
+                                    chunk_file.unlink()
+                                except Exception as unlink_err:
+                                    logger.warning(f"删除临时文件失败: {unlink_err}")
                             return {'success': False, 'message': '任务已停止'}
                     
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
             
-            response.close()
+            # 安全关闭response
+            try:
+                if response:
+                    response.close()
+            except Exception as close_err:
+                logger.warning(f"关闭response失败: {close_err}")
             
             cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 完成 ({cls._format_size(chunk_file.stat().st_size)})", 'success')
             
@@ -764,18 +782,40 @@ class TaskExecutor:
                     with cls._lock:
                         if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
                             cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 已停止", 'warning')
-                            response.close()
+                            # 安全关闭response和session
+                            try:
+                                if response:
+                                    response.close()
+                            except Exception as close_err:
+                                logger.warning(f"关闭response失败: {close_err}")
+                            try:
+                                if session:
+                                    session.close()
+                            except Exception as close_err:
+                                logger.warning(f"关闭session失败: {close_err}")
+                            # 清理临时文件
                             if chunk_file.exists():
-                                chunk_file.unlink()
+                                try:
+                                    chunk_file.unlink()
+                                except Exception as unlink_err:
+                                    logger.warning(f"删除临时文件失败: {unlink_err}")
                             return {'success': False, 'message': '任务已停止'}
                     
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
             
-            response.close()
-            if session:
-                session.close()
+            # 安全关闭response和session
+            try:
+                if response:
+                    response.close()
+            except Exception as close_err:
+                logger.warning(f"关闭response失败: {close_err}")
+            try:
+                if session:
+                    session.close()
+            except Exception as close_err:
+                logger.warning(f"关闭session失败: {close_err}")
             
             # 验证下载的大小
             expected_size = end - start + 1
@@ -907,7 +947,11 @@ class TaskExecutor:
             
             # 403状态码专属处理：立即重新获取链接
             if response.status_code == 403:
-                response.close()
+                # 安全关闭response
+                try:
+                    response.close()
+                except Exception as close_err:
+                    logger.warning(f"关闭response失败: {close_err}")
                 if retry < max_403_retry:
                     cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 检测到403链接失效，立即重新获取链接 (重试 {retry + 1}/{max_403_retry})", 'warning')
                     # 不等待，立即重试并重新获取链接
@@ -927,9 +971,17 @@ class TaskExecutor:
                     with cls._lock:
                         if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
                             cls._add_log(task_id, f"      线程 {chunk_index + 1}/{total_chunks} 已停止", 'warning')
-                            response.close()
+                            # 安全关闭response
+                            try:
+                                response.close()
+                            except Exception as close_err:
+                                logger.warning(f"关闭response失败: {close_err}")
+                            # 清理临时文件
                             if chunk_file.exists():
-                                chunk_file.unlink()
+                                try:
+                                    chunk_file.unlink()
+                                except Exception as unlink_err:
+                                    logger.warning(f"删除临时文件失败: {unlink_err}")
                             return {'success': False, 'message': '任务已停止'}
                     
                     if chunk:
@@ -1042,7 +1094,11 @@ class TaskExecutor:
             
             # 403状态码专属处理
             if response.status_code == 403:
-                response.close()
+                # 安全关闭response
+                try:
+                    response.close()
+                except Exception as close_err:
+                    logger.warning(f"关闭response失败: {close_err}")
                 temp_file_path_obj = local_file_path + '.tmp'
                 if os.path.exists(temp_file_path_obj):
                     try:
@@ -1084,7 +1140,11 @@ class TaskExecutor:
                     with cls._lock:
                         if task_id in cls._running_tasks and cls._running_tasks[task_id].get('status') == 'stopped':
                             cls._add_log(task_id, f"   下载已停止，清理临时文件", 'warning')
-                            response.close()
+                            # 安全关闭response
+                            try:
+                                response.close()
+                            except Exception as close_err:
+                                logger.warning(f"关闭response失败: {close_err}")
                             f.close()
                             # 删除临时文件
                             if os.path.exists(temp_file_path):
