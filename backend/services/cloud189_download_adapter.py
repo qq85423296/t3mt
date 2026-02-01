@@ -87,23 +87,28 @@ class Cloud189DownloadAdapter:
                 
                 # 检查文件是否已下载（断点续传）
                 final_file_path = os.path.join(download_dir, final_file_name)
+                logger.info(f"[断点续传] 检查文件: {final_file_path}")
                 if os.path.exists(final_file_path):
                     # 对比文件大小
                     actual_size = os.path.getsize(final_file_path)
                     expected_size = file.get('size', 0)
+                    logger.info(f"[断点续传] 文件存在: {final_file_name}, 实际大小={actual_size}, 期望大小={expected_size}")
                     
                     if actual_size == expected_size:
                         # 文件已完整下载，跳过
                         skipped_count += 1
-                        logger.info(f"跳过已下载文件: {final_file_name} ({actual_size} bytes)")
+                        logger.info(f"[断点续传] 跳过已下载文件: {final_file_name} ({actual_size} bytes)")
                         continue
                     else:
                         # 文件不完整，删除后重新下载
-                        logger.warning(f"文件大小不匹配，删除后重新下载: {final_file_name} (期望:{expected_size}, 实际:{actual_size})")
+                        logger.warning(f"[断点续传] 文件大小不匹配，删除后重新下载: {final_file_name} (期望:{expected_size}, 实际:{actual_size})")
                         try:
                             os.remove(final_file_path)
+                            logger.info(f"[断点续传] 已删除不完整文件: {final_file_path}")
                         except Exception as e:
-                            logger.error(f"删除不完整文件失败: {final_file_path}, {e}")
+                            logger.error(f"[断点续传] 删除不完整文件失败: {final_file_path}, {e}")
+                else:
+                    logger.info(f"[断点续传] 文件不存在，需要下载: {final_file_path}")
                 
                 self.pending_files.append({
                     'file_id': file['id'],
@@ -123,6 +128,8 @@ class Cloud189DownloadAdapter:
             
             if files_to_download == 0:
                 self._add_log_to_db(f'所有文件均已下载完成，无需下载', 'success')
+                # 所有文件都已存在，设置completed_count为跳过的文件数
+                self.completed_count = skipped_count
                 # 更新执行状态为完成
                 if self.execution_id:
                     self._update_execution_status_with_plugin()

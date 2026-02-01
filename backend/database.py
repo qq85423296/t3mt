@@ -5,6 +5,7 @@
 import sqlite3
 import os
 from contextlib import contextmanager
+from utils.logger import logger
 
 
 class Database:
@@ -122,7 +123,7 @@ class Database:
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN regex_pattern TEXT")
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN replacement_pattern TEXT")
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN check_mode VARCHAR(20) DEFAULT 'replaced'")
-                print("✅ transfer_tasks表已添加正则替换字段")
+                logger.info("transfer_tasks表已添加正则替换字段")
             
             # 迁移：为已存在的transfer_tasks表添加目标文件夹ID字段
             try:
@@ -130,7 +131,7 @@ class Database:
             except sqlite3.OperationalError:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN target_folder_id VARCHAR(100)")
-                print("✅ transfer_tasks表已添加target_folder_id字段（用于快速定位目录）")
+                logger.info("transfer_tasks表已添加target_folder_id字段（用于快速定位目录）")
             
             # 迁移：为已存在的transfer_tasks表添加排除关键词字段
             try:
@@ -138,7 +139,7 @@ class Database:
             except sqlite3.OperationalError:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN exclude_keywords TEXT")
-                print("✅ transfer_tasks表已添加排除关键词字段")
+                logger.info("transfer_tasks表已添加排除关键词字段")
             
             # 迁移：为已存在的transfer_tasks表添加最后内容更新时间字段（用于自动失效检查）
             try:
@@ -148,7 +149,7 @@ class Database:
                 cursor.execute("ALTER TABLE transfer_tasks ADD COLUMN last_content_update_time DATETIME")
                 # 为已存在的记录设置初始值为当前时间（而不是创建时间，避免立即失效）
                 cursor.execute("UPDATE transfer_tasks SET last_content_update_time = datetime('now') WHERE last_content_update_time IS NULL")
-                print("✅ transfer_tasks表已添加最后内容更新时间字段")
+                logger.info("transfer_tasks表已添加最后内容更新时间字段")
             
             # 创建下载任务表（包含filter_extensions、include_extensions、正则替换字段和cloud_type字段）
             cursor.execute('''
@@ -184,7 +185,7 @@ class Database:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN regex_pattern TEXT")
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN replacement_pattern TEXT")
-                print("✅ download_tasks表已添加正则替换字段")
+                logger.info("download_tasks表已添加正则替换字段")
             
             # 迁移：为已存在的download_tasks表添加源文件夹ID字段
             try:
@@ -192,7 +193,7 @@ class Database:
             except sqlite3.OperationalError:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN source_folder_id VARCHAR(100)")
-                print("✅ download_tasks表已添加source_folder_id字段（用于快速定位目录）")
+                logger.info("download_tasks表已添加source_folder_id字段（用于快速定位目录）")
             
             # 迁移：为已存在的download_tasks表添加排除关键词字段
             try:
@@ -200,7 +201,7 @@ class Database:
             except sqlite3.OperationalError:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN exclude_keywords TEXT")
-                print("✅ download_tasks表已添加排除关键词字段")
+                logger.info("download_tasks表已添加排除关键词字段")
             
             # 迁移：为已存在的download_tasks表添加最后内容更新时间字段（用于自动失效检查）
             try:
@@ -210,7 +211,7 @@ class Database:
                 cursor.execute("ALTER TABLE download_tasks ADD COLUMN last_content_update_time DATETIME")
                 # 为已存在的记录设置初始值为当前时间（而不是创建时间，避免立即失效）
                 cursor.execute("UPDATE download_tasks SET last_content_update_time = datetime('now') WHERE last_content_update_time IS NULL")
-                print("✅ download_tasks表已添加最后内容更新时间字段")
+                logger.info("download_tasks表已添加最后内容更新时间字段")
             
             # 创建影视下载任务表（包含create_subfolder、集数选择、影视类型和cloud_type字段）
             cursor.execute('''
@@ -245,7 +246,7 @@ class Database:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN regex_pattern TEXT")
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN replacement_pattern TEXT")
-                print("✅ video_tasks表已添加正则替换字段")
+                logger.info("video_tasks表已添加正则替换字段")
             
             # 迁移：为已存在的video_tasks表添加文件大小限制字段
             try:
@@ -254,7 +255,7 @@ class Database:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN enable_file_size_check INTEGER DEFAULT 0")
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN min_file_size INTEGER DEFAULT 100")
-                print("✅ video_tasks表已添加文件大小限制字段")
+                logger.info("video_tasks表已添加文件大小限制字段")
             
             # 迁移：为已存在的video_tasks表添加失败重试字段
             try:
@@ -264,7 +265,7 @@ class Database:
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN enable_retry INTEGER DEFAULT 0")
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN max_retry_count INTEGER DEFAULT 3")
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN retry_interval INTEGER DEFAULT 5")
-                print("✅ video_tasks表已添加失败重试字段")
+                logger.info("video_tasks表已添加失败重试字段")
             
             # 迁移：为已存在的video_tasks表添加排除关键词字段
             try:
@@ -272,7 +273,7 @@ class Database:
             except sqlite3.OperationalError:
                 # 字段不存在，需要添加
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN exclude_keywords TEXT")
-                print("✅ video_tasks表已添加排除关键词字段")
+                logger.info("video_tasks表已添加排除关键词字段")
             
             # 迁移：为已存在的video_tasks表添加最后新增剧集时间字段
             try:
@@ -282,7 +283,7 @@ class Database:
                 cursor.execute("ALTER TABLE video_tasks ADD COLUMN last_episode_update_time DATETIME")
                 # 为已存在的记录设置初始值为当前时间（而不是创建时间，避免立即失效）
                 cursor.execute("UPDATE video_tasks SET last_episode_update_time = datetime('now') WHERE last_episode_update_time IS NULL")
-                print("✅ video_tasks表已添加最后新增剧集时间字段")
+                logger.info("video_tasks表已添加最后新增剧集时间字段")
             
             # 创建任务执行历史表（包含schedule_period字段和唯一约束）
             cursor.execute('''
@@ -428,7 +429,7 @@ class Database:
                 ''', (key, value, type_, desc))
             
             conn.commit()
-            print("✅ 数据库初始化成功")
+            logger.info("数据库初始化成功")
             
             # 执行数据修复脚本（修复影视任务的last_episode_update_time数据）
             try:
@@ -441,7 +442,7 @@ class Database:
         """重置数据库（删除所有表）"""
         if os.path.exists(self.db_path):
             os.remove(self.db_path)
-            print("✅ 数据库已重置")
+            logger.info("数据库已重置")
         self.init_database()
 
 
