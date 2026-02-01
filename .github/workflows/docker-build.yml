@@ -23,6 +23,10 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v3
       
+      # 设置 QEMU 支持多架构构建
+      - name: 设置 QEMU
+        uses: docker/setup-qemu-action@v3
+      
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v2
       
@@ -32,21 +36,36 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
-      # 根据分支确定镜像标签
-      - name: 确定镜像标签
-        id: tags
+      # 读取版本号
+      - name: 读取版本号
+        id: version
+        run: |
+          VERSION=$(cat VERSION.md | grep -oP '(?<=\*\*稳定版\*\*: )\d+\.\d+\.\d+' | head -1)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "读取到版本号: ${VERSION}"
+      
+      # 根据分支确定镜像标签和构建平台
+      - name: 确定镜像标签和构建平台
+        id: config
         run: |
           if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            # 稳定版: latest + 版本号
-            echo "tags=85423296/t3mt:latest,85423296/t3mt:2.1.5" >> $GITHUB_OUTPUT
-            echo "version=稳定版 (latest, 2.1.5)" >> $GITHUB_OUTPUT
+            # 稳定版: latest + 版本号，支持多架构
+            echo "tags=85423296/t3mt:latest,85423296/t3mt:${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
+            echo "version=稳定版 (latest, ${{ steps.version.outputs.version }})" >> $GITHUB_OUTPUT
+            echo "arch=多架构 (amd64, arm64)" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" == "refs/heads/test" ]; then
-            # 测试版: test
+            # 测试版: test，仅 amd64 架构（快速构建）
             echo "tags=85423296/t3mt:test" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
             echo "version=测试版 (test)" >> $GITHUB_OUTPUT
+            echo "arch=单架构 (amd64)" >> $GITHUB_OUTPUT
           else
+            # 开发版: dev，仅 amd64 架构
             echo "tags=85423296/t3mt:dev" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
             echo "version=开发版 (dev)" >> $GITHUB_OUTPUT
+            echo "arch=单架构 (amd64)" >> $GITHUB_OUTPUT
           fi
       
       - name: 构建并推送 Docker 镜像
@@ -55,8 +74,8 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          platforms: linux/amd64
+          tags: ${{ steps.config.outputs.tags }}
+          platforms: ${{ steps.config.outputs.platforms }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
@@ -64,5 +83,42 @@ jobs:
         run: |
           echo "✅ Docker 镜像构建并推送成功"
           echo "分支: ${{ github.ref_name }}"
-          echo "版本: ${{ steps.tags.outputs.version }}"
-          echo "镜像标签: ${{ steps.tags.outputs.tags }}"
+          echo "版本: ${{ steps.config.outputs.version }}"
+          echo "架构: ${{ steps.config.outputs.arch }}"
+          echo "镜像标签: ${{ steps.config.outputs.tags }}"
+      
+      # 验证多架构镜像（仅 main 分支）
+      - name: 验证多架构镜像
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "=================================================="
+          echo "验证镜像架构支持..."
+          echo "=================================================="
+          docker buildx imagetools inspect 85423296/t3mt:latest
+          
+          echo ""
+          echo "=================================================="
+          echo "检查 ARM64 架构支持..."
+          echo "=================================================="
+          if docker buildx imagetools inspect 85423296/t3mt:latest | grep -q "linux/arm64"; then
+            echo "✅ ARM64 架构验证成功"
+          else
+            echo "❌ ARM64 架构验证失败"
+            exit 1
+          fi
+          
+          echo ""
+          echo "=================================================="
+          echo "检查 AMD64 架构支持..."
+          echo "=================================================="
+          if docker buildx imagetools inspect 85423296/t3mt:latest | grep -q "linux/amd64"; then
+            echo "✅ AMD64 架构验证成功"
+          else
+            echo "❌ AMD64 架构验证失败"
+            exit 1
+          fi
+          
+          echo ""
+          echo "=================================================="
+          echo "✅ 多架构镜像验证通过"
+          echo "=================================================="
