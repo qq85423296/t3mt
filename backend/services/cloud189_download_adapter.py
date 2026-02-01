@@ -414,36 +414,70 @@ class Cloud189DownloadAdapter:
             
             end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            logger.info(f"准备更新执行历史: execution_id={self.execution_id}, status={status}, success={self.completed_count}, failed={len(self.failed_files)}")
+            logger.info(f"[状态更新] 准备更新执行历史: execution_id={self.execution_id}, status={status}, success={self.completed_count}, failed={len(self.failed_files)}")
             
-            with get_db() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE task_execution_history 
-                    SET status = ?, 
-                        end_time = ?,
-                        error_message = ?,
-                        success_count = ?,
-                        failed_count = ?
-                    WHERE id = ?
-                """, (status, end_time, error_message, 
-                      self.completed_count, len(self.failed_files), self.execution_id))
-                
-                affected_rows = cursor.rowcount
-                conn.commit()
-                
-                logger.info(f"已更新执行历史状态: execution_id={self.execution_id}, status={status}, affected_rows={affected_rows}")
-                
-                # 验证更新是否成功
-                cursor.execute("SELECT status, end_time FROM task_execution_history WHERE id = ?", (self.execution_id,))
-                row = cursor.fetchone()
-                if row:
-                    logger.info(f"验证更新结果: status={row['status']}, end_time={row['end_time']}")
-                else:
-                    logger.error(f"验证失败: 未找到execution_id={self.execution_id}的记录")
+            # 使用重试机制确保状态更新成功
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        
+                        # 先查询当前状态
+                        cursor.execute("SELECT status FROM task_execution_history WHERE id = ?", (self.execution_id,))
+                        row = cursor.fetchone()
+                        if not row:
+                            logger.error(f"[状态更新] 执行记录不存在: execution_id={self.execution_id}")
+                            return
+                        
+                        old_status = row['status']
+                        logger.info(f"[状态更新] 当前状态: {old_status}, 目标状态: {status}")
+                        
+                        # 更新状态
+                        cursor.execute("""
+                            UPDATE task_execution_history 
+                            SET status = ?, 
+                                end_time = ?,
+                                error_message = ?,
+                                success_count = ?,
+                                failed_count = ?
+                            WHERE id = ?
+                        """, (status, end_time, error_message, 
+                              self.completed_count, len(self.failed_files), self.execution_id))
+                        
+                        affected_rows = cursor.rowcount
+                        conn.commit()
+                        
+                        if affected_rows == 0:
+                            logger.warning(f"[状态更新] 更新失败，affected_rows=0，重试 {retry + 1}/{max_retries}")
+                            continue
+                        
+                        # 验证更新是否成功
+                        cursor.execute("SELECT status, end_time, success_count, failed_count FROM task_execution_history WHERE id = ?", (self.execution_id,))
+                        row = cursor.fetchone()
+                        if row:
+                            actual_status = row['status']
+                            if actual_status == status:
+                                logger.info(f"[状态更新] ✓ 更新成功: status={actual_status}, end_time={row['end_time']}, success={row['success_count']}, failed={row['failed_count']}")
+                                return  # 成功，退出重试循环
+                            else:
+                                logger.error(f"[状态更新] ✗ 状态不一致: 期望={status}, 实际={actual_status}，重试 {retry + 1}/{max_retries}")
+                        else:
+                            logger.error(f"[状态更新] ✗ 验证失败: 未找到execution_id={self.execution_id}的记录")
+                        
+                except Exception as retry_err:
+                    logger.error(f"[状态更新] 重试 {retry + 1}/{max_retries} 失败: {retry_err}")
+                    if retry < max_retries - 1:
+                        import time
+                        time.sleep(1)  # 等待1秒后重试
+                    else:
+                        raise
+            
+            # 所有重试都失败
+            logger.error(f"[状态更新] ✗ 所有重试都失败，状态更新失败: execution_id={self.execution_id}")
             
         except Exception as e:
-            logger.error(f"更新执行历史状态失败: {e}", exc_info=True)
+            logger.error(f"[状态更新] 更新执行历史状态异常: {e}", exc_info=True)
     
     def _update_execution_status_with_plugin(self):
         """更新执行历史记录的最终状态并调用插件"""
