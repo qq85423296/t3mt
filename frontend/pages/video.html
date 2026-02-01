@@ -762,6 +762,10 @@
     let currentVideoInfo = {};
     let currentPlatform = null;  // 当前识别的平台（通过URL自动识别）
     let currentVideoType = null;  // 当前识别的视频类型
+    
+    // 批量操作相关变量
+    let batchMode = false;  // 批量操作模式
+    let selectedTaskIds = [];  // 选中的任务ID列表
 
     /**
      * 根据URL识别平台
@@ -2243,8 +2247,7 @@
     
     // ==================== 批量操作功能 ====================
     
-    let batchMode = false;  // 批量操作模式
-    let selectedTaskIds = [];  // 选中的任务ID列表
+    // 注意：batchMode 和 selectedTaskIds 已在文件开头定义
     
     // 切换批量操作模式
     window.toggleBatchMode = function() {
