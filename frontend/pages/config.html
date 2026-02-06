@@ -1015,6 +1015,14 @@
             data.video_parse?.default_api  // 传入默认接口
         );
         
+        // 加载第三方解析开关状态
+        const thirdPartyMode = data.video_parse?.third_party_mode || '1';
+        const thirdPartyCheckbox = document.getElementById('videoParseThirdPartyMode');
+        if (thirdPartyCheckbox) {
+            thirdPartyCheckbox.checked = (thirdPartyMode === '1');
+            console.log(`第三方解析开关状态: ${thirdPartyMode}`);
+        }
+        
         // 加载Cookie配置
         platformCookies = data.video_parse?.cookies || {};
         renderCookieTabs();
@@ -1478,6 +1486,9 @@
     function renderVideoParseApis(apis, defaultApi) {
         const container = document.getElementById('videoParseApisList');
         
+        // 保存当前第三方解析开关状态（如果存在）
+        const currentThirdPartyMode = document.getElementById('videoParseThirdPartyMode')?.checked;
+        
         // 合并默认接口和用户接口
         let allApis = [];
         
@@ -1512,7 +1523,8 @@
             const readonly = isDefault ? 'readonly disabled' : '';
             const readonlyStyle = isDefault ? 'background: #f5f5f5; cursor: not-allowed;' : '';
             
-            return `
+            // 构建接口卡片HTML
+            let html = `
             <div class="parse-api-item" data-index="${index}" ${isDefault ? 'data-is-default="true"' : ''}>
                 <label style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                     <input type="checkbox" 
@@ -1571,8 +1583,26 @@
                     '<span style="color: #999; font-size: 12px; padding: 0 8px;">默认</span>' : 
                     `<button class="parse-api-remove" onclick="removeVideoParseApi(${index})">删除</button>`
                 }
-            </div>
-        `;
+            </div>`;
+            
+            // 如果是默认接口，添加第三方解析开关
+            if (isDefault) {
+                html += `
+            <div class="parse-api-third-party-mode" style="margin-top: 12px; padding: 12px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" 
+                           id="videoParseThirdPartyMode" 
+                           ${currentThirdPartyMode !== undefined ? (currentThirdPartyMode ? 'checked' : '') : 'checked'}
+                           style="width: 16px; height: 16px; cursor: pointer;" />
+                    <span style="font-size: 14px; font-weight: 500;">启用第三方解析</span>
+                    <span class="tooltip-icon" 
+                          title="开启后第三方资源可能存在广告，若介意请勿开启。&#10;开启后官网直解失败，自动搜索第三方资源进行下载。"
+                          style="cursor: help; color: #999; font-size: 14px; user-select: none;">❓</span>
+                </label>
+            </div>`;
+            }
+            
+            return html;
         }).join('');
     }
     
@@ -1604,16 +1634,24 @@
         }
         
         const currentApis = getVideoParseApis();
-        if (currentApis.length <= 1) {
-            Message.warning('至少保留一个解析接口');
+        
+        // 获取默认接口
+        const defaultApi = getDefaultParseApi();
+        
+        // 计算实际的用户接口索引（需要减去默认接口的偏移）
+        const userApiIndex = defaultApi ? index - 1 : index;
+        
+        if (userApiIndex < 0 || userApiIndex >= currentApis.length) {
+            Message.error('接口索引错误');
             return;
         }
-        currentApis.splice(index, 1);
         
-        // 重新渲染时需要获取默认接口
-        const defaultApi = getDefaultParseApi();
+        // 删除指定的用户接口
+        currentApis.splice(userApiIndex, 1);
+        
+        // 重新渲染
         renderVideoParseApis(currentApis, defaultApi);
-    }
+    };
     
     // 获取默认接口(从DOM中提取)
     function getDefaultParseApi() {
@@ -1739,6 +1777,7 @@
                 api_url: document.getElementById('pansouApiUrl').value
             },
             video_parse: {
+                third_party_mode: document.getElementById('videoParseThirdPartyMode')?.checked ? '1' : '0',
                 apis: getVideoParseApis(),
                 cookies: platformCookies
             },

@@ -419,6 +419,10 @@ class Database:
                 ('video_download_default_dir', '/app/backend/downloads/官网下载', 'video_download', '影视下载默认目录'),
                 ('video_download_temp_dir', '/app/backend/downloads/temp', 'video_download', '影视下载临时目录'),
                 ('video_download_max_threads', '3', 'video_download', '视频片段下载线程数（1-10）'),
+                ('aria2_max_concurrent_tasks', '2', 'aria2', 'Aria2最大并发任务数'),
+                ('aria2_stall_timeout', '60', 'aria2', 'Aria2下载卡住超时时间（秒）'),
+                ('aria2_max_stall_retries', '5', 'aria2', 'Aria2下载卡住最大重试次数'),
+                ('video_parse_third_party_mode', '1', 'video_parse', '是否启用第三方资源解析，1=启用，0=禁用'),
             ]
             
             for key, value, type_, desc in default_configs:
@@ -437,6 +441,13 @@ class Database:
                 fix_expiration_time()
             except Exception as e:
                 print(f"⚠️ 数据修复脚本执行失败（可忽略）: {e}")
+            
+            # 执行迁移脚本：添加第三方解析模式配置
+            try:
+                from migrations.add_video_parse_third_party_mode import upgrade as add_third_party_mode
+                add_third_party_mode()
+            except Exception as e:
+                logger.warning(f"⚠️ 第三方解析模式配置迁移失败（可忽略）: {e}")
     
     def reset_database(self):
         """重置数据库（删除所有表）"""

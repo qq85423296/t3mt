@@ -56,6 +56,8 @@ def get_config():
                 'api_key': ConfigModel.get_config('pansou_api_key', '')
             },
             'video_parse': {
+                # 新增: 第三方解析模式
+                'third_party_mode': ConfigModel.get_config('video_parse_third_party_mode', '1'),
                 # 从加密配置获取默认解析接口
                 'default_api': _get_default_parse_api(),
                 # 用户自定义接口配置
@@ -234,6 +236,21 @@ def save_config():
         # 保存影视解析配置
         if 'video_parse' in data:
             video_parse_config = data['video_parse']
+            
+            # 新增: 保存第三方解析模式
+            if 'third_party_mode' in video_parse_config:
+                mode = video_parse_config['third_party_mode']
+                # 验证值是否合法
+                if mode not in ['0', '1']:
+                    logger.warning(f"第三方解析模式值不合法: {mode}，使用默认值'1'")
+                    mode = '1'
+                
+                ConfigModel.set_config('video_parse_third_party_mode', mode, 'video_parse')
+                logger.info(f"第三方解析模式已保存: {mode}")
+                
+                # 清除缓存
+                from services.video_parse_service import video_parse_service
+                video_parse_service.clear_third_party_mode_cache()
             
             # 检查是否尝试修改自定义解析接口（付费版功能）
             if 'apis' in video_parse_config or 'api_url' in video_parse_config:

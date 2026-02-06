@@ -22,6 +22,8 @@ class VideoParseService:
         self._tencent_service = None
         self._iqiyi_service = None
         self._youku_service = None
+        # 缓存第三方解析模式配置
+        self._third_party_mode = None
     
     @property
     def mango_service(self):
@@ -156,6 +158,19 @@ class VideoParseService:
         
         return apis if len(apis) > 0 else []
     
+    def _get_third_party_mode(self):
+        """获取第三方解析模式配置"""
+        if self._third_party_mode is None:
+            mode = ConfigModel.get_config('video_parse_third_party_mode', '1')
+            self._third_party_mode = mode
+            logger.info(f"读取第三方解析模式配置: {mode}")
+        return self._third_party_mode
+    
+    def clear_third_party_mode_cache(self):
+        """清除第三方解析模式缓存"""
+        self._third_party_mode = None
+        logger.info("已清除第三方解析模式缓存")
+    
     def _get_nested_value(self, data: dict, path: str, default=None):
         """
         从嵌套字典中获取值
@@ -222,6 +237,18 @@ class VideoParseService:
         
         logger.info(f"开始解析影视地址: {video_url}, 共有 {len(apis)} 个接口可用")
         
+        # 获取第三方解析模式
+        third_party_mode = self._get_third_party_mode()
+        
+        # 获取机器码
+        machine_id = ''
+        try:
+            from utils.machine_id import MachineID
+            machine_id = MachineID.get_machine_id()
+            logger.info(f"获取机器码成功: {machine_id}")
+        except Exception as e:
+            logger.warning(f"获取机器码失败: {e}，将使用空值")
+        
         # 记录所有接口的错误信息
         all_errors = []
         
@@ -231,6 +258,7 @@ class VideoParseService:
             url_path = api_config.get('url_path', 'final_url')
             code_path = api_config.get('code_path', 'code')
             success_code = api_config.get('success_code', '200')
+            is_default = api_config.get('is_default', False)
             
             # 转换success_code类型
             if isinstance(success_code, str):
@@ -248,7 +276,21 @@ class VideoParseService:
                 # 构建完整URL
                 full_url = f"{api_url}{video_url}"
                 
-                logger.info(f"尝试接口 #{index+1}: {'默认接口' if api_config.get('is_default') else '自定义接口'}")
+                # 如果是默认接口，拼接 mode 和 mid 参数
+                if is_default:
+                    # 智能判断分隔符
+                    if '?' not in full_url:
+                        separator = '?'
+                    elif full_url.endswith('?') or full_url.endswith('&'):
+                        separator = ''
+                    else:
+                        separator = '&'
+                    
+                    # 拼接参数
+                    full_url = f"{full_url}{separator}mode={third_party_mode}&mid={machine_id}"
+                    logger.info(f"默认接口拼接参数: mode={third_party_mode}, mid={machine_id}")
+                
+                logger.info(f"尝试接口 #{index+1}: {'默认接口' if is_default else '自定义接口'}")
                 logger.info(f"配置 - 下载地址路径: {url_path}, 状态码路径: {code_path}, 成功状态码: {success_code}")
                 
                 # 配置代理（如果环境变量中有配置）
