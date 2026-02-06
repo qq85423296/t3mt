@@ -29,6 +29,12 @@ class TaskExecutor:
     _aria2_adapters: Dict[int, 'Cloud189DownloadAdapter'] = {}  # task_id -> adapter
     _adapter_lock = threading.Lock()  # 适配器字典操作锁
     
+    # 任务队列管理（用于并发控制）
+    _task_queue: List[int] = []  # 待执行任务队列（存储task_id）
+    _queue_lock = threading.Lock()  # 队列操作锁
+    _queue_processor_running = False  # 队列处理线程是否运行
+    _queue_processor_thread = None  # 队列处理线程
+    
     @classmethod
     def _get_config(cls, key: str, default):
         """获取配置值"""
@@ -90,6 +96,18 @@ class TaskExecutor:
             
             if not adapter:
                 logger.warning(f"未找到Aria2适配器: task_id={task_id}")
+                # 检查是否在队列中
+                with cls._queue_lock:
+                    if task_id in cls._task_queue:
+                        cls._task_queue.remove(task_id)
+                        logger.info(f"已从队列中移除任务: task_id={task_id}")
+                        
+                        # 清理任务状态
+                        with cls._lock:
+                            if task_id in cls._running_tasks:
+                                del cls._running_tasks[task_id]
+                        
+                        return True
                 return False
             
             try:
@@ -133,6 +151,9 @@ class TaskExecutor:
                 cls._aria2_adapters.pop(task_id, None)
                 logger.info(f"已从适配器字典中移除: task_id={task_id}")
                 
+                # 5. 触发队列处理（检查是否有等待的任务）
+                cls._ensure_queue_processor_running()
+                
                 return True
                 
             except Exception as e:
@@ -142,7 +163,7 @@ class TaskExecutor:
     @classmethod
     def start_task(cls, task_id: int, execution_id: int = None, schedule_period: str = None) -> bool:
         """
-        启动任务执行
+        启动任务执行（支持并发控制）
         
         Args:
             task_id: 任务ID
@@ -154,11 +175,19 @@ class TaskExecutor:
         """
         logger.info(f"[TaskExecutor] start_task 被调用: task_id={task_id}, execution_id={execution_id}, schedule_period={schedule_period}")
         
+        # 获取最大并发任务数配置
+        max_concurrent = cls._get_config('aria2_max_concurrent_tasks', 2)
+        
         with cls._lock:
-            # 检查任务是否已在执行
+            # 检查任务是否已在执行或队列中
             if task_id in cls._running_tasks:
                 logger.warning(f"[TaskExecutor] 任务 {task_id} 已在执行中")
                 return False
+            
+            with cls._queue_lock:
+                if task_id in cls._task_queue:
+                    logger.warning(f"[TaskExecutor] 任务 {task_id} 已在队列中")
+                    return False
             
             # 初始化任务状态
             cls._running_tasks[task_id] = {
@@ -176,12 +205,102 @@ class TaskExecutor:
             }
             logger.info(f"[TaskExecutor] 任务 {task_id} 状态已初始化到 _running_tasks")
         
-        # 在新线程中执行任务
-        thread = threading.Thread(target=cls._execute_task, args=(task_id,), daemon=True)
-        thread.start()
-        logger.info(f"[TaskExecutor] 任务 {task_id} 执行线程已启动")
+        # 检查当前正在运行的Aria2任务数量
+        with cls._adapter_lock:
+            running_aria2_count = len(cls._aria2_adapters)
         
-        return True
+        if running_aria2_count >= max_concurrent:
+            # 达到并发上限，加入队列
+            with cls._queue_lock:
+                cls._task_queue.append(task_id)
+                logger.info(f"[TaskExecutor] 任务 {task_id} 已加入队列，当前队列长度: {len(cls._task_queue)}")
+            
+            # 确保队列处理线程正在运行
+            cls._ensure_queue_processor_running()
+            
+            cls._add_log(task_id, f'当前有 {running_aria2_count} 个任务正在执行，已加入队列等待...', 'info')
+            return True
+        else:
+            # 未达到并发上限，直接执行
+            logger.info(f"[TaskExecutor] 当前运行任务数 {running_aria2_count}/{max_concurrent}，直接执行任务 {task_id}")
+            
+            # 在新线程中执行任务
+            thread = threading.Thread(target=cls._execute_task, args=(task_id,), daemon=True)
+            thread.start()
+            logger.info(f"[TaskExecutor] 任务 {task_id} 执行线程已启动")
+            
+            return True
+    
+    @classmethod
+    def _ensure_queue_processor_running(cls):
+        """确保队列处理线程正在运行"""
+        if not cls._queue_processor_running:
+            cls._queue_processor_running = True
+            cls._queue_processor_thread = threading.Thread(
+                target=cls._process_task_queue,
+                daemon=True
+            )
+            cls._queue_processor_thread.start()
+            logger.info("[TaskExecutor] 队列处理线程已启动")
+    
+    @classmethod
+    def _process_task_queue(cls):
+        """处理任务队列（后台线程）"""
+        logger.info("[TaskExecutor] 队列处理线程开始运行")
+        
+        try:
+            while True:
+                # 获取最大并发数
+                max_concurrent = cls._get_config('aria2_max_concurrent_tasks', 2)
+                
+                # 检查是否有任务可以执行
+                with cls._adapter_lock:
+                    running_count = len(cls._aria2_adapters)
+                
+                if running_count < max_concurrent:
+                    # 从队列中取出任务
+                    task_id_to_start = None
+                    with cls._queue_lock:
+                        if cls._task_queue:
+                            task_id_to_start = cls._task_queue.pop(0)
+                            logger.info(f"[TaskExecutor] 从队列中取出任务 {task_id_to_start}，剩余队列长度: {len(cls._task_queue)}")
+                    
+                    if task_id_to_start:
+                        # 检查任务状态是否还存在（可能已被取消）
+                        with cls._lock:
+                            if task_id_to_start in cls._running_tasks:
+                                cls._add_log(task_id_to_start, '队列等待结束，开始执行任务...', 'info')
+                                
+                                # 启动任务执行线程
+                                thread = threading.Thread(
+                                    target=cls._execute_task,
+                                    args=(task_id_to_start,),
+                                    daemon=True
+                                )
+                                thread.start()
+                                logger.info(f"[TaskExecutor] 队列任务 {task_id_to_start} 执行线程已启动")
+                            else:
+                                logger.warning(f"[TaskExecutor] 队列任务 {task_id_to_start} 状态已不存在，跳过执行")
+                
+                # 检查是否还有队列任务或运行任务
+                with cls._queue_lock:
+                    queue_empty = len(cls._task_queue) == 0
+                
+                with cls._adapter_lock:
+                    no_running = len(cls._aria2_adapters) == 0
+                
+                if queue_empty and no_running:
+                    # 队列为空且没有运行任务，退出线程
+                    logger.info("[TaskExecutor] 队列为空且无运行任务，队列处理线程退出")
+                    cls._queue_processor_running = False
+                    break
+                
+                # 等待5秒后再次检查
+                time.sleep(5)
+                
+        except Exception as e:
+            logger.error(f"[TaskExecutor] 队列处理线程异常: {e}", exc_info=True)
+            cls._queue_processor_running = False
     
     @classmethod
     def get_task_status(cls, task_id: int) -> Dict:
@@ -1554,9 +1673,25 @@ class TaskExecutor:
                     # 检查Aria2是否运行
                     if not aria2_manager.is_running():
                         cls._add_log(task_id, 'Aria2服务未运行，尝试启动...', 'warning')
-                        if not aria2_manager.start():
-                            cls._add_log(task_id, 'Aria2服务启动失败，降级使用传统下载方式', 'error')
-                            use_aria2 = False
+                        
+                        # 使用超时保护启动Aria2
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            future = executor.submit(aria2_manager.start)
+                            try:
+                                # 最多等待10秒
+                                start_result = future.result(timeout=10)
+                                if not start_result:
+                                    cls._add_log(task_id, 'Aria2服务启动失败，降级使用传统下载方式', 'error')
+                                    use_aria2 = False
+                                else:
+                                    cls._add_log(task_id, 'Aria2服务启动成功', 'success')
+                            except concurrent.futures.TimeoutError:
+                                cls._add_log(task_id, 'Aria2服务启动超时（10秒），降级使用传统下载方式', 'error')
+                                use_aria2 = False
+                            except Exception as start_err:
+                                cls._add_log(task_id, f'Aria2服务启动异常: {str(start_err)}，降级使用传统下载方式', 'error')
+                                use_aria2 = False
                     
                     if use_aria2:
                         # 准备文件列表（转换格式）

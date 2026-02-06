@@ -37,7 +37,30 @@ class Cloud189DownloadAdapter:
         self.cloud189_service = None
         self.task_info = None
         self.logs = []  # 本地日志缓存
-        self.max_retries = 3  # 最大重试次数
+        self.max_retries = 3  # 最大重试次数（获取链接失败时的重试）
+        
+        # 卡住检测相关字段
+        self.last_completed_length = 0  # 上次已下载大小
+        self.last_progress_time = time.time()  # 上次进度更新时间
+        self.stall_timeout = self._get_config('aria2_stall_timeout', 60)  # 卡住超时时间（秒）
+        self.stall_retry_count = 0  # 卡住重试次数
+        self.max_stall_retries = self._get_config('aria2_max_stall_retries', 5)  # 最大卡住重试次数
+    
+    def _get_config(self, key: str, default):
+        """获取配置值"""
+        try:
+            from models.config import ConfigModel
+            value = ConfigModel.get_config(key, str(default))
+            # 转换为正确的类型
+            if isinstance(default, int):
+                return int(value)
+            elif isinstance(default, float):
+                return float(value)
+            else:
+                return value
+        except Exception as e:
+            logger.warning(f"获取配置 {key} 失败: {e}，使用默认值: {default}")
+            return default
     
     def download_files(self, task, files, cloud189_service, execution_id=None):
         """
@@ -267,15 +290,30 @@ class Cloud189DownloadAdapter:
                                     self._submit_next_file()
                         
                         elif status['status'] == 'active':
-                            # 正在下载，显示进度
+                            # 正在下载，检测进度是否真的在增加
                             total = status['totalLength']
                             completed = status['completedLength']
                             speed = status['downloadSpeed']
+                            current_time = time.time()
                             
-                            if total > 0:
-                                progress = int((completed / total) * 100)
-                                speed_mb = speed / 1024 / 1024
-                                self._add_log_to_db(f"下载进度: {progress}% | 速度: {speed_mb:.2f}MB/s", 'info')
+                            # 检查进度是否有变化
+                            if completed > self.last_completed_length:
+                                # 进度有变化，更新记录
+                                self.last_completed_length = completed
+                                self.last_progress_time = current_time
+                                self.stall_retry_count = 0  # 重置卡住重试计数
+                                
+                                # 显示进度
+                                if total > 0:
+                                    progress = int((completed / total) * 100)
+                                    speed_mb = speed / 1024 / 1024
+                                    self._add_log_to_db(f"下载进度: {progress}% | 速度: {speed_mb:.2f}MB/s", 'info')
+                            else:
+                                # 进度没有变化，检查是否超时
+                                if current_time - self.last_progress_time > self.stall_timeout:
+                                    # 检测到卡住
+                                    logger.warning(f"检测到下载卡住: gid={self.current_gid}, 已{self.stall_timeout}秒无进度")
+                                    self._handle_stall()
                 
                 # 等待5秒后再次查询
                 time.sleep(5)
@@ -304,6 +342,10 @@ class Cloud189DownloadAdapter:
                     if self.task_id in TaskExecutor._aria2_adapters:
                         TaskExecutor._aria2_adapters.pop(self.task_id, None)
                         logger.info(f"已从适配器字典中清理: task_id={self.task_id}")
+                
+                # 触发队列处理（检查是否有等待的任务）
+                TaskExecutor._ensure_queue_processor_running()
+                
             except Exception as cleanup_err:
                 logger.warning(f"清理适配器字典失败: {cleanup_err}")
     
@@ -367,6 +409,11 @@ class Cloud189DownloadAdapter:
             
             if gid:
                 self.current_gid = gid
+                # 重置卡住检测状态
+                self.last_completed_length = 0
+                self.last_progress_time = time.time()
+                self.stall_retry_count = 0
+                
                 logger.info(f"文件已提交到Aria2: {file_name}, gid={gid}")
                 retry_info = f" (重试 {file_info['retry_count']}/{self.max_retries})" if file_info['retry_count'] > 0 else ""
                 self._add_log_to_db(f"开始下载: {file_name}{retry_info}", 'info')
@@ -401,6 +448,51 @@ class Cloud189DownloadAdapter:
                 if self.pending_files:
                     time.sleep(1)
                     self._submit_next_file()
+    
+    def _handle_stall(self):
+        """处理下载卡住"""
+        if self.stall_retry_count < self.max_stall_retries:
+            self.stall_retry_count += 1
+            self._add_log_to_db(
+                f"检测到下载卡住（{self.stall_timeout}秒无进度），正在自动重试 ({self.stall_retry_count}/{self.max_stall_retries})",
+                'warning'
+            )
+            
+            # 强制删除当前aria2任务
+            if self.current_gid:
+                try:
+                    self.aria2.remove_task(self.current_gid, force=True)
+                    logger.info(f"已强制删除卡住的aria2任务: gid={self.current_gid}")
+                except Exception as e:
+                    logger.warning(f"删除卡住的aria2任务失败: {e}")
+            
+            # 重置状态
+            self.current_gid = None
+            self.last_completed_length = 0
+            self.last_progress_time = time.time()
+            
+            # 重新提交当前文件
+            time.sleep(2)  # 等待2秒后重试
+            self._submit_file(self.current_file_info)
+        else:
+            # 达到最大重试次数
+            file_name = self.current_file_info['file_name'] if self.current_file_info else '未知文件'
+            self._add_log_to_db(
+                f"文件下载失败（卡住后已重试{self.max_stall_retries}次）: {file_name}",
+                'error'
+            )
+            self.failed_files.append({
+                'file_name': file_name,
+                'error': f'下载卡住，已重试{self.max_stall_retries}次仍失败'
+            })
+            self.current_gid = None
+            self.current_file_info = None
+            self.stall_retry_count = 0  # 重置计数器
+            
+            # 提交下一个文件
+            if self.pending_files:
+                time.sleep(1)
+                self._submit_next_file()
     
     def _update_execution_status(self):
         """更新执行历史记录的最终状态（不调用插件，由_update_execution_status_with_plugin调用）"""
