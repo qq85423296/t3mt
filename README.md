@@ -16,14 +16,6 @@ v3.0.7 最终版本优化点
 - 优化任务执行逻辑，完善报错机制
 📦 Docker 快速部署（仅旧版留存部署方式）
 该部署方式仅适用于停止维护的社区版，推荐直接迁移新项目T3FAP
-# 拉取最新镜像
-docker pull 85423296/t3mt:latest
-
-# 下载配置文件
-wget https://raw.githubusercontent.com/qq85423296/t3mt/main/docker-compose.yml
-
-# 启动服务
-docker-compose up -d
 
 # 本地访问地址
 http://localhost:8520
